@@ -9,6 +9,7 @@
 
 #include "imgui.h"
 #include "imgui_internal.h"
+#include "ImGuizmo.h"
 
 #include "scene/SceneGlobals.h"
 #include "app/UndoStack.h"
@@ -68,39 +69,47 @@ void DrawToolsPanel()
 {
     if (!ImGui::Begin("Tools")) { ImGui::End(); return; }
 
-    ImGui::TextUnformatted("Gizmo:");
+    ImGui::Text("Gizmo:");
+
+    bool translate = (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE) != 0;
+    bool rotate    = (g_CurrentGizmoOperation & ImGuizmo::ROTATE) != 0;
+    bool scale     = (g_CurrentGizmoOperation & ImGuizmo::SCALE) != 0;
+    bool bounds    = (g_CurrentGizmoOperation & ImGuizmo::BOUNDS) != 0;
+
+    if (ImGui::Checkbox("Translate", &translate)) 
+        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::TRANSLATE);
     ImGui::SameLine();
-    struct { const char* label; int mode; } btns[] = {
-        {"Move", GIZMO_TRANSLATE}, {"Rotate", GIZMO_ROTATE}, {"Scale", GIZMO_SCALE},
-        {"Face", GIZMO_FACE}, {"Edge", GIZMO_EDGE}, {"Vertex", GIZMO_VERTEX}, {"None", GIZMO_NONE},
-    };
-    for (int i = 0; i < IM_ARRAYSIZE(btns); i++) {
-        if (i) ImGui::SameLine();
-        bool act = (g_iGizmoMode == btns[i].mode);
-        if (act) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f,0.5f,0.8f,1.0f));
-        ImGui::PushID(i);
-        if (ImGui::Button(btns[i].label)) g_iGizmoMode = btns[i].mode;
-        ImGui::PopID();
-        if (act) ImGui::PopStyleColor();
+    if (ImGui::Checkbox("Rotate", &rotate)) 
+        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::ROTATE);
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Scale", &scale)) 
+        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::SCALE);
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Bounds", &bounds)) 
+        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::BOUNDS);
+
+    if (ImGui::RadioButton("Local", g_CurrentGizmoMode == ImGuizmo::LOCAL))
+        g_CurrentGizmoMode = ImGuizmo::LOCAL;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("World", g_CurrentGizmoMode == ImGuizmo::WORLD))
+        g_CurrentGizmoMode = ImGuizmo::WORLD;
+
+    ImGui::Checkbox("Use Snap", &g_bUseSnap);
+    ImGui::SameLine();
+    if (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE)
+        ImGui::InputFloat3("Snap", &g_Snap[0]);
+    if (g_CurrentGizmoOperation & ImGuizmo::ROTATE)
+        ImGui::InputFloat("Angle Snap", &g_Snap[0]);
+    if (g_CurrentGizmoOperation & ImGuizmo::SCALE)
+        ImGui::InputFloat("Scale Snap", &g_Snap[0]);
+    if (g_CurrentGizmoOperation & ImGuizmo::BOUNDS)
+    {
+        ImGui::InputFloat3("Bounds Min", &g_Bounds[0]);
+        ImGui::InputFloat3("Bounds Max", &g_Bounds[3]);
+        ImGui::Checkbox("Snap Bounds", &g_bBoundSizingSnap);
+        if (g_bBoundSizingSnap)
+            ImGui::InputFloat3("Bounds Snap", &g_BoundsSnap[0]);
     }
-
-    ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
-    ImGui::TextUnformatted("Grid:");
-    ImGui::SameLine();
-
-    const float grids[] = {0,1,2,4,8,16,32,64,128};
-    const char* gridNames[] = {"Off","1","2","4","8","16","32","64","128"};
-    int gi = 5;
-    for (int i = 0; i < 9; i++) if (fabsf(g_flGridSize - grids[i]) < 0.01f) { gi = i; break; }
-    ImGui::SetNextItemWidth(80.0f);
-    if (ImGui::Combo("##Grid", &gi, gridNames, 9)) g_flGridSize = grids[gi];
-
-    ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
-    if (ImGui::Button("Block Tool")) g_bBlockToolActive = !g_bBlockToolActive;
-    ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
-    if (ImGui::Button("Compile & Run")) { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
-    ImGui::SameLine(); ImGui::TextUnformatted("|"); ImGui::SameLine();
-    ImGui::Checkbox("Auto Save", &g_bAutoSaveEnabled);
 
     ImGui::End();
 }

@@ -7,6 +7,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
 #include "ImGuizmo.h"
@@ -451,32 +452,6 @@ static int PickFace(const CBrush& b, const glm::mat4& view, const glm::mat4& pro
     return best;
 }
 
-// ---------------------------------------------------------------------------
-// Apply Delta
-// ---------------------------------------------------------------------------
-static void ApplySubDeltaToBrush(CBrush& b, GizmoMode mode, int subIdx, const glm::mat4& delta)
-{
-    if (mode == GIZMO_VERTEX && subIdx >= 0 && subIdx < 8) {
-        glm::vec3 pivot = b.m_vertices[subIdx];
-        b.m_vertices[subIdx] = glm::vec3(delta * glm::vec4(pivot, 1.0f));
-    } else if (mode == GIZMO_EDGE && subIdx >= 0 && subIdx < 12) {
-        int i0 = kEdgeVertexIndices[subIdx][0];
-        int i1 = kEdgeVertexIndices[subIdx][1];
-        glm::vec3 p0 = b.m_vertices[i0];
-        glm::vec3 p1 = b.m_vertices[i1];
-        b.m_vertices[i0] = glm::vec3(delta * glm::vec4(p0, 1.0f));
-        b.m_vertices[i1] = glm::vec3(delta * glm::vec4(p1, 1.0f));
-    } else if (mode == GIZMO_FACE && subIdx >= 0 && subIdx < 6) {
-        for (int k = 0; k < 4; k++) {
-            int vi = b.m_faces[subIdx].m_nVertexIndices[k];
-            glm::vec3 p = b.m_vertices[vi];
-            b.m_vertices[vi] = glm::vec3(delta * glm::vec4(p, 1.0f));
-        }
-    }
-    b.RecalcBoundsFromVertices();
-    b.RecalcFaceNormals();
-}
-
 static glm::mat4 BuildSelectionMatrix(bool& isBrush, glm::vec3& pivotOut)
 {
     isBrush = false;
@@ -498,101 +473,161 @@ static glm::mat4 BuildSelectionMatrix(bool& isBrush, glm::vec3& pivotOut)
 }
 
 // ---------------------------------------------------------------------------
-// Gizmo (纯 Y-up，直传)
+// Gizmo (彻底隔离 ImGuizmo 的吸附对缩放的影响)
 // ---------------------------------------------------------------------------
+struct DragSnapshot {
+    glm::vec3 pivot;
+    std::vector<glm::vec3> vertices;
+    glm::vec3 entityPos;
+    glm::vec3 entityAngles;
+    float screenStartX;
+    float screenStartY;
+    bool  bValid = false;
+} g_dragSnap;
+
 static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
                                     ImVec2 viewportPos, ImVec2 viewportSize)
 {
     if (g_iSelectedBrush < 0 && g_iSelectedEntity < 0) return;
     if (!g_bShowGizmo) return;
+    if (g_CurrentGizmoOperation == 0) return;
 
-    ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
-    if (g_iGizmoMode == GIZMO_ROTATE)     op = ImGuizmo::ROTATE;
-    else if (g_iGizmoMode == GIZMO_SCALE) op = ImGuizmo::SCALE;
-    else if (g_iGizmoMode == GIZMO_FACE || g_iGizmoMode == GIZMO_EDGE || g_iGizmoMode == GIZMO_VERTEX) op = ImGuizmo::TRANSLATE;
-    else if (g_iGizmoMode == GIZMO_NONE) return;
-
-    bool isSubMode = (g_iGizmoMode == GIZMO_FACE || g_iGizmoMode == GIZMO_EDGE || g_iGizmoMode == GIZMO_VERTEX);
     bool isBrush = false;
     glm::vec3 pivot(0);
     
-    glm::mat4 objMatrix = BuildSelectionMatrix(isBrush, pivot);
+    glm::mat4 baseMat = glm::mat4(1.0f);
+    if (g_iSelectedBrush >= 0) {
+        isBrush = true;
+        pivot = g_brushes[g_iSelectedBrush].m_vecPos;
+        baseMat = glm::translate(glm::mat4(1.0f), pivot);
+    } else if (g_iSelectedEntity >= 0) {
+        pivot = g_entities[g_iSelectedEntity].m_vecPos;
+        baseMat = glm::translate(glm::mat4(1.0f), pivot);
+        baseMat *= AngleMatrix(g_entities[g_iSelectedEntity].m_angRot);
+    }
 
-    if (isSubMode && isBrush && g_iActiveSubIndex >= 0) {
-        if (g_iGizmoMode == GIZMO_FACE)        pivot = GetFaceCenter(g_brushes[g_iSelectedBrush], g_iActiveSubIndex);
-        else if (g_iGizmoMode == GIZMO_EDGE)   pivot = GetEdgeCenter(g_brushes[g_iSelectedBrush], g_iActiveSubIndex);
-        else                                   pivot = g_brushes[g_iSelectedBrush].m_vertices[g_iActiveSubIndex];
-        objMatrix = glm::translate(glm::mat4(1.0f), pivot);
+    // 动态更新 Bounds
+    if (g_CurrentGizmoOperation & ImGuizmo::BOUNDS) {
+        if (isBrush) {
+            CBrush& b = g_brushes[g_iSelectedBrush];
+            g_Bounds[0] = -b.m_vecSize.x; g_Bounds[1] = -b.m_vecSize.y; g_Bounds[2] = -b.m_vecSize.z;
+            g_Bounds[3] =  b.m_vecSize.x; g_Bounds[4] =  b.m_vecSize.y; g_Bounds[5] =  b.m_vecSize.z;
+        }
     }
 
     glm::mat4 viewIm = view;
     glm::mat4 projIm = proj;
-    glm::mat4 objIm = objMatrix;
+    glm::mat4 manipulateMat = baseMat;
 
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
     ImGuizmo::SetRect(viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y);
 
-    float snap[3] = { g_flGridSize, g_flGridSize, g_flGridSize };
-    ImGuizmo::Manipulate(glm::value_ptr(viewIm), glm::value_ptr(projIm),
-                         op, ImGuizmo::WORLD, glm::value_ptr(objIm), nullptr, snap);
+    // ★ 关键修复：在缩放/拉伸模式下，强制禁用 ImGuizmo 的吸附
+    bool bIsScaleMode = (g_CurrentGizmoOperation & (ImGuizmo::SCALE | ImGuizmo::BOUNDS)) != 0;
+    float* snapPtr = (g_bUseSnap && !bIsScaleMode) ? g_Snap : nullptr;
+    
+    float* boundsPtr     = (g_CurrentGizmoOperation & ImGuizmo::BOUNDS) ? g_Bounds : nullptr;
+    float* boundsSnapPtr = (g_bBoundSizingSnap && !bIsScaleMode) ? g_BoundsSnap : nullptr;
 
-    bool bUsing = ImGuizmo::IsUsing();
-    glm::mat4 objZNew = objIm; // 无转换，直接用
+    bool bUsing = ImGuizmo::Manipulate(glm::value_ptr(viewIm), glm::value_ptr(projIm),
+                                       g_CurrentGizmoOperation, g_CurrentGizmoMode, 
+                                       glm::value_ptr(manipulateMat), nullptr, snapPtr, boundsPtr, boundsSnapPtr);
 
-    if (bUsing && !g_bDraggingGizmo) {
-        g_bDraggingGizmo = true;
-        UndoStack::Instance().PushSnapshot(isSubMode ? "Sub Edit" : "Edit");
-        g_proxyMatrixPrev = objMatrix; 
-    }
+    ImVec2 mousePos = ImGui::GetMousePos();
 
-    if (g_bDraggingGizmo) {
-        glm::mat4 delta = objZNew * glm::inverse(g_proxyMatrixPrev);
-        
-        if (isSubMode && isBrush && g_iActiveSubIndex >= 0) {
-            ApplySubDeltaToBrush(g_brushes[g_iSelectedBrush], (GizmoMode)g_iGizmoMode, g_iActiveSubIndex, delta);
-        } else if (isBrush) {
-            if (op == ImGuizmo::TRANSLATE) {
-                glm::vec3 trans = glm::vec3(objZNew[3]) - glm::vec3(g_proxyMatrixPrev[3]);
-                for (auto& v : g_brushes[g_iSelectedBrush].m_vertices) v += trans;
-                g_brushes[g_iSelectedBrush].m_vecPos += trans;
-                g_brushes[g_iSelectedBrush].RecalcBoundsFromVertices();
-                g_brushes[g_iSelectedBrush].RecalcFaceNormals();
-            } else if (op == ImGuizmo::ROTATE) {
-                glm::mat3 R = glm::mat3(delta);
-                glm::vec3 center = g_brushes[g_iSelectedBrush].m_vecPos;
-                for (auto& v : g_brushes[g_iSelectedBrush].m_vertices) {
-                    v = center + glm::vec3(R * (v - center));
-                }
-                g_brushes[g_iSelectedBrush].RecalcBoundsFromVertices();
-                g_brushes[g_iSelectedBrush].RecalcFaceNormals();
-            } else if (op == ImGuizmo::SCALE) {
-                glm::vec3 scale(glm::length(glm::vec3(delta[0])), glm::length(glm::vec3(delta[1])), glm::length(glm::vec3(delta[2])));
-                glm::vec3 center = g_brushes[g_iSelectedBrush].m_vecPos;
-                for (auto& v : g_brushes[g_iSelectedBrush].m_vertices) {
-                    v = center + (v - center) * scale;
-                }
-                g_brushes[g_iSelectedBrush].RecalcBoundsFromVertices();
-                g_brushes[g_iSelectedBrush].RecalcFaceNormals();
-            }
+    // 拖拽开始
+    if (bUsing && !g_dragSnap.bValid) {
+        g_dragSnap.bValid = true;
+        UndoStack::Instance().PushSnapshot("Gizmo Edit");
+        g_dragSnap.screenStartX = mousePos.x;
+        g_dragSnap.screenStartY = mousePos.y;
+        if (isBrush) {
+            g_dragSnap.pivot = g_brushes[g_iSelectedBrush].m_vecPos;
+            g_dragSnap.vertices = g_brushes[g_iSelectedBrush].m_vertices;
         } else if (g_iSelectedEntity >= 0) {
-            if (op == ImGuizmo::TRANSLATE) {
-                glm::vec3 deltaPos = glm::vec3(objZNew[3]) - glm::vec3(g_proxyMatrixPrev[3]);
-                g_entities[g_iSelectedEntity].m_vecPos += deltaPos;
-            } else if (op == ImGuizmo::ROTATE) {
-                glm::mat3 R = glm::mat3(delta);
-                glm::vec3 euler = glm::degrees(glm::eulerAngles(glm::quat_cast(R)));
-                g_entities[g_iSelectedEntity].m_angRot += euler;
-            }
-            UpdateEntityBBox(g_entities[g_iSelectedEntity]);
+            g_dragSnap.entityPos = g_entities[g_iSelectedEntity].m_vecPos;
+            g_dragSnap.entityAngles = g_entities[g_iSelectedEntity].m_angRot;
         }
-
-        g_proxyMatrixPrev = objZNew; 
     }
 
-    if (!bUsing && g_bDraggingGizmo) {
-        g_bDraggingGizmo = false;
+    // 拖拽中
+    if (bUsing && g_dragSnap.bValid) {
+        if (isBrush) {
+            CBrush& b = g_brushes[g_iSelectedBrush];
+            glm::vec3 center = g_dragSnap.pivot;
+
+            // 1. 先做平移和旋转
+            if (g_CurrentGizmoOperation & ImGuizmo::ROTATE) {
+                float tr[3], rt[3], sc[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(manipulateMat), tr, rt, sc);
+                glm::vec3 newRot(rt[0], rt[1], rt[2]);
+                glm::mat4 rotM = glm::translate(glm::mat4(1.0f), center) * AngleMatrix(newRot) * glm::translate(glm::mat4(1.0f), -center);
+                for (size_t i = 0; i < b.m_vertices.size(); i++) b.m_vertices[i] = glm::vec3(rotM * glm::vec4(g_dragSnap.vertices[i], 1.0f));
+                b.m_vecPos = center;
+            } 
+            else if (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE) {
+                float tr[3], rt[3], sc[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(manipulateMat), tr, rt, sc);
+                glm::vec3 newCenter(tr[0], tr[1], tr[2]);
+                glm::vec3 offset = newCenter - center;
+                for (size_t i = 0; i < b.m_vertices.size(); i++) b.m_vertices[i] = g_dragSnap.vertices[i] + offset;
+                b.m_vecPos = newCenter;
+            } 
+            else {
+                // ★ 缩放：直接用鼠标屏幕位移作为比例
+                float dx = mousePos.x - g_dragSnap.screenStartX;
+                float dy = mousePos.y - g_dragSnap.screenStartY;
+                float delta = (fabsf(dx) > fabsf(dy)) ? dx : -dy;
+                float scaleFactor = 1.0f + delta * 0.01f;
+                if (scaleFactor < 0.01f) scaleFactor = 0.01f;
+
+                // 判断当前是单轴还是中间点
+                glm::vec3 scVec(glm::length(glm::vec3(manipulateMat[0])),
+                                glm::length(glm::vec3(manipulateMat[1])),
+                                glm::length(glm::vec3(manipulateMat[2])));
+                float diffX = fabsf(scVec.x - 1.0f);
+                float diffY = fabsf(scVec.y - 1.0f);
+                float diffZ = fabsf(scVec.z - 1.0f);
+
+                glm::vec3 scaleVec(scaleFactor);
+                if (diffX > 0.01f && diffX >= diffY && diffX >= diffZ) {
+                    scaleVec = glm::vec3(scaleFactor, 1.0f, 1.0f);
+                } else if (diffY > 0.01f && diffY >= diffX && diffY >= diffZ) {
+                    scaleVec = glm::vec3(1.0f, scaleFactor, 1.0f);
+                } else if (diffZ > 0.01f) {
+                    scaleVec = glm::vec3(1.0f, 1.0f, scaleFactor);
+                }
+
+                // 以中心为原点缩放快照顶点
+                for (size_t i = 0; i < b.m_vertices.size(); i++) {
+                    glm::vec3 local = g_dragSnap.vertices[i] - center;
+                    local.x *= scaleVec.x;
+                    local.y *= scaleVec.y;
+                    local.z *= scaleVec.z;
+                    b.m_vertices[i] = center + local;
+                }
+                b.m_vecPos = center;
+            }
+
+            b.RecalcBoundsFromVertices();
+            b.RecalcFaceNormals();
+        } 
+        else if (g_iSelectedEntity >= 0) {
+            CEntity& e = g_entities[g_iSelectedEntity];
+            float tr[3], rt[3], sc[3];
+            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(manipulateMat), tr, rt, sc);
+            e.m_vecPos = glm::vec3(tr[0], tr[1], tr[2]);
+            if (g_CurrentGizmoOperation & ImGuizmo::ROTATE) e.m_angRot = glm::vec3(rt[0], rt[1], rt[2]);
+            UpdateEntityBBox(e);
+        }
     }
+
+    if (!bUsing && g_dragSnap.bValid) {
+        g_dragSnap.bValid = false;
+    }
+
+    g_bDraggingGizmo = bUsing;
 }
 
 // ---------------------------------------------------------------------------
@@ -701,26 +736,12 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
 
     // 处理点击选择
     if (bMouseInViewport && g_bLeftMouseDown && !g_bDraggingGizmo && !ImGuizmo::IsUsing()) {
-        if ((g_iGizmoMode == GIZMO_FACE || g_iGizmoMode == GIZMO_EDGE || g_iGizmoMode == GIZMO_VERTEX)
-            && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
-            const auto& b = g_brushes[g_iSelectedBrush];
-            int hit = -1;
-            if (g_iGizmoMode == GIZMO_VERTEX)      hit = PickVertex(b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            else if (g_iGizmoMode == GIZMO_EDGE)   hit = PickEdge  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            else                                   hit = PickFace  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            if (hit >= 0) {
-                g_iActiveSubIndex = hit;
-                if (g_iGizmoMode == GIZMO_FACE) g_iSelectedFace = hit;
-            }
-        } else {
-            int e = PickEntity(view, proj, vpW, vpH, localMouseX, localMouseY);
-            if (e >= 0) { g_iSelectedEntity = e; g_iSelectedBrush = -1; g_iActiveSubIndex = -1; }
-            else {
-                int b = PickBrush(view, proj, vpW, vpH, localMouseX, localMouseY);
-                g_iSelectedBrush  = b;
-                g_iSelectedEntity = -1;
-                g_iActiveSubIndex = -1;
-            }
+        int e = PickEntity(view, proj, vpW, vpH, localMouseX, localMouseY);
+        if (e >= 0) { g_iSelectedEntity = e; g_iSelectedBrush = -1; }
+        else {
+            int b = PickBrush(view, proj, vpW, vpH, localMouseX, localMouseY);
+            g_iSelectedBrush  = b;
+            g_iSelectedEntity = -1;
         }
     }
 
@@ -850,13 +871,11 @@ int main(int, char**)
             if (ev.type == SDL_KEYDOWN && !io.WantCaptureKeyboard) {
                 SDL_Keycode k = ev.key.keysym.sym;
                 if (k == SDLK_ESCAPE) running = false;
-                else if (k == SDLK_1) g_iGizmoMode = GIZMO_TRANSLATE;
-                else if (k == SDLK_2) g_iGizmoMode = GIZMO_ROTATE;
-                else if (k == SDLK_3) g_iGizmoMode = GIZMO_SCALE;
-                else if (k == SDLK_4) g_iGizmoMode = GIZMO_FACE;
-                else if (k == SDLK_5) g_iGizmoMode = GIZMO_EDGE;
-                else if (k == SDLK_6) g_iGizmoMode = GIZMO_VERTEX;
-                else if (k == SDLK_0) g_iGizmoMode = GIZMO_NONE;
+                else if (k == SDLK_1) g_CurrentGizmoOperation = ImGuizmo::TRANSLATE;
+                else if (k == SDLK_2) g_CurrentGizmoOperation = ImGuizmo::ROTATE;
+                else if (k == SDLK_3) g_CurrentGizmoOperation = ImGuizmo::SCALE;
+                else if (k == SDLK_4) g_CurrentGizmoOperation = ImGuizmo::BOUNDS;
+                else if (k == SDLK_0) g_CurrentGizmoOperation = (ImGuizmo::OPERATION)0; // NONE
                 else if (k == SDLK_z && (ev.key.keysym.mod & KMOD_CTRL)) UndoStack::Instance().Undo();
                 else if (k == SDLK_y && (ev.key.keysym.mod & KMOD_CTRL)) UndoStack::Instance().Redo();
                 else if (k == SDLK_LEFTBRACKET)  g_flGridSize = std::max(1.0f, g_flGridSize*0.5f);
@@ -867,14 +886,20 @@ int main(int, char**)
         if (!io.WantCaptureKeyboard) {
             float flySpeed = g_cam.dist * 1.2f * 0.016f;
             float rp = glm::radians(g_cam.pitch), ry = glm::radians(g_cam.yaw);
+            
+            // Y-up 坐标系下的标准前向与右向
             glm::vec3 fwd(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry));
-            glm::vec3 fwdH(fwd.x, 0, fwd.z); if (glm::length(fwdH) > 1e-4f) fwdH = glm::normalize(fwdH);
-            glm::vec3 leftH = glm::normalize(glm::cross(fwdH, glm::vec3(0,1,0)));
+            glm::vec3 fwdH(fwd.x, 0, fwd.z); 
+            if (glm::length(fwdH) > 1e-4f) fwdH = glm::normalize(fwdH);
+            
+            // Y-up 右手系里的右向量：Up × Forward
+            glm::vec3 rightH = glm::normalize(glm::cross(glm::vec3(0, 1, 0), fwdH));
+
             const Uint8* ks = SDL_GetKeyboardState(nullptr);
-            if (ks[SDL_SCANCODE_W]) g_cam.target += fwdH * flySpeed;
-            if (ks[SDL_SCANCODE_S]) g_cam.target -= fwdH * flySpeed;
-            if (ks[SDL_SCANCODE_A]) g_cam.target += leftH * flySpeed;
-            if (ks[SDL_SCANCODE_D]) g_cam.target -= leftH * flySpeed;
+            if (ks[SDL_SCANCODE_W]) g_cam.target -= fwdH * flySpeed;
+            if (ks[SDL_SCANCODE_S]) g_cam.target += fwdH * flySpeed;
+            if (ks[SDL_SCANCODE_A]) g_cam.target += rightH * flySpeed; // A 是左
+            if (ks[SDL_SCANCODE_D]) g_cam.target -= rightH * flySpeed; // D 是右
             if (ks[SDL_SCANCODE_E]) g_cam.target.y += flySpeed;
             if (ks[SDL_SCANCODE_Q]) g_cam.target.y -= flySpeed;
         }
