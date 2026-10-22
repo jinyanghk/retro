@@ -46,6 +46,7 @@ add_executable(editor
     app/EditorLayout.cpp
     fgd/FgdDatabase.cpp
     ui/EditorPanels.cpp
+    ui/View2D.cpp
     map/MapExport.cpp
 )
 # 让 build 目录自动同步 fgd 文件

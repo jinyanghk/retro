@@ -18,6 +18,7 @@
 #include "app/EditorLayout.h"
 #include "fgd/FgdDatabase.h"
 #include "ui/EditorPanels.h"
+#include "ui/View2D.h"
 #include "map/MapExport.h"
 
 #include <cstdio>
@@ -60,23 +61,23 @@ void main() {
 )";
 
 // ---------------------------------------------------------------------------
-// 相机 (Z-up)
+// 相机 (Y-up)
 // ---------------------------------------------------------------------------
 struct Camera {
-    glm::vec3 target = glm::vec3(0, 0, 100);
+    glm::vec3 target = glm::vec3(0, 100, 0); // 目标看向房间中心
     float yaw   = -90.0f;
-    float pitch = -15.0f;
-    float dist  = 500.0f;
+    float pitch = -20.0f;
+    float dist  = 800.0f;
 
     glm::vec3 GetEye() const {
         float rp = glm::radians(pitch);
         float ry = glm::radians(yaw);
-        glm::vec3 off(std::cos(rp)*std::cos(ry), std::cos(rp)*std::sin(ry), std::sin(rp));
-        off *= -dist;
+        glm::vec3 off(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry));
+        off *= dist;
         return target + off;
     }
     glm::mat4 GetView() const {
-        return glm::lookAt(GetEye(), target, glm::vec3(0,0,1));
+        return glm::lookAt(GetEye(), target, glm::vec3(0,1,0)); // Y-up
     }
 };
 
@@ -114,31 +115,6 @@ static int           g_iLastMouseX = 0, g_iLastMouseY = 0;
 
 static glm::mat4     g_proxyMatrixPrev = glm::mat4(1.0f);
 static int           g_iActiveSubIndex = -1;
-
-// ---------------------------------------------------------------------------
-// ImGuizmo 坐标空间 (Z-up <-> Y-up)
-// ---------------------------------------------------------------------------
-static glm::mat4 MakeSwapYZ()
-{
-    glm::mat4 S(1.0f);
-    S[1][1] = 0; S[1][2] = 1;
-    S[2][1] = 1; S[2][2] = 0;
-    return S;
-}
-static const glm::mat4 S_SWAP = MakeSwapYZ();
-
-static void ToImSpace(const glm::mat4& viewZ, const glm::mat4& projZ,
-                      const glm::mat4& objZ,
-                      glm::mat4& viewIm, glm::mat4& projIm, glm::mat4& objIm)
-{
-    viewIm = viewZ * S_SWAP;
-    projIm = projZ;
-    objIm  = S_SWAP * objZ * S_SWAP;
-}
-static glm::mat4 FromImSpaceObj(const glm::mat4& objIm)
-{
-    return S_SWAP * objIm * S_SWAP;
-}
 
 // ---------------------------------------------------------------------------
 // GL 辅助与 FBO
@@ -205,14 +181,15 @@ static void InitGL()
     glGenVertexArrays(1, &g_gridVAO);
     glGenBuffers(1, &g_gridVBO);
 
+    // 网格在 Y-up 下画在 XZ 平面
     std::vector<float> gridVerts;
     for (float x = -2048; x <= 2048; x += 64) {
-        gridVerts.push_back(x); gridVerts.push_back(-2048); gridVerts.push_back(0);
-        gridVerts.push_back(x); gridVerts.push_back( 2048); gridVerts.push_back(0);
+        gridVerts.push_back(x); gridVerts.push_back(0); gridVerts.push_back(-2048);
+        gridVerts.push_back(x); gridVerts.push_back(0); gridVerts.push_back( 2048);
     }
-    for (float y = -2048; y <= 2048; y += 64) {
-        gridVerts.push_back(-2048); gridVerts.push_back(y); gridVerts.push_back(0);
-        gridVerts.push_back( 2048); gridVerts.push_back(y); gridVerts.push_back(0);
+    for (float z = -2048; z <= 2048; z += 64) {
+        gridVerts.push_back(-2048); gridVerts.push_back(0); gridVerts.push_back(z);
+        gridVerts.push_back( 2048); gridVerts.push_back(0); gridVerts.push_back(z);
     }
     glBindVertexArray(g_gridVAO);
     glBindBuffer(GL_ARRAY_BUFFER, g_gridVBO);
@@ -351,7 +328,7 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
     for (size_t i = 0; i < g_entities.size(); i++) {
         const auto& e = g_entities[i];
         glm::vec3 mn = e.m_vecBBoxMins, mx = e.m_vecBBoxMaxs;
-        // 为了可视，强制放大一点点
+        // 放大一点 bbox 方便看到
         if (glm::length(mx - mn) < 16.0f) {
             mn -= glm::vec3(8);
             mx += glm::vec3(8);
@@ -389,11 +366,11 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
 }
 
 // ---------------------------------------------------------------------------
-// 拾取 (扩大容错)
+// 拾取
 // ---------------------------------------------------------------------------
 static bool ScreenPointInAABBWorld(const glm::vec3& worldMin, const glm::vec3& worldMax,
                                    const glm::mat4& view, const glm::mat4& proj,
-                                   int w, int h, int mx, int my, float padding = 15.0f)
+                                   int w, int h, int mx, int my, float padding = 10.0f)
 {
     glm::vec3 corners[8] = {
         {worldMin.x,worldMin.y,worldMin.z},{worldMax.x,worldMin.y,worldMin.z},
@@ -425,11 +402,11 @@ static int PickEntity(const glm::mat4& view, const glm::mat4& proj, int w, int h
 {
     for (int i = (int)g_entities.size()-1; i >= 0; i--) {
         const auto& e = g_entities[i];
-        if (ScreenPointInAABBWorld(e.m_vecBBoxMins, e.m_vecBBoxMaxs, view, proj, w, h, mx, my, 20.0f)) return i;
+        if (ScreenPointInAABBWorld(e.m_vecBBoxMins, e.m_vecBBoxMaxs, view, proj, w, h, mx, my, 15.0f)) return i;
     }
     return -1;
 }
-static int PickVertex(const CBrush& b, const glm::mat4& view, const glm::mat4& proj, int w, int h, int mx, int my, float radiusPx = 20.0f)
+static int PickVertex(const CBrush& b, const glm::mat4& view, const glm::mat4& proj, int w, int h, int mx, int my, float radiusPx = 15.0f)
 {
     int best = -1; float bestD2 = radiusPx*radiusPx;
     for (int i = 0; i < 8; i++) {
@@ -441,7 +418,7 @@ static int PickVertex(const CBrush& b, const glm::mat4& view, const glm::mat4& p
     }
     return best;
 }
-static int PickEdge(const CBrush& b, const glm::mat4& view, const glm::mat4& proj, int w, int h, int mx, int my, float radiusPx = 20.0f)
+static int PickEdge(const CBrush& b, const glm::mat4& view, const glm::mat4& proj, int w, int h, int mx, int my, float radiusPx = 15.0f)
 {
     int best = -1; float bestD2 = radiusPx*radiusPx;
     for (int e = 0; e < 12; e++) {
@@ -513,7 +490,7 @@ static glm::mat4 BuildSelectionMatrix(bool& isBrush, glm::vec3& pivotOut)
         const auto& e = g_entities[g_iSelectedEntity];
         pivotOut = e.m_vecPos;
         glm::mat4 M = glm::translate(glm::mat4(1.0f), e.m_vecPos);
-        M *= AngleMatrix(e.m_angRot); 
+        M *= AngleMatrix(e.m_angRot);
         return M;
     }
     pivotOut = glm::vec3(0);
@@ -521,7 +498,7 @@ static glm::mat4 BuildSelectionMatrix(bool& isBrush, glm::vec3& pivotOut)
 }
 
 // ---------------------------------------------------------------------------
-// Gizmo
+// Gizmo (纯 Y-up，直传)
 // ---------------------------------------------------------------------------
 static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
                                     ImVec2 viewportPos, ImVec2 viewportSize)
@@ -548,8 +525,9 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
         objMatrix = glm::translate(glm::mat4(1.0f), pivot);
     }
 
-    glm::mat4 viewIm, projIm, objIm;
-    ToImSpace(view, proj, objMatrix, viewIm, projIm, objIm);
+    glm::mat4 viewIm = view;
+    glm::mat4 projIm = proj;
+    glm::mat4 objIm = objMatrix;
 
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
@@ -560,7 +538,7 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
                          op, ImGuizmo::WORLD, glm::value_ptr(objIm), nullptr, snap);
 
     bool bUsing = ImGuizmo::IsUsing();
-    glm::mat4 objZNew = FromImSpaceObj(objIm);
+    glm::mat4 objZNew = objIm; // 无转换，直接用
 
     if (bUsing && !g_bDraggingGizmo) {
         g_bDraggingGizmo = true;
@@ -618,7 +596,7 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
 }
 
 // ---------------------------------------------------------------------------
-// 初始场景
+// 初始场景 (Y-up 调整)
 // ---------------------------------------------------------------------------
 static void BuildDefaultScene()
 {
@@ -630,8 +608,8 @@ static void BuildDefaultScene()
     const float FLOOR_H = 16.0f;
     const float CEIL_H  = 16.0f;
     const float ROOM_H  = 256.0f;
-    const float Z_CENTER = (ROOM_H + CEIL_H - FLOOR_H) * 0.5f;
-    const float Z_HALF   = (ROOM_H + CEIL_H + FLOOR_H) * 0.5f;
+    const float Y_CENTER = (ROOM_H + CEIL_H - FLOOR_H) * 0.5f;
+    const float Y_HALF   = (ROOM_H + CEIL_H + FLOOR_H) * 0.5f;
 
     auto MakeBrush = [](glm::vec3 pos, glm::vec3 halfSize, const char* mat) {
         CBrush b;
@@ -641,18 +619,22 @@ static void BuildDefaultScene()
         b.RebuildPrimitiveMesh();
         g_brushes.push_back(b);
     };
-    MakeBrush(glm::vec3(0, 0, -FLOOR_H*0.5f),               glm::vec3(HALF_W, HALF_W, FLOOR_H*0.5f), "CONCRETE/CONCRETEFLOOR001A");
-    MakeBrush(glm::vec3(0, 0, ROOM_H+CEIL_H*0.5f),          glm::vec3(HALF_W, HALF_W, CEIL_H*0.5f),  "CONCRETE/CONCRETECEILING001A");
-    MakeBrush(glm::vec3(0,  HALF_W+WALL_TH*0.5f, Z_CENTER), glm::vec3(HALF_W+WALL_TH, WALL_TH*0.5f, Z_HALF), "BRICK/BRICKWALL001A");
-    MakeBrush(glm::vec3(0, -(HALF_W+WALL_TH*0.5f), Z_CENTER),glm::vec3(HALF_W+WALL_TH, WALL_TH*0.5f, Z_HALF), "BRICK/BRICKWALL001A");
-    MakeBrush(glm::vec3(-(HALF_W+WALL_TH*0.5f), 0, Z_CENTER),glm::vec3(WALL_TH*0.5f, HALF_W+WALL_TH, Z_HALF), "BRICK/BRICKWALL001A");
-    MakeBrush(glm::vec3( (HALF_W+WALL_TH*0.5f), 0, Z_CENTER),glm::vec3(WALL_TH*0.5f, HALF_W+WALL_TH, Z_HALF), "BRICK/BRICKWALL001A");
+
+    // 地板 (Y = -FLOOR_H/2)
+    MakeBrush(glm::vec3(0, -FLOOR_H*0.5f, 0),               glm::vec3(HALF_W, FLOOR_H*0.5f, HALF_W), "CONCRETE/CONCRETEFLOOR001A");
+    // 天花板 (Y = ROOM_H + CEIL_H/2)
+    MakeBrush(glm::vec3(0, ROOM_H+CEIL_H*0.5f, 0),          glm::vec3(HALF_W, CEIL_H*0.5f, HALF_W),  "CONCRETE/CONCRETECEILING001A");
+    // 墙壁 (Y 在中间)
+    MakeBrush(glm::vec3(0,  Y_CENTER, HALF_W+WALL_TH*0.5f), glm::vec3(HALF_W+WALL_TH, Y_HALF, WALL_TH*0.5f), "BRICK/BRICKWALL001A");
+    MakeBrush(glm::vec3(0,  Y_CENTER, -(HALF_W+WALL_TH*0.5f)),glm::vec3(HALF_W+WALL_TH, Y_HALF, WALL_TH*0.5f), "BRICK/BRICKWALL001A");
+    MakeBrush(glm::vec3(-(HALF_W+WALL_TH*0.5f), Y_CENTER, 0),glm::vec3(WALL_TH*0.5f, Y_HALF, HALF_W+WALL_TH), "BRICK/BRICKWALL001A");
+    MakeBrush(glm::vec3( (HALF_W+WALL_TH*0.5f), Y_CENTER, 0),glm::vec3(WALL_TH*0.5f, Y_HALF, HALF_W+WALL_TH), "BRICK/BRICKWALL001A");
 
     {
         CEntity light;
         light.m_iType  = ENTITY_LIGHT;
         light.m_szName = "light";
-        light.m_vecPos = glm::vec3(0, 0, 240);
+        light.m_vecPos = glm::vec3(0, 240, 0);
         light.m_properties["_light"]    = "255 240 200";
         light.m_properties["_distance"] = "1024";
         UpdateEntityBBox(light);
@@ -662,7 +644,7 @@ static void BuildDefaultScene()
         CEntity spawn;
         spawn.m_iType  = ENTITY_PLAYER_START;
         spawn.m_szName = "info_player_start";
-        spawn.m_vecPos = glm::vec3(0, 0, 16);
+        spawn.m_vecPos = glm::vec3(0, 16, 0);
         UpdateEntityBBox(spawn);
         g_entities.push_back(spawn);
     }
@@ -689,7 +671,7 @@ static void OnCompileAndRun() {
 }
 
 // ---------------------------------------------------------------------------
-// 视口渲染逻辑
+// 视口渲染逻辑 (纯 Y-up，直传)
 // ---------------------------------------------------------------------------
 static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outClickedMiddle)
 {
@@ -764,8 +746,8 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
     DrawAndManipulateGizmo(view, proj, viewportPos, viewportSize);
 
-    // --- 右上角相机控件 (调用官方 API) ---
-    glm::mat4 camViewIm = view * S_SWAP;
+    // --- 右上角相机控件 ---
+    glm::mat4 camViewIm = view; 
     float camDistance = g_cam.dist;
 
     ImVec2 viewManipulatePos(viewportPos.x + viewportSize.x - 128, viewportPos.y);
@@ -776,13 +758,13 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     
     if (ImGuizmo::IsUsingViewManipulate() && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
         glm::mat4 invView = glm::inverse(camViewIm);
-        glm::vec3 eyeYUp(invView[3][0], invView[3][1], invView[3][2]);
-        glm::vec3 eyeZUp(eyeYUp.x, eyeYUp.z, eyeYUp.y);
-        glm::vec3 offset = eyeZUp - g_cam.target;
-        float r = glm::length(glm::vec2(offset.x, offset.y));
+        glm::vec3 eye = glm::vec3(invView[3][0], invView[3][1], invView[3][2]);
+        glm::vec3 offset = eye - g_cam.target;
+        
+        float r = glm::length(glm::vec2(offset.x, offset.z)); // Y-up 对应的水平面
         if (r > 0.001f) {
-            g_cam.yaw = glm::degrees(std::atan2(offset.y, offset.x));
-            g_cam.pitch = glm::degrees(std::atan2(offset.z, r));
+            g_cam.yaw = glm::degrees(std::atan2(offset.z, offset.x));
+            g_cam.pitch = glm::degrees(std::atan2(offset.y, r));
         }
         g_cam.dist = glm::length(offset);
     }
@@ -819,6 +801,7 @@ int main(int, char**)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     ImGui::StyleColorsDark();
     
@@ -884,16 +867,16 @@ int main(int, char**)
         if (!io.WantCaptureKeyboard) {
             float flySpeed = g_cam.dist * 1.2f * 0.016f;
             float rp = glm::radians(g_cam.pitch), ry = glm::radians(g_cam.yaw);
-            glm::vec3 fwd(std::cos(rp)*std::cos(ry), std::cos(rp)*std::sin(ry), std::sin(rp));
-            glm::vec3 fwdH(fwd.x, fwd.y, 0); if (glm::length(fwdH) > 1e-4f) fwdH = glm::normalize(fwdH);
-            glm::vec3 leftH = glm::normalize(glm::cross(fwdH, glm::vec3(0,0,1)));
+            glm::vec3 fwd(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry));
+            glm::vec3 fwdH(fwd.x, 0, fwd.z); if (glm::length(fwdH) > 1e-4f) fwdH = glm::normalize(fwdH);
+            glm::vec3 leftH = glm::normalize(glm::cross(fwdH, glm::vec3(0,1,0)));
             const Uint8* ks = SDL_GetKeyboardState(nullptr);
             if (ks[SDL_SCANCODE_W]) g_cam.target += fwdH * flySpeed;
             if (ks[SDL_SCANCODE_S]) g_cam.target -= fwdH * flySpeed;
             if (ks[SDL_SCANCODE_A]) g_cam.target += leftH * flySpeed;
             if (ks[SDL_SCANCODE_D]) g_cam.target -= leftH * flySpeed;
-            if (ks[SDL_SCANCODE_E]) g_cam.target.z += flySpeed;
-            if (ks[SDL_SCANCODE_Q]) g_cam.target.z -= flySpeed;
+            if (ks[SDL_SCANCODE_E]) g_cam.target.y += flySpeed;
+            if (ks[SDL_SCANCODE_Q]) g_cam.target.y -= flySpeed;
         }
 
         for (auto& e : g_entities) UpdateEntityBBox(e);
@@ -911,6 +894,7 @@ int main(int, char**)
         DrawBrushPanel(g_brushes.data(), (int)g_brushes.size(), &g_iSelectedBrush, &g_iSelectedEntity, panelRes);
         
         Draw3DView(g_bLeftMouseDown, g_bRightMouseDown, g_bMiddleMouseDown);
+        Draw2DViews();
 
         DrawConsolePanel();
         DrawCompileOptionsWindow();
@@ -918,7 +902,7 @@ int main(int, char**)
         if (panelRes.bRequestNew) {
             UndoStack::Instance().PushSnapshot("New Brush");
             CBrush b;
-            b.m_vecPos  = glm::vec3(0,0,32);
+            b.m_vecPos  = glm::vec3(0,32,0);
             b.m_vecSize = glm::vec3(32,32,32);
             b.RebuildPrimitiveMesh();
             g_brushes.push_back(b);
@@ -946,7 +930,7 @@ int main(int, char**)
             UndoStack::Instance().PushSnapshot("New Entity");
             CEntity e;
             e.m_szName = panelRes.szNewEntityClass;
-            e.m_vecPos = glm::vec3(0,0,32);
+            e.m_vecPos = glm::vec3(0,32,0);
             if (e.m_szName == "info_player_start") e.m_iType = ENTITY_PLAYER_START;
             else if (e.m_szName == "light")       e.m_iType = ENTITY_LIGHT;
             UpdateEntityBBox(e);
