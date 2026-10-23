@@ -10,6 +10,10 @@ find_package(GLEW REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
+endif()
+
 # ---------- ImGui ----------
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/../imgui)
 add_library(imgui STATIC
@@ -51,11 +55,9 @@ add_executable(editor
 )
 # 让 build 目录自动同步 fgd 文件
 add_custom_command(TARGET editor POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:editor>/fgd
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_SOURCE_DIR}/fgd/halflife2.json
-        $<TARGET_FILE_DIR:editor>/fgd/halflife2.json
+        $<TARGET_FILE_DIR:editor>/halflife2.json
 )
 target_include_directories(editor PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(editor PRIVATE
@@ -72,6 +74,14 @@ target_link_libraries(editor PRIVATE
 # ---------- map ----------
 add_executable(map map.cpp)
 target_link_libraries(map PRIVATE nlohmann_json::nlohmann_json)
+
+# ---------- engine ----------
+add_library(engine SHARED 
+    engine.cpp
+)
+target_link_libraries(engine PRIVATE 
+    nlohmann_json::nlohmann_json
+)
 
 # ---------- game ----------
 add_executable(game game.cpp)

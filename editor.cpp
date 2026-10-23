@@ -367,6 +367,37 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
 }
 
 // ---------------------------------------------------------------------------
+// 极简球体（用于 Vertex 编辑的顶点指示器）
+// ---------------------------------------------------------------------------
+static void DrawGlowSphere(float cx, float cy, float cz, float radius, int segments)
+{
+    // 保存当前状态
+    glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+
+    // 画经线
+    for (int i = 0; i <= segments; i++) {
+        float lat0 = 3.14159265f * (-0.5f + (float)(i - 1) / segments);
+        float lat1 = 3.14159265f * (-0.5f + (float)i / segments);
+        float z0 = sinf(lat0), zr0 = cosf(lat0);
+        float z1 = sinf(lat1), zr1 = cosf(lat1);
+
+        glBegin(GL_QUAD_STRIP);
+        for (int j = 0; j <= segments; j++) {
+            float lng = 2.0f * 3.14159265f * (float)j / segments;
+            float x = cosf(lng), y = sinf(lng);
+
+            glVertex3f(cx + radius * x * zr0, cy + radius * y * zr0, cz + radius * z0);
+            glVertex3f(cx + radius * x * zr1, cy + radius * y * zr1, cz + radius * z1);
+        }
+        glEnd();
+    }
+
+    glPopAttrib();
+}
+
+// ---------------------------------------------------------------------------
 // 拾取
 // ---------------------------------------------------------------------------
 static bool ScreenPointInAABBWorld(const glm::vec3& worldMin, const glm::vec3& worldMax,
@@ -473,7 +504,7 @@ static glm::mat4 BuildSelectionMatrix(bool& isBrush, glm::vec3& pivotOut)
 }
 
 // ---------------------------------------------------------------------------
-// Gizmo (彻底隔离 ImGuizmo 的吸附对缩放的影响)
+// Gizmo 状态与拖拽快照
 // ---------------------------------------------------------------------------
 struct DragSnapshot {
     glm::vec3 pivot;
@@ -485,33 +516,44 @@ struct DragSnapshot {
     bool  bValid = false;
 } g_dragSnap;
 
+// ---------------------------------------------------------------------------
+// DrawAndManipulateGizmo
+// ---------------------------------------------------------------------------
 static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
                                     ImVec2 viewportPos, ImVec2 viewportSize)
 {
-    if (g_iSelectedBrush < 0 && g_iSelectedEntity < 0) return;
+    if (g_iGizmoMode == GIZMO_NONE) return;
     if (!g_bShowGizmo) return;
-    if (g_CurrentGizmoOperation == 0) return;
+
+    bool isSubEdit = (g_iGizmoMode == GIZMO_FACE || g_iGizmoMode == GIZMO_EDGE || g_iGizmoMode == GIZMO_VERTEX);
+
+    if (isSubEdit) {
+        if (g_iSelectedBrush < 0 || g_iSelectedBrush >= (int)g_brushes.size()) return;
+        if (g_iSubEditIndex < 0) return;
+    } else {
+        if (g_iSelectedBrush < 0 && g_iSelectedEntity < 0) return;
+    }
 
     bool isBrush = false;
     glm::vec3 pivot(0);
-    
     glm::mat4 baseMat = glm::mat4(1.0f);
-    if (g_iSelectedBrush >= 0) {
-        isBrush = true;
-        pivot = g_brushes[g_iSelectedBrush].m_vecPos;
-        baseMat = glm::translate(glm::mat4(1.0f), pivot);
-    } else if (g_iSelectedEntity >= 0) {
-        pivot = g_entities[g_iSelectedEntity].m_vecPos;
-        baseMat = glm::translate(glm::mat4(1.0f), pivot);
-        baseMat *= AngleMatrix(g_entities[g_iSelectedEntity].m_angRot);
-    }
 
-    // 动态更新 Bounds
-    if (g_CurrentGizmoOperation & ImGuizmo::BOUNDS) {
-        if (isBrush) {
-            CBrush& b = g_brushes[g_iSelectedBrush];
-            g_Bounds[0] = -b.m_vecSize.x; g_Bounds[1] = -b.m_vecSize.y; g_Bounds[2] = -b.m_vecSize.z;
-            g_Bounds[3] =  b.m_vecSize.x; g_Bounds[4] =  b.m_vecSize.y; g_Bounds[5] =  b.m_vecSize.z;
+    if (isSubEdit) {
+        isBrush = true;
+        const CBrush& b = g_brushes[g_iSelectedBrush];
+        if (g_iGizmoMode == GIZMO_FACE)        pivot = GetFaceCenter(b, g_iSubEditIndex);
+        else if (g_iGizmoMode == GIZMO_EDGE)   pivot = (b.m_vertices[kEdgeVertexIndices[g_iSubEditIndex][0]] + b.m_vertices[kEdgeVertexIndices[g_iSubEditIndex][1]]) * 0.5f;
+        else                                   pivot = b.m_vertices[g_iSubEditIndex];
+        baseMat = glm::translate(glm::mat4(1.0f), pivot);
+    } else {
+        if (g_iSelectedBrush >= 0) {
+            isBrush = true;
+            pivot = g_brushes[g_iSelectedBrush].m_vecPos;
+            baseMat = glm::translate(glm::mat4(1.0f), pivot);
+        } else if (g_iSelectedEntity >= 0) {
+            pivot = g_entities[g_iSelectedEntity].m_vecPos;
+            baseMat = glm::translate(glm::mat4(1.0f), pivot);
+            baseMat *= AngleMatrix(g_entities[g_iSelectedEntity].m_angRot);
         }
     }
 
@@ -521,29 +563,33 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
 
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+    ImGui::SetCursorScreenPos(viewportPos);
     ImGuizmo::SetRect(viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y);
 
-    // ★ 关键修复：在缩放/拉伸模式下，强制禁用 ImGuizmo 的吸附
-    bool bIsScaleMode = (g_CurrentGizmoOperation & (ImGuizmo::SCALE | ImGuizmo::BOUNDS)) != 0;
-    float* snapPtr = (g_bUseSnap && !bIsScaleMode) ? g_Snap : nullptr;
-    
-    float* boundsPtr     = (g_CurrentGizmoOperation & ImGuizmo::BOUNDS) ? g_Bounds : nullptr;
-    float* boundsSnapPtr = (g_bBoundSizingSnap && !bIsScaleMode) ? g_BoundsSnap : nullptr;
+    ImGuizmo::OPERATION op = (ImGuizmo::OPERATION)0;
+    if (g_iGizmoMode == GIZMO_TRANSLATE) op = ImGuizmo::TRANSLATE;
+    else if (g_iGizmoMode == GIZMO_ROTATE) op = ImGuizmo::ROTATE;
+    else if (g_iGizmoMode == GIZMO_SCALE) op = ImGuizmo::SCALE;
+    else if (isSubEdit) op = ImGuizmo::TRANSLATE; // 子编辑统一用平移箭头
+
+    // ★ 彻底禁用 Bounds
+    float* snapPtr = (g_bUseSnap && g_iGizmoMode != GIZMO_SCALE) ? g_Snap : nullptr;
+    float* boundsPtr = nullptr; // 永远不传 bounds
+    float* boundsSnapPtr = nullptr;
 
     bool bUsing = ImGuizmo::Manipulate(glm::value_ptr(viewIm), glm::value_ptr(projIm),
-                                       g_CurrentGizmoOperation, g_CurrentGizmoMode, 
+                                       op, ImGuizmo::LOCAL,
                                        glm::value_ptr(manipulateMat), nullptr, snapPtr, boundsPtr, boundsSnapPtr);
 
     ImVec2 mousePos = ImGui::GetMousePos();
 
-    // 拖拽开始
     if (bUsing && !g_dragSnap.bValid) {
         g_dragSnap.bValid = true;
         UndoStack::Instance().PushSnapshot("Gizmo Edit");
         g_dragSnap.screenStartX = mousePos.x;
         g_dragSnap.screenStartY = mousePos.y;
         if (isBrush) {
-            g_dragSnap.pivot = g_brushes[g_iSelectedBrush].m_vecPos;
+            g_dragSnap.pivot = pivot;
             g_dragSnap.vertices = g_brushes[g_iSelectedBrush].m_vertices;
         } else if (g_iSelectedEntity >= 0) {
             g_dragSnap.entityPos = g_entities[g_iSelectedEntity].m_vecPos;
@@ -551,38 +597,60 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
         }
     }
 
-    // 拖拽中
     if (bUsing && g_dragSnap.bValid) {
-        if (isBrush) {
+        if (isSubEdit) {
+            float tr[3], rt[3], sc[3];
+            ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(manipulateMat), tr, rt, sc);
+            glm::vec3 newCenter(tr[0], tr[1], tr[2]);
+            glm::vec3 offset = newCenter - pivot;
+
             CBrush& b = g_brushes[g_iSelectedBrush];
+            b.m_vertices = g_dragSnap.vertices;
+
+            if (g_iGizmoMode == GIZMO_FACE) {
+                for (int k = 0; k < 4; k++) {
+                    int vi = b.m_faces[g_iSubEditIndex].m_nVertexIndices[k];
+                    b.m_vertices[vi] += offset;
+                }
+            } else if (g_iGizmoMode == GIZMO_EDGE) {
+                int i0 = kEdgeVertexIndices[g_iSubEditIndex][0];
+                int i1 = kEdgeVertexIndices[g_iSubEditIndex][1];
+                b.m_vertices[i0] += offset;
+                b.m_vertices[i1] += offset;
+            } else if (g_iGizmoMode == GIZMO_VERTEX) {
+                b.m_vertices[g_iSubEditIndex] += offset;
+            }
+            b.RecalcBoundsFromVertices();
+            b.RecalcFaceNormals();
+        }
+        else if (isBrush) {
+            CBrush& b = g_brushes[g_iSelectedBrush];
+            b.m_vertices = g_dragSnap.vertices;
             glm::vec3 center = g_dragSnap.pivot;
 
-            // 1. 先做平移和旋转
-            if (g_CurrentGizmoOperation & ImGuizmo::ROTATE) {
-                float tr[3], rt[3], sc[3];
-                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(manipulateMat), tr, rt, sc);
-                glm::vec3 newRot(rt[0], rt[1], rt[2]);
-                glm::mat4 rotM = glm::translate(glm::mat4(1.0f), center) * AngleMatrix(newRot) * glm::translate(glm::mat4(1.0f), -center);
-                for (size_t i = 0; i < b.m_vertices.size(); i++) b.m_vertices[i] = glm::vec3(rotM * glm::vec4(g_dragSnap.vertices[i], 1.0f));
-                b.m_vecPos = center;
-            } 
-            else if (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE) {
+            if (g_iGizmoMode == GIZMO_TRANSLATE) {
                 float tr[3], rt[3], sc[3];
                 ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(manipulateMat), tr, rt, sc);
                 glm::vec3 newCenter(tr[0], tr[1], tr[2]);
                 glm::vec3 offset = newCenter - center;
-                for (size_t i = 0; i < b.m_vertices.size(); i++) b.m_vertices[i] = g_dragSnap.vertices[i] + offset;
+                for (auto& v : b.m_vertices) v += offset;
                 b.m_vecPos = newCenter;
             } 
-            else {
-                // ★ 缩放：直接用鼠标屏幕位移作为比例
+            else if (g_iGizmoMode == GIZMO_ROTATE) {
+                glm::mat3 R = glm::mat3(manipulateMat);
+                glm::mat4 rotM = glm::translate(glm::mat4(1.0f), center)
+                               * glm::mat4(R)
+                               * glm::translate(glm::mat4(1.0f), -center);
+                for (auto& v : b.m_vertices) v = glm::vec3(rotM * glm::vec4(v, 1.0f));
+                b.m_vecPos = center;
+            } 
+            else if (g_iGizmoMode == GIZMO_SCALE) {
                 float dx = mousePos.x - g_dragSnap.screenStartX;
                 float dy = mousePos.y - g_dragSnap.screenStartY;
                 float delta = (fabsf(dx) > fabsf(dy)) ? dx : -dy;
-                float scaleFactor = 1.0f + delta * 0.01f;
+                float scaleFactor = 1.0f + delta * 0.005f;
                 if (scaleFactor < 0.01f) scaleFactor = 0.01f;
 
-                // 判断当前是单轴还是中间点
                 glm::vec3 scVec(glm::length(glm::vec3(manipulateMat[0])),
                                 glm::length(glm::vec3(manipulateMat[1])),
                                 glm::length(glm::vec3(manipulateMat[2])));
@@ -591,25 +659,19 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
                 float diffZ = fabsf(scVec.z - 1.0f);
 
                 glm::vec3 scaleVec(scaleFactor);
-                if (diffX > 0.01f && diffX >= diffY && diffX >= diffZ) {
-                    scaleVec = glm::vec3(scaleFactor, 1.0f, 1.0f);
-                } else if (diffY > 0.01f && diffY >= diffX && diffY >= diffZ) {
-                    scaleVec = glm::vec3(1.0f, scaleFactor, 1.0f);
-                } else if (diffZ > 0.01f) {
-                    scaleVec = glm::vec3(1.0f, 1.0f, scaleFactor);
-                }
+                if (diffX > 0.01f && diffX >= diffY && diffX >= diffZ) scaleVec = glm::vec3(scaleFactor, 1.0f, 1.0f);
+                else if (diffY > 0.01f && diffY >= diffX && diffY >= diffZ) scaleVec = glm::vec3(1.0f, scaleFactor, 1.0f);
+                else if (diffZ > 0.01f) scaleVec = glm::vec3(1.0f, 1.0f, scaleFactor);
 
-                // 以中心为原点缩放快照顶点
-                for (size_t i = 0; i < b.m_vertices.size(); i++) {
-                    glm::vec3 local = g_dragSnap.vertices[i] - center;
+                for (auto& v : b.m_vertices) {
+                    glm::vec3 local = v - center;
                     local.x *= scaleVec.x;
                     local.y *= scaleVec.y;
                     local.z *= scaleVec.z;
-                    b.m_vertices[i] = center + local;
+                    v = center + local;
                 }
                 b.m_vecPos = center;
             }
-
             b.RecalcBoundsFromVertices();
             b.RecalcFaceNormals();
         } 
@@ -618,7 +680,7 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
             float tr[3], rt[3], sc[3];
             ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(manipulateMat), tr, rt, sc);
             e.m_vecPos = glm::vec3(tr[0], tr[1], tr[2]);
-            if (g_CurrentGizmoOperation & ImGuizmo::ROTATE) e.m_angRot = glm::vec3(rt[0], rt[1], rt[2]);
+            if (g_iGizmoMode == GIZMO_ROTATE) e.m_angRot = glm::vec3(rt[0], rt[1], rt[2]);
             UpdateEntityBBox(e);
         }
     }
@@ -706,7 +768,7 @@ static void OnCompileAndRun() {
 }
 
 // ---------------------------------------------------------------------------
-// 视口渲染逻辑 (纯 Y-up，直传)
+// Draw3DView
 // ---------------------------------------------------------------------------
 static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outClickedMiddle)
 {
@@ -734,40 +796,125 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     glm::mat4 view = g_cam.GetView();
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)vpW/(float)vpH, 1.0f, 5000.0f);
 
-    // 处理点击选择
-    if (bMouseInViewport && g_bLeftMouseDown && !g_bDraggingGizmo && !ImGuizmo::IsUsing()) {
-        int e = PickEntity(view, proj, vpW, vpH, localMouseX, localMouseY);
-        if (e >= 0) { g_iSelectedEntity = e; g_iSelectedBrush = -1; }
-        else {
-            int b = PickBrush(view, proj, vpW, vpH, localMouseX, localMouseY);
-            g_iSelectedBrush  = b;
-            g_iSelectedEntity = -1;
+    // ★ 强制同步状态
+    bool bIsSubEdit = (g_iGizmoMode == GIZMO_FACE || g_iGizmoMode == GIZMO_EDGE || g_iGizmoMode == GIZMO_VERTEX);
+    g_iSubEditMode = bIsSubEdit ? (g_iGizmoMode == GIZMO_FACE ? SUB_FACE :
+                                  (g_iGizmoMode == GIZMO_EDGE ? SUB_EDGE : SUB_VERTEX)) : SUB_NONE;
+
+    // =========================================================
+    // 拾取
+    // =========================================================
+    if (bMouseInViewport && g_bLeftMouseDown && !g_bDraggingGizmo && !ImGuizmo::IsUsing())
+    {
+        if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size())
+        {
+            CBrush& b = g_brushes[g_iSelectedBrush];
+            int hit = -1;
+            if (g_iSubEditMode == SUB_FACE)        hit = PickFace  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
+            else if (g_iSubEditMode == SUB_EDGE)   hit = PickEdge  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
+            else if (g_iSubEditMode == SUB_VERTEX) hit = PickVertex(b, view, proj, vpW, vpH, localMouseX, localMouseY);
+
+            if (hit >= 0) {
+                g_iSubEditIndex = hit;
+                UndoStack::Instance().PushSnapshot("Sub-Edit");
+            }
+        }
+        else
+        {
+            int e = PickEntity(view, proj, vpW, vpH, localMouseX, localMouseY);
+            if (e >= 0) {
+                g_iSelectedEntity = e;
+                g_iSelectedBrush  = -1;
+            } else {
+                int bi = PickBrush(view, proj, vpW, vpH, localMouseX, localMouseY);
+                g_iSelectedBrush  = bi;
+                g_iSelectedEntity = -1;
+            }
+            g_iSubEditIndex = -1;
         }
     }
 
-    // --- 3D 渲染到 FBO ---
+    // =========================================================
+    // 渲染到 FBO
+    // =========================================================
     ResizeFBO(vpW, vpH);
     glBindFramebuffer(GL_FRAMEBUFFER, g_fbo);
     glViewport(0, 0, vpW, vpH);
     glClearColor(0.12f, 0.12f, 0.14f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
+
     glm::mat4 vp = proj * view;
     DrawGrid(vp);
     DrawBrushes(vp);
     DrawBrushWireframe(vp);
     DrawEntityBBoxes(vp);
 
+    // =========================================================
+    // 子编辑高亮渲染
+    // =========================================================
+    if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+        const CBrush& b = g_brushes[g_iSelectedBrush];
+
+        if (g_iSubEditMode == SUB_FACE && g_iSubEditIndex >= 0 && g_iSubEditIndex < 6) {
+            glDisable(GL_TEXTURE_2D);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glEnable(GL_DEPTH_TEST);
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(-1.0f, -1.0f);
+            glColor4ub(255, 255, 0, 128);
+            glBegin(GL_QUADS);
+            for (int k = 0; k < 4; k++) {
+                int vi = b.m_faces[g_iSubEditIndex].m_nVertexIndices[k];
+                const glm::vec3& p = b.m_vertices[vi];
+                glVertex3f(p.x, p.y, p.z);
+            }
+            glEnd();
+            glDisable(GL_POLYGON_OFFSET_FILL);
+            glDisable(GL_BLEND);
+        }
+
+        if (g_iSubEditMode == SUB_EDGE && g_iSubEditIndex >= 0 && g_iSubEditIndex < 12) {
+            glDisable(GL_TEXTURE_2D);
+            glDisable(GL_DEPTH_TEST);
+            glLineWidth(4.0f);
+            glColor3ub(255, 255, 0);
+            int i0 = kEdgeVertexIndices[g_iSubEditIndex][0];
+            int i1 = kEdgeVertexIndices[g_iSubEditIndex][1];
+            const glm::vec3& p0 = b.m_vertices[i0];
+            const glm::vec3& p1 = b.m_vertices[i1];
+            glBegin(GL_LINES);
+            glVertex3f(p0.x, p0.y, p0.z);
+            glVertex3f(p1.x, p1.y, p1.z);
+            glEnd();
+            glLineWidth(1.0f);
+            glEnable(GL_DEPTH_TEST);
+        }
+
+        if (g_iSubEditMode == SUB_VERTEX) {
+            glDisable(GL_TEXTURE_2D);
+            for (int v = 0; v < 8; v++) {
+                const glm::vec3& p = b.m_vertices[v];
+                if (v == g_iSubEditIndex) glColor3ub(255, 255, 0);
+                else glColor3ub(220, 220, 220);
+                DrawGlowSphere(p.x, p.y, p.z, 4.0f, 8);
+            }
+        }
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    // --- 画到 ImGui ---
+    // =========================================================
+    // 画到 ImGui 并渲染 Gizmo
+    // =========================================================
     ImGui::Image((ImTextureID)(intptr_t)g_fboTex, viewportSize, ImVec2(0, 1), ImVec2(1, 0));
 
-    // Gizmo
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
     DrawAndManipulateGizmo(view, proj, viewportPos, viewportSize);
 
-    // --- 右上角相机控件 ---
+    // =========================================================
+    // 右上角相机控件
+    // =========================================================
     glm::mat4 camViewIm = view; 
     float camDistance = g_cam.dist;
 
@@ -782,7 +929,7 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
         glm::vec3 eye = glm::vec3(invView[3][0], invView[3][1], invView[3][2]);
         glm::vec3 offset = eye - g_cam.target;
         
-        float r = glm::length(glm::vec2(offset.x, offset.z)); // Y-up 对应的水平面
+        float r = glm::length(glm::vec2(offset.x, offset.z));
         if (r > 0.001f) {
             g_cam.yaw = glm::degrees(std::atan2(offset.z, offset.x));
             g_cam.pitch = glm::degrees(std::atan2(offset.y, r));
@@ -836,7 +983,7 @@ int main(int, char**)
 
     InitGL();
 
-    if (!FgdDatabase::Instance().LoadFromFile("fgd/halflife2.json"))
+    if (!FgdDatabase::Instance().LoadFromFile("halflife2.json"))
         LogAdd("[FGD] FAILED to load halflife2.json, entity panel will be empty");
 
     BuildDefaultScene();
@@ -871,11 +1018,13 @@ int main(int, char**)
             if (ev.type == SDL_KEYDOWN && !io.WantCaptureKeyboard) {
                 SDL_Keycode k = ev.key.keysym.sym;
                 if (k == SDLK_ESCAPE) running = false;
-                else if (k == SDLK_1) g_CurrentGizmoOperation = ImGuizmo::TRANSLATE;
-                else if (k == SDLK_2) g_CurrentGizmoOperation = ImGuizmo::ROTATE;
-                else if (k == SDLK_3) g_CurrentGizmoOperation = ImGuizmo::SCALE;
-                else if (k == SDLK_4) g_CurrentGizmoOperation = ImGuizmo::BOUNDS;
-                else if (k == SDLK_0) g_CurrentGizmoOperation = (ImGuizmo::OPERATION)0; // NONE
+                else if (k == SDLK_1) g_iGizmoMode = GIZMO_TRANSLATE;
+                else if (k == SDLK_2) g_iGizmoMode = GIZMO_ROTATE;
+                else if (k == SDLK_3) g_iGizmoMode = GIZMO_SCALE;
+                else if (k == SDLK_4) g_iGizmoMode = GIZMO_FACE;
+                else if (k == SDLK_5) g_iGizmoMode = GIZMO_EDGE;
+                else if (k == SDLK_6) g_iGizmoMode = GIZMO_VERTEX;
+                else if (k == SDLK_0) g_iGizmoMode = GIZMO_NONE;
                 else if (k == SDLK_z && (ev.key.keysym.mod & KMOD_CTRL)) UndoStack::Instance().Undo();
                 else if (k == SDLK_y && (ev.key.keysym.mod & KMOD_CTRL)) UndoStack::Instance().Redo();
                 else if (k == SDLK_LEFTBRACKET)  g_flGridSize = std::max(1.0f, g_flGridSize*0.5f);
@@ -945,6 +1094,7 @@ int main(int, char**)
             UndoStack::Instance().PushSnapshot("Delete Brush");
             g_brushes.erase(g_brushes.begin() + panelRes.iTargetIndex);
             g_iSelectedBrush = -1;
+            printf("Delete brush %d\n", panelRes.iTargetIndex);
         }
         if (panelRes.bRequestDeleteEntity && panelRes.iTargetEntityIndex >= 0 && panelRes.iTargetEntityIndex < (int)g_entities.size()) {
             UndoStack::Instance().PushSnapshot("Delete Entity");

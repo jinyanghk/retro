@@ -8,6 +8,29 @@
 #include "scene/Entity.h"
 #include "ImGuizmo.h"
 
+enum GizmoMode {
+    GIZMO_NONE = 0,
+    GIZMO_TRANSLATE,
+    GIZMO_ROTATE,
+    GIZMO_SCALE,
+    GIZMO_FACE,
+    GIZMO_EDGE,
+    GIZMO_VERTEX
+};
+
+extern GizmoMode g_iGizmoMode;
+
+enum SubEditMode {
+    SUB_NONE = 0,
+    SUB_FACE,
+    SUB_EDGE,
+    SUB_VERTEX
+};
+
+extern int   g_iSubEditMode;      // SUB_NONE / SUB_FACE / SUB_EDGE / SUB_VERTEX
+extern int   g_iSubEditIndex;     // 选中面/边/点的索引
+extern bool  g_bSubDragging;
+
 extern std::vector<CBrush>  g_brushes;
 extern std::vector<CEntity> g_entities;
 

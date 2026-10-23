@@ -71,22 +71,23 @@ void DrawToolsPanel()
 
     ImGui::Text("Gizmo:");
 
-    bool translate = (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE) != 0;
-    bool rotate    = (g_CurrentGizmoOperation & ImGuizmo::ROTATE) != 0;
-    bool scale     = (g_CurrentGizmoOperation & ImGuizmo::SCALE) != 0;
-    bool bounds    = (g_CurrentGizmoOperation & ImGuizmo::BOUNDS) != 0;
+    struct GizmoItem { const char* label; GizmoMode mode; };
+    GizmoItem items[] = {
+        { "None",      GIZMO_NONE },
+        { "Translate", GIZMO_TRANSLATE },
+        { "Rotate",    GIZMO_ROTATE },
+        { "Scale",     GIZMO_SCALE },
+        { "Face",      GIZMO_FACE },
+        { "Edge",      GIZMO_EDGE },
+        { "Vertex",    GIZMO_VERTEX },
+    };
 
-    if (ImGui::Checkbox("Translate", &translate)) 
-        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::TRANSLATE);
-    ImGui::SameLine();
-    if (ImGui::Checkbox("Rotate", &rotate)) 
-        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::ROTATE);
-    ImGui::SameLine();
-    if (ImGui::Checkbox("Scale", &scale)) 
-        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::SCALE);
-    ImGui::SameLine();
-    if (ImGui::Checkbox("Bounds", &bounds)) 
-        g_CurrentGizmoOperation = (ImGuizmo::OPERATION)((int)g_CurrentGizmoOperation ^ (int)ImGuizmo::BOUNDS);
+    for (int i = 0; i < IM_ARRAYSIZE(items); ++i) {
+        if (i > 0) ImGui::SameLine();
+        bool b = (g_iGizmoMode == items[i].mode);
+        if (ImGui::RadioButton(items[i].label, b))
+            g_iGizmoMode = items[i].mode;
+    }
 
     if (ImGui::RadioButton("Local", g_CurrentGizmoMode == ImGuizmo::LOCAL))
         g_CurrentGizmoMode = ImGuizmo::LOCAL;
@@ -102,14 +103,6 @@ void DrawToolsPanel()
         ImGui::InputFloat("Angle Snap", &g_Snap[0]);
     if (g_CurrentGizmoOperation & ImGuizmo::SCALE)
         ImGui::InputFloat("Scale Snap", &g_Snap[0]);
-    if (g_CurrentGizmoOperation & ImGuizmo::BOUNDS)
-    {
-        ImGui::InputFloat3("Bounds Min", &g_Bounds[0]);
-        ImGui::InputFloat3("Bounds Max", &g_Bounds[3]);
-        ImGui::Checkbox("Snap Bounds", &g_bBoundSizingSnap);
-        if (g_bBoundSizingSnap)
-            ImGui::InputFloat3("Bounds Snap", &g_BoundsSnap[0]);
-    }
 
     ImGui::End();
 }
@@ -141,18 +134,30 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
 
     ImGui::Separator();
     ImGui::Text("Entities (%d):", count);
+    
     ImGui::BeginChild("##EntityListScroll", ImVec2(0, 200), true);
     for (int i = 0; i < count; i++) {
         ImGui::PushID(i);
+
+        // Selectable
+        char label[128]; 
+        snprintf(label, sizeof(label), "%s", entities[i].m_szName.c_str());
         bool sel = (i == *pSelEntity);
-        if (ImGui::Selectable(entities[i].m_szName.c_str(), sel)) {
-            *pSelEntity = i; *pSelBrush = -1;
+        if (ImGui::Selectable(label, sel)) {
+            *pSelEntity = i; 
+            *pSelBrush = -1;
         }
+
+        // Del 按钮
         ImGui::SameLine();
+        ImGui::PushID("Del");
         if (ImGui::SmallButton("Del")) {
+            printf("[UI] Del clicked for entity %d\n", i);
             out.bRequestDeleteEntity = true;
             out.iTargetEntityIndex   = i;
         }
+        ImGui::PopID();
+
         ImGui::PopID();
     }
     ImGui::EndChild();
@@ -163,9 +168,7 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
         CEntity& e = entities[*pSelEntity];
         ImGui::Text("Selected: %s", e.m_szName.c_str());
 
-        if (ImGui::DragFloat3("Position", glm::value_ptr(e.m_vecPos), 1.0f, -4096.f, 4096.f, "%.1f")) {
-            // 拖动过程中每帧都会触发，我们只在 activated 时 PushSnapshot
-        }
+        if (ImGui::DragFloat3("Position", glm::value_ptr(e.m_vecPos), 1.0f, -4096.f, 4096.f, "%.1f")) {}
         if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Entity Pos");
 
         if (ImGui::DragFloat3("Angles", glm::value_ptr(e.m_angRot), 0.5f, -180.f, 180.f, "%.1f")) {}
@@ -185,7 +188,6 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
 
                 std::string label = kv.name;
                 if (!kv.description.empty()) {
-                    // ImGui 标签里 "##" 之后不显示
                     label = kv.description + "##" + kv.name;
                 }
 
@@ -264,16 +266,41 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
     ImGui::Separator();
 
     ImGui::Text("Brushes (%d):", count);
+    
     ImGui::BeginChild("##BrushListScroll", ImVec2(0, 200), true);
     for (int i = 0; i < count; i++) {
+        // 用数字 i 做外层 PushID
         ImGui::PushID(i);
-        char label[64]; snprintf(label, sizeof(label), "brush #%d", i);
+
+        // 1. Selectable 占据左侧空间，只负责选择
+        char label[64]; 
+        snprintf(label, sizeof(label), "brush #%d", i);
         bool sel = (i == *pSelBrush);
-        if (ImGui::Selectable(label, sel)) { *pSelBrush = i; *pSelEntity = -1; }
+        if (ImGui::Selectable(label, sel)) { 
+            *pSelBrush = i; 
+            *pSelEntity = -1; 
+        }
+        
+        // 2. Dup 按钮
         ImGui::SameLine();
-        if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.iTargetIndex = i; }
+        ImGui::PushID("Dup");
+        if (ImGui::SmallButton("Dup")) { 
+            printf("[UI] Dup clicked for brush %d\n", i);
+            out.bRequestDuplicate = true; 
+            out.iTargetIndex = i; 
+        }
+        ImGui::PopID();
+
+        // 3. Del 按钮
         ImGui::SameLine();
-        if (ImGui::SmallButton("Del")) { out.bRequestDelete    = true; out.iTargetIndex = i; }
+        ImGui::PushID("Del");
+        if (ImGui::SmallButton("Del")) { 
+            printf("[UI] Del clicked for brush %d\n", i);
+            out.bRequestDelete = true; 
+            out.iTargetIndex = i; 
+        }
+        ImGui::PopID();
+
         ImGui::PopID();
     }
     ImGui::EndChild();
@@ -282,10 +309,9 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
     if (*pSelBrush >= 0 && *pSelBrush < count) {
         CBrush& b = const_cast<CBrush&>(brushes[*pSelBrush]);
         ImGui::Text("Brush #%d", *pSelBrush);
+        
         if (ImGui::DragFloat3("Center", glm::value_ptr(b.m_vecPos), 1.0f)) {
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Center");
-            glm::vec3 d = b.m_vecPos - b.GetBBoxMins() - b.m_vecSize;
-            // 简化：全量重建
             b.RebuildPrimitiveMesh();
         }
         if (ImGui::DragFloat3("HalfSize", glm::value_ptr(b.m_vecSize), 0.5f, 0.1f, 4096.f)) {

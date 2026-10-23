@@ -22,3 +22,9 @@ bool  g_bShowGizmo = true;
 bool  g_bXRayGizmo = false;
 bool  g_bAutoSaveEnabled = true;
 bool  g_bBlockToolActive = false;
+
+int  g_iSubEditMode  = SUB_NONE;
+int  g_iSubEditIndex = -1;
+bool g_bSubDragging  = false;
+
+GizmoMode g_iGizmoMode = GIZMO_TRANSLATE;
