@@ -239,6 +239,8 @@ int main(int, char**) {
     std::vector<float> verts(nv * 6); f.read((char*)verts.data(), nv * 6 * 4);
     std::vector<uint32_t> indices(ni); f.read((char*)indices.data(), ni * 4);
     if (f.read((char*)spawnPos, sizeof(spawnPos))) f.read((char*)spawnAngles, sizeof(spawnAngles));
+    
+    // 读取 Trigger 数据
     uint32_t numTriggers = 0;
     std::vector<glm::vec3> triggerMins, triggerMaxs;
     if (f.read((char*)&numTriggers, 4)) {
@@ -247,6 +249,18 @@ int main(int, char**) {
             triggerMins.push_back(glm::vec3(tb[i*6+0], tb[i*6+1], tb[i*6+2]));
             triggerMaxs.push_back(glm::vec3(tb[i*6+3], tb[i*6+4], tb[i*6+5]));
         }
+    }
+    
+    // ★ 读取 Physbox 数据
+    uint32_t numPhysboxes = 0;
+    std::vector<glm::vec3> physboxMins, physboxMaxs;
+    if (f.read((char*)&numPhysboxes, 4)) {
+        std::vector<float> pb(numPhysboxes * 6); f.read((char*)pb.data(), pb.size() * 4);
+        for (uint32_t i = 0; i < numPhysboxes; i++) {
+            physboxMins.push_back(glm::vec3(pb[i*6+0], pb[i*6+1], pb[i*6+2]));
+            physboxMaxs.push_back(glm::vec3(pb[i*6+3], pb[i*6+4], pb[i*6+5]));
+        }
+        printf("Loaded %u physbox zones.\n", numPhysboxes);
     }
     f.close();
 
@@ -347,17 +361,30 @@ int main(int, char**) {
         player_body = body_interface.CreateAndAddBody(player_settings, JPH::EActivation::Activate);
     }
 
-    // 动态箱子
-    JPH::BodyID box_id;
-    {
-        JPH::BoxShapeSettings box_shape(JPH::Vec3(16, 16, 16));
-        JPH::BodyCreationSettings box_settings(box_shape.Create().Get(), JPH::RVec3(spawnPos[0] + 100.0f, spawnPos[1], spawnPos[2]), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+    // ★ 为每个 func_physbox 创建 Jolt 动态刚体
+    std::vector<JPH::BodyID> physboxIds;
+    for (size_t i = 0; i < physboxMins.size(); i++) {
+        glm::vec3 mn = physboxMins[i];
+        glm::vec3 mx = physboxMaxs[i];
+        glm::vec3 center = (mn + mx) * 0.5f;
+        glm::vec3 halfSize = (mx - mn) * 0.5f;
+        
+        JPH::BoxShapeSettings box_shape(JPH::Vec3(halfSize.x, halfSize.y, halfSize.z));
+        JPH::BodyCreationSettings box_settings(
+            box_shape.Create().Get(), 
+            JPH::RVec3(center.x, center.y, center.z), 
+            JPH::Quat::sIdentity(), 
+            JPH::EMotionType::Dynamic, 
+            Layers::MOVING
+        );
         box_settings.mLinearDamping = 0.2f;
         box_settings.mFriction = 0.5f;
-        box_id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
+        JPH::BodyID id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
+        physboxIds.push_back(id);
     }
+    printf("Created %zu physboxes in Jolt.\n", physboxIds.size());
 
-    // 箱子可视化网格
+    // 箱子可视化网格 (用于渲染所有的 physbox)
     GLuint box_vao, box_vbo, box_ebo;
     glGenVertexArrays(1, &box_vao); glGenBuffers(1, &box_vbo); glGenBuffers(1, &box_ebo);
     std::vector<float> box_verts = {
@@ -484,27 +511,28 @@ int main(int, char**) {
         );
 
         // ====================================================================
-        // 物理推挤增强：如果在箱子附近，施加冲量（Impulse）
+        // 物理推挤增强：针对所有 Physbox 施加冲量
         // ====================================================================
         {
-            JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(box_id);
-            glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
-            
-            // 计算玩家和箱子的水平距离
-            glm::vec3 diff = playerPos - bpos;
-            diff.y = 0.0f; // 忽略Y轴，只要贴得近就推
-            
-            float horizontalDist = glm::length(diff);
-            // 如果玩家在箱子周围 40 单位内，且正在朝箱子方向移动
-            if (horizontalDist < 40.0f) {
-                glm::vec3 pushDir = glm::normalize(-diff); // 玩家朝箱子的方向
-                float dot = glm::dot(glm::normalize(glm::vec3(playerVel.x, 0, playerVel.z)), pushDir);
+            for (size_t i = 0; i < physboxIds.size(); i++) {
+                JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(physboxIds[i]);
+                glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
                 
-                if (dot > 0.1f) { // 玩家确实在朝箱子走
-                    // 增加冲量（Impulse，直接改变速度，比 Force 响应更快）
-                    JPH::Vec3 impulse(pushDir.x * 80.0f, 0.0f, pushDir.z * 80.0f);
-                    body_interface.AddImpulse(box_id, impulse);
-                    body_interface.ActivateBody(box_id);
+                glm::vec3 diff = playerPos - bpos;
+                diff.y = 0.0f; // 忽略Y轴，只要贴得近就推
+                
+                float horizontalDist = glm::length(diff);
+                // 如果玩家在箱子周围 48 单位内，且正在朝箱子方向移动
+                if (horizontalDist < 48.0f) {
+                    glm::vec3 pushDir = glm::normalize(-diff); // 玩家朝箱子的方向
+                    float dot = glm::dot(glm::normalize(glm::vec3(playerVel.x, 0, playerVel.z)), pushDir);
+                    
+                    if (dot > 0.1f) { // 玩家确实在朝箱子走
+                        // 增加冲量
+                        JPH::Vec3 impulse(pushDir.x * 80.0f, 0.0f, pushDir.z * 80.0f);
+                        body_interface.AddImpulse(physboxIds[i], impulse);
+                        body_interface.ActivateBody(physboxIds[i]);
+                    }
                 }
             }
         }
@@ -521,8 +549,7 @@ int main(int, char**) {
         ImGui::Text("Pos: %.1f, %.1f, %.1f", playerPos.x, playerPos.y, playerPos.z);
         ImGui::Text("Grounded: %s", isGrounded ? "YES" : "NO");
         ImGui::Text("Tris: %zu BVH nodes: %zu", g_sortedTris.size(), g_bvh.size());
-        JPH::RVec3 dbg_box = body_interface.GetCenterOfMassPosition(box_id);
-        ImGui::Text("Box Pos: %.1f, %.1f, %.1f", (float)dbg_box.GetX(), (float)dbg_box.GetY(), (float)dbg_box.GetZ());
+        ImGui::Text("Physboxes: %zu", physboxIds.size());
         ImGui::End();
 
         int scrW, scrH; SDL_GetWindowSize(window, &scrW, &scrH);
@@ -565,25 +592,34 @@ int main(int, char**) {
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, ni, GL_UNSIGNED_INT, 0);
 
-        // 渲染 Jolt 箱子
-        JPH::RMat44 box_transform = body_interface.GetWorldTransform(box_id);
-        JPH::Vec3 t = box_transform.GetTranslation();
-        JPH::Quat q = box_transform.GetQuaternion();
-        glm::vec3 box_pos((float)t.GetX(), (float)t.GetY(), (float)t.GetZ());
-        glm::quat box_quat((float)q.GetW(), (float)q.GetX(), (float)q.GetY(), (float)q.GetZ());
-        glm::mat4 box_model = glm::translate(glm::mat4(1.0f), box_pos) * glm::mat4_cast(box_quat) * glm::scale(glm::mat4(1.0f), glm::vec3(16.0f));
-        glm::mat4 box_mvp = projection * view * box_model;
-        glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(box_mvp));
-        glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(box_model));
-        glBindVertexArray(box_vao);
-        glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        // 渲染所有 Jolt Physbox 箱子
+        for (size_t i = 0; i < physboxIds.size(); i++) {
+            JPH::RMat44 box_transform = body_interface.GetWorldTransform(physboxIds[i]);
+            JPH::Vec3 t = box_transform.GetTranslation();
+            JPH::Quat q = box_transform.GetQuaternion();
+            glm::vec3 box_pos((float)t.GetX(), (float)t.GetY(), (float)t.GetZ());
+            glm::quat box_quat((float)q.GetW(), (float)q.GetX(), (float)q.GetY(), (float)q.GetZ());
+            
+            // 从 Physbox 数据中获取半长，用来缩放
+            glm::vec3 halfSize = (physboxMaxs[i] - physboxMins[i]) * 0.5f;
+            
+            glm::mat4 box_model = glm::translate(glm::mat4(1.0f), box_pos) * glm::mat4_cast(box_quat) * glm::scale(glm::mat4(1.0f), halfSize);
+            glm::mat4 box_mvp = projection * view * box_model;
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(box_mvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(box_model));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        }
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }
 
     // 清理
-    body_interface.RemoveBody(box_id); body_interface.DestroyBody(box_id);
+    for (auto id : physboxIds) {
+        body_interface.RemoveBody(id);
+        body_interface.DestroyBody(id);
+    }
     JPH::UnregisterTypes();
     delete JPH::Factory::sInstance; JPH::Factory::sInstance = nullptr;
     delete job_system; delete temp_allocator;

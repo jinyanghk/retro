@@ -20,6 +20,7 @@ int main() {
     std::vector<float>    verts;    // x,y,z, nx,ny,nz  (6 floats/顶点)
     std::vector<uint32_t> indices;
     std::vector<float> triggerBounds; // 每个触发器 6 个 float: minX, minY, minZ, maxX, maxY, maxZ
+    std::vector<float> physboxBounds;
 
     auto push_vertex = [&](const Vec3& p, const Vec3& n) -> uint32_t {
         uint32_t id = (uint32_t)(verts.size() / 6);
@@ -102,6 +103,21 @@ int main() {
                     std::cout << "Trigger entity at (" << cx << ", " << cy << ", " << cz << ") with size 64x64x64\n";
                 }
             }
+            else if (classname == "func_physbox") {
+                if (je.contains("origin")) {
+                    float cx = je["origin"][0].get<float>();
+                    float cy = je["origin"][1].get<float>();
+                    float cz = je["origin"][2].get<float>();
+                    
+                    // 用 FGD 的默认大小（或者暂时写死 32，等以后能改 BBox 了再换）
+                    float halfSize = 32.0f; 
+                    physboxBounds.insert(physboxBounds.end(), { 
+                        cx - halfSize, cy - halfSize, cz - halfSize,
+                        cx + halfSize, cy + halfSize, cz + halfSize 
+                    });
+                    std::cout << "Physbox entity at (" << cx << ", " << cy << ", " << cz << ")\n";
+                }
+            }
         }
     }
 
@@ -124,6 +140,11 @@ int main() {
     uint32_t numTriggers = triggerBounds.size() / 6;
     out.write((char*)&numTriggers, 4);
     out.write((char*)triggerBounds.data(), triggerBounds.size() * sizeof(float));
+
+    // ★ 追加 physbox 数据
+    uint32_t numPhysboxes = physboxBounds.size() / 6;
+    out.write((char*)&numPhysboxes, 4);
+    out.write((char*)physboxBounds.data(), physboxBounds.size() * sizeof(float));
 
     std::cout << "Compiled map.bsp: " << nv << " verts, " << ni << " indices\n";
     std::cout << "Spawn: (" << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << ")\n";
