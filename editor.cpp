@@ -68,7 +68,7 @@ struct Camera {
     glm::vec3 target = glm::vec3(0, 100, 0); // 目标看向房间中心
     float yaw   = 0.0f;
     float pitch = 0.0f;
-    float dist  = 500.0f;
+    float dist  = 200.0f;
 
     glm::vec3 GetEye() const {
         float rp = glm::radians(pitch);
@@ -1015,7 +1015,7 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     }
 
     // =========================================================
-    // 右上角相机控件
+    // 右上角相机控件 (Orientation Cube / ViewManipulate)
     // =========================================================
     glm::mat4 camViewIm = view; 
     float camDistance = g_cam.dist;
@@ -1024,18 +1024,28 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     ImGui::SetCursorScreenPos(viewManipulatePos);
     
     ImGuizmo::PushID("MyViewManip");
+    // ImGuizmo 会在内部把点击后计算出的新朝向写入 camViewIm
     ImGuizmo::ViewManipulate(glm::value_ptr(camViewIm), camDistance, viewManipulatePos, ImVec2(128, 128), 0x10101010);
     
-    if (ImGuizmo::IsUsingViewManipulate() && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    ImRect viewManipRect(viewManipulatePos, ImVec2(viewManipulatePos.x + 128, viewManipulatePos.y + 128));
+    
+    // 只要正在使用罗盘，或者鼠标点击了罗盘区域，我们就同步相机的朝向
+    if (ImGuizmo::IsUsingViewManipulate() || (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsMouseHoveringRect(viewManipRect.Min, viewManipRect.Max)))
+    {
+        // camViewIm 是 View 矩阵，所以它的逆矩阵包含了相机的 Eye 坐标
         glm::mat4 invView = glm::inverse(camViewIm);
         glm::vec3 eye = glm::vec3(invView[3][0], invView[3][1], invView[3][2]);
+        
+        // 算出从 Target 到 Eye 的偏移向量
         glm::vec3 offset = eye - g_cam.target;
         
-        float r = glm::length(glm::vec2(offset.x, offset.z));
+        // 根据这个偏移重算 Yaw 和 Pitch（你的引擎用的是 Y-Up 坐标系）
+        float r = glm::length(glm::vec2(offset.x, offset.z)); // 水平面半径
         if (r > 0.001f) {
             g_cam.yaw = glm::degrees(std::atan2(offset.z, offset.x));
             g_cam.pitch = glm::degrees(std::atan2(offset.y, r));
         }
+        // 同步距离
         g_cam.dist = glm::length(offset);
     }
     ImGuizmo::PopID();
