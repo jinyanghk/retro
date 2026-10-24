@@ -28,7 +28,7 @@ target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_link_libraries(imgui PUBLIC SDL2::SDL2 OpenGL::GL)
 
 # ---------- ImGuizmo ----------
-set(IMGUIZMO_DIR ${CMAKE_SOURCE_DIR}/../imguizmo/src/)
+set(IMGUIZMO_DIR ${CMAKE_SOURCE_DIR}/../ImGuizmo/src/)
 add_library(imguizmo STATIC
     ${IMGUIZMO_DIR}/ImGuizmo.cpp
     ${IMGUIZMO_DIR}/GraphEditor.cpp
