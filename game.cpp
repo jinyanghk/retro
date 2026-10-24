@@ -111,6 +111,21 @@ int main(int, char**) {
     } else {
         printf("Warning: No spawn point data, using default.\n");
     }
+
+    // 读取触发器
+    uint32_t numTriggers = 0;
+    std::vector<glm::vec3> triggerMins, triggerMaxs;
+
+    if (f.read((char*)&numTriggers, 4)) {
+        std::vector<float> tb(numTriggers * 6);
+        f.read((char*)tb.data(), tb.size() * 4);
+        for (uint32_t i = 0; i < numTriggers; i++) {
+            triggerMins.push_back(glm::vec3(tb[i*6+0], tb[i*6+1], tb[i*6+2]));
+            triggerMaxs.push_back(glm::vec3(tb[i*6+3], tb[i*6+4], tb[i*6+5]));
+        }
+        printf("Loaded %u trigger zones.\n", numTriggers);
+    }    
+
     f.close();
 
     // ★ 防止顶点索引越界
@@ -321,6 +336,28 @@ int main(int, char**) {
                 playerPos.z += dz;
             }
         }
+
+        // ---------- 触发器检测 ----------
+        // 玩家的 AABB 包围盒
+        glm::vec3 playerMin = playerPos - glm::vec3(playerRadius, playerHeight * 0.5f, playerRadius);
+        glm::vec3 playerMax = playerPos + glm::vec3(playerRadius, playerHeight * 0.5f, playerRadius);
+
+        for (size_t i = 0; i < triggerMins.size(); i++) {
+            // 检查两个 AABB 是否相交
+            if (playerMax.x >= triggerMins[i].x && playerMin.x <= triggerMaxs[i].x &&
+                playerMax.y >= triggerMins[i].y && playerMin.y <= triggerMaxs[i].y &&
+                playerMax.z >= triggerMins[i].z && playerMin.z <= triggerMaxs[i].z) {
+                
+                printf("Player entered trigger zone %zu!\n", i);
+                // 触发胜利逻辑：
+                // 1. 传送到出生点
+                playerPos = glm::vec3(spawnPos[0], spawnPos[1] + 36.0f, spawnPos[2]);
+                playerVel = glm::vec3(0.0f);
+                // 2. 或者可以直接 running = false; 退出游戏
+                // running = false; 
+                break;
+            }
+        }        
 
         // ... 渲染部分保持不变 ...
         // ---------- 渲染 ----------

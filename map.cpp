@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 #include <nlohmann/json.hpp>
+#include <algorithm> // std::min, std::max
 
 using json = nlohmann::json;
 
@@ -18,6 +19,7 @@ int main() {
 
     std::vector<float>    verts;    // x,y,z, nx,ny,nz  (6 floats/顶点)
     std::vector<uint32_t> indices;
+    std::vector<float> triggerBounds; // 每个触发器 6 个 float: minX, minY, minZ, maxX, maxY, maxZ
 
     auto push_vertex = [&](const Vec3& p, const Vec3& n) -> uint32_t {
         uint32_t id = (uint32_t)(verts.size() / 6);
@@ -58,6 +60,20 @@ int main() {
                 indices.push_back(v0); indices.push_back(v1); indices.push_back(v2);
                 indices.push_back(v0); indices.push_back(v2); indices.push_back(v3);
             }
+
+            std::string mat = jb.value("material", "");
+            if (mat == "TRIGGER_END" || mat == "TRIGGER_WIN") {
+                // 计算该 Brush 的包围盒
+                float minX = 999999, minY = 999999, minZ = 999999;
+                float maxX = -999999, maxY = -999999, maxZ = -999999;
+                for (const auto& jv : jb["vertices"]) {
+                    Vec3 v = to_vec3(jv); // ★ 修正：使用自定义的 Vec3 而不是 glm::vec3
+                    minX = std::min(minX, v.x); maxX = std::max(maxX, v.x);
+                    minY = std::min(minY, v.y); maxY = std::max(maxY, v.y);
+                    minZ = std::min(minZ, v.z); maxZ = std::max(maxZ, v.z);
+                }
+                triggerBounds.insert(triggerBounds.end(), { minX, minY, minZ, maxX, maxY, maxZ });
+            }            
         }
     }
 
@@ -72,7 +88,7 @@ int main() {
     out.write((char*)verts.data(), verts.size() * sizeof(float));
     out.write((char*)indices.data(), indices.size() * sizeof(uint32_t));
 
-    // --- 新增：解析 info_player_start 并写入 BSP ---
+    // --- 解析 info_player_start 并写入 BSP ---
     float spawnPos[3] = { 0.0f, 32.0f, 0.0f }; // 默认位置
     float spawnAngles[3] = { 0.0f, 0.0f, 0.0f }; // 默认角度 (pitch, yaw, roll)
 
@@ -98,8 +114,15 @@ int main() {
     out.write((char*)spawnPos, sizeof(spawnPos));
     out.write((char*)spawnAngles, sizeof(spawnAngles));
 
+    // 写入触发器数量
+    uint32_t numTriggers = triggerBounds.size() / 6;
+    out.write((char*)&numTriggers, 4);
+    // 写入触发器包围盒数据
+    out.write((char*)triggerBounds.data(), triggerBounds.size() * sizeof(float));
+
     std::cout << "Compiled map.bsp: " << nv << " verts (" << verts.size()/6
               << "), " << ni << " indices\n";
     std::cout << "Spawn point: " << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << "\n";
+    std::cout << "Triggers: " << numTriggers << "\n";
     return 0;
 }
