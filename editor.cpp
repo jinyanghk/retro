@@ -869,7 +869,11 @@ static void OnImportMap() {
 static void OnCompileAndRun() {
     if (!ExportMapJson("map.json")) { LogAdd("[COMPILE] export map.json FAILED"); return; }
     int ret = system("map");
-    char b[128]; snprintf(b, sizeof(b), "[COMPILE] map.exe exit=%d", ret);
+    char b[128]; 
+    snprintf(b, sizeof(b), "[COMPILE] map.exe exit=%d", ret);
+    LogAdd(b);
+    ret = system("game");
+    snprintf(b, sizeof(b), "[COMPILE] game.exe exit=%d", ret);
     LogAdd(b);
 }
 

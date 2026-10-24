@@ -13,7 +13,7 @@ static LayoutMode s_layoutMode         = LAYOUT_DEFAULT;
 //-----------------------------------------------------------------------------
 void SetLayoutMode(LayoutMode mode)
 {
-    s_layoutMode       = LAYOUT_DEFAULT;
+    s_layoutMode       = mode;
     s_bResetRequested  = true;
 }
 
@@ -26,6 +26,7 @@ LayoutMode GetLayoutMode()
 //-----------------------------------------------------------------------------
 void ResetDefaultLayout()
 {
+    s_layoutMode = LAYOUT_DEFAULT;
     s_bResetRequested = true;
 }
 
@@ -64,8 +65,7 @@ void Begin()
         ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
 
-        // ========== 核心：真正的预热 ==========
-        // 先让 ImGui 注册这些窗口，DockBuilder 才能识别它们
+        // 预热窗口
         const char* allWindows[] = {
             "3D View", "Top View", "Front View", "Side View",
             "Entity", "Brush", "Console", "Tools"
@@ -74,33 +74,53 @@ void Begin()
             ImGui::Begin(name, nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar);
             ImGui::End();
         }
-        // =====================================
 
         ImGuiID dock_main = dockspace_id;
         
-        // 右侧 25%
+        // 1. 先切右侧（占 25%）
         ImGuiID dock_right = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Right, 0.25f, nullptr, &dock_main);
-        // 底部 20%
+        
+        // 2. 再切底部（占 20%）
         ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Down, 0.20f, nullptr, &dock_main);
 
-        // 中间 4 个视图并列
-        ImGui::DockBuilderDockWindow("3D View",    dock_main);
-        ImGui::DockBuilderDockWindow("Top View",   dock_main);
-        ImGui::DockBuilderDockWindow("Front View", dock_main);
-        ImGui::DockBuilderDockWindow("Side View",  dock_main);
-
-        // 右侧
+        // 右侧和底部的固定窗口
         ImGui::DockBuilderDockWindow("Entity",  dock_right);
         ImGui::DockBuilderDockWindow("Brush",   dock_right);
-        // 底部
         ImGui::DockBuilderDockWindow("Console", dock_bottom);
         ImGui::DockBuilderDockWindow("Tools",   dock_bottom);
+
+        if (s_layoutMode == LAYOUT_DEFAULT)
+        {
+            // 默认：四个视图全叠在 dock_main
+            ImGui::DockBuilderDockWindow("3D View",    dock_main);
+            ImGui::DockBuilderDockWindow("Top View",   dock_main);
+            ImGui::DockBuilderDockWindow("Front View", dock_main);
+            ImGui::DockBuilderDockWindow("Side View",  dock_main);
+        }
+        else if (s_layoutMode == LAYOUT_QUAD)
+        {
+            // 四宫格：先把 dock_main 垂直（上下）一分为二
+            ImGuiID dock_top_half, dock_bottom_half;
+            dock_top_half = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Up, 0.50f, nullptr, &dock_bottom_half);
+            
+            // 然后再把上下两半分别水平（左右）一分为二
+            ImGuiID dock_top_left, dock_top_right;
+            dock_top_left = ImGui::DockBuilderSplitNode(dock_top_half, ImGuiDir_Left, 0.50f, nullptr, &dock_top_right);
+
+            ImGuiID dock_bottom_left, dock_bottom_right;
+            dock_bottom_left = ImGui::DockBuilderSplitNode(dock_bottom_half, ImGuiDir_Left, 0.50f, nullptr, &dock_bottom_right);
+
+            // 分配四个视图
+            ImGui::DockBuilderDockWindow("3D View",    dock_top_left);
+            ImGui::DockBuilderDockWindow("Top View",   dock_top_right);
+            ImGui::DockBuilderDockWindow("Front View", dock_bottom_left);
+            ImGui::DockBuilderDockWindow("Side View",  dock_bottom_right);
+        }
 
         ImGui::DockBuilderFinish(dockspace_id);
     }
 
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), 0);
-
     ImGui::End();
 }
 

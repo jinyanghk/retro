@@ -14,6 +14,7 @@
 #include "scene/SceneGlobals.h"
 #include "app/UndoStack.h"
 #include "fgd/FgdDatabase.h"
+#include "app/EditorLayout.h"
 
 // ---------- handlers ----------
 static void (*s_pfnExportMap)() = nullptr;
@@ -60,6 +61,20 @@ void DrawMenuBar()
                 UndoStack::Instance().Redo();
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("View"))
+        {
+            if (ImGui::MenuItem("Default Layout (Tabs)", nullptr, EditorLayout::GetLayoutMode() == EditorLayout::LAYOUT_DEFAULT))
+                EditorLayout::SetLayoutMode(EditorLayout::LAYOUT_DEFAULT);
+            
+            if (ImGui::MenuItem("Quad Layout (4 Views)", nullptr, EditorLayout::GetLayoutMode() == EditorLayout::LAYOUT_QUAD))
+                EditorLayout::SetLayoutMode(EditorLayout::LAYOUT_QUAD);
+            
+            ImGui::Separator();
+            if (ImGui::MenuItem("Reset Layout"))
+                EditorLayout::ResetDefaultLayout();
+
+            ImGui::EndMenu();
+        }        
         ImGui::EndMainMenuBar();
     }
 }
