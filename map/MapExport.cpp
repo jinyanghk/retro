@@ -66,7 +66,7 @@ bool ExportMapJson(const std::string& path)
         char b[256]; snprintf(b, sizeof(b), "[MAP] FAILED to open %s", path.c_str()); LogAdd(b);
         return false;
     }
-    f << root.dump(2);
+    f << root;//.dump(2);
     f.close();
 
     char b[256]; snprintf(b, sizeof(b), "[MAP] exported %s (%zu brushes, %zu entities)",

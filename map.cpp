@@ -72,7 +72,34 @@ int main() {
     out.write((char*)verts.data(), verts.size() * sizeof(float));
     out.write((char*)indices.data(), indices.size() * sizeof(uint32_t));
 
+    // --- 新增：解析 info_player_start 并写入 BSP ---
+    float spawnPos[3] = { 0.0f, 32.0f, 0.0f }; // 默认位置
+    float spawnAngles[3] = { 0.0f, 0.0f, 0.0f }; // 默认角度 (pitch, yaw, roll)
+
+    if (data.contains("entities")) {
+        for (const auto& je : data["entities"]) {
+            if (je.contains("classname") && je["classname"].get<std::string>() == "info_player_start") {
+                if (je.contains("origin")) {
+                    spawnPos[0] = je["origin"][0].get<float>();
+                    spawnPos[1] = je["origin"][1].get<float>();
+                    spawnPos[2] = je["origin"][2].get<float>();
+                }
+                if (je.contains("angles")) {
+                    spawnAngles[0] = je["angles"][0].get<float>();
+                    spawnAngles[1] = je["angles"][1].get<float>();
+                    spawnAngles[2] = je["angles"][2].get<float>();
+                }
+                break; // 找到第一个就退出
+            }
+        }
+    }
+
+    // 将出生点写入文件尾部
+    out.write((char*)spawnPos, sizeof(spawnPos));
+    out.write((char*)spawnAngles, sizeof(spawnAngles));
+
     std::cout << "Compiled map.bsp: " << nv << " verts (" << verts.size()/6
               << "), " << ni << " indices\n";
+    std::cout << "Spawn point: " << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << "\n";
     return 0;
 }
