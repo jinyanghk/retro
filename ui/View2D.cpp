@@ -182,6 +182,9 @@ static void DrawGrid2D(ImDrawList* draw, const View2D& view, const ImVec2& canva
 
 static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
 {
+    // 加一个裁剪区域，防止画出窗口外
+    draw->PushClipRect(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), true);
+
     for (size_t i = 0; i < g_brushes.size(); i++) {
         const CBrush& b = g_brushes[i];
         float minX, maxX, minY, maxY;
@@ -189,13 +192,29 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
 
         ImVec2 p1 = WorldToScreen2D(minX, minY, view, canvasPos, canvasSize);
         ImVec2 p2 = WorldToScreen2D(maxX, maxY, view, canvasPos, canvasSize);
-        bool bSelected = ((int)i == g_iSelectedBrush);
-        ImU32 color = bSelected ? IM_COL32(255, 255, 0, 255) : IM_COL32(200, 200, 200, 255);
 
-        draw->AddRectFilled(p1, p2, IM_COL32(120, 120, 120, 80));
-        draw->AddRect(p1, p2, color, 0.0f, 0, bSelected ? 2.0f : 1.0f);
+        // 确保 p1 是左上角，p2 是右下角（因为屏幕 Y 轴是向下的，世界 Y 轴是向上的）
+        ImVec2 minP(std::min(p1.x, p2.x), std::min(p1.y, p2.y));
+        ImVec2 maxP(std::max(p1.x, p2.x), std::max(p1.y, p2.y));
+
+        // 如果尺寸太小，至少画个 4x4 的框，方便看到点
+        if (maxP.x - minP.x < 4.0f) { maxP.x = minP.x + 4.0f; }
+        if (maxP.y - minP.y < 4.0f) { maxP.y = minP.y + 4.0f; }
+
+        bool bSelected = ((int)i == g_iSelectedBrush);
+
+        if (bSelected) {
+            // 选中的画刷：黄色半透明填充 + 实线边框
+            draw->AddRectFilled(minP, maxP, IM_COL32(255, 255, 0, 60));
+            draw->AddRect(minP, maxP, IM_COL32(255, 255, 0, 255), 0.0f, 0, 2.0f);
+        } else {
+            // 未选中的画刷：灰色线条 + 淡淡的填充
+            draw->AddRectFilled(minP, maxP, IM_COL32(100, 100, 100, 40));
+            draw->AddRect(minP, maxP, IM_COL32(180, 180, 180, 255), 0.0f, 0, 1.0f);
+        }
     }
 
+    // 选中画刷的 8 个手柄
     if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
         float handles[8][2];
         GetBrushHandles(g_brushes[g_iSelectedBrush], view, handles);
@@ -208,6 +227,8 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
             draw->AddRect(hMin, hMax, IM_COL32(0, 0, 0, 255));
         }
     }
+
+    draw->PopClipRect();
 }
 
 static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
