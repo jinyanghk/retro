@@ -6,6 +6,8 @@
 #include <cstring>
 #include <vector>
 #include <string>
+#include <algorithm>
+#include <cctype>
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -25,7 +27,7 @@ void SetExportMapHandler(void (*pfn)()) { s_pfnExportMap = pfn; }
 void SetImportMapHandler(void (*pfn)()) { s_pfnImportMap = pfn; }
 void SetCompileAndRunHandler(void (*pfn)()) { s_pfnCompileAndRun = pfn; }
 
-// ---------- 简单日志缓冲（替代 Hammer 的 LogBuffer）----------
+// ---------- 简单日志缓冲 ----------
 #include <deque>
 static std::deque<std::string> g_logLines;
 void LogAdd(const char* s) {
@@ -137,20 +139,9 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
 {
     if (!ImGui::Begin("Entity")) { ImGui::End(); return; }
 
-    // 列表
-    if (ImGui::Button("+ New Entity")) {
-        out.bRequestNewEntity = true;
-        out.szNewEntityClass   = "info_player_start";
-    }
-    ImGui::SameLine();
-    static char s_filter[64] = "";
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::InputText("Filter##EntityList", s_filter, sizeof(s_filter));
-
-    ImGui::Separator();
+    // 1. 实体列表
     ImGui::Text("Entities (%d):", count);
-    
-    ImGui::BeginChild("##EntityListScroll", ImVec2(0, 200), true);
+    ImGui::BeginChild("##EntityListScroll", ImVec2(0, 150), true);
     for (int i = 0; i < count; i++) {
         ImGui::PushID(i);
 
@@ -165,6 +156,7 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
         char label[128];
         snprintf(label, sizeof(label), "%s", entities[i].m_szName.c_str());
         bool sel = (i == *pSelEntity);
+        // ★ 关键修复：给 Selectable 传具体宽度，防止覆盖右侧按钮
         if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_None, ImVec2(selW, 0))) {
             *pSelEntity = i;
             *pSelBrush  = -1;
@@ -183,7 +175,7 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
     }
     ImGui::EndChild();
 
-    // 属性
+    // 2. 选中实体的属性
     ImGui::Separator();
     if (*pSelEntity >= 0 && *pSelEntity < count) {
         CEntity& e = entities[*pSelEntity];
@@ -274,6 +266,37 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
         }
     }
 
+    // 3. 实体创建列表 (带搜索)
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("Create Entity", ImGuiTreeNodeFlags_DefaultOpen)) {
+        static char s_entityFilter[64] = "";
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##EntityFilter", "Search classname...", s_entityFilter, sizeof(s_entityFilter));
+
+        ImGui::BeginChild("##EntityPaletteChild", ImVec2(0, 200), true);
+        
+        // 读取 FgdDatabase 列表
+        std::vector<std::string> allClasses = FgdDatabase::Instance().GetClassList();
+        std::sort(allClasses.begin(), allClasses.end());
+
+        std::string filterStr = s_entityFilter;
+        std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), ::tolower);
+
+        for (const auto& className : allClasses) {
+            std::string lowerClass = className;
+            std::transform(lowerClass.begin(), lowerClass.end(), lowerClass.begin(), ::tolower);
+            
+            if (!filterStr.empty() && lowerClass.find(filterStr) == std::string::npos)
+                continue;
+
+            if (ImGui::Selectable(className.c_str())) {
+                out.bRequestNewEntity = true;
+                out.szNewEntityClass = className;
+            }
+        }
+        ImGui::EndChild();
+    }
+
     ImGui::End();
 }
 
@@ -292,14 +315,12 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
     for (int i = 0; i < count; i++) {
         ImGui::PushID(i);
 
-        // ---- 计算按钮宽度，给 Selectable 留出精确剩余宽度 ----
         const ImGuiStyle& st = ImGui::GetStyle();
         float framePadX = st.FramePadding.x * 2.0f;
         float btnDupW   = ImGui::CalcTextSize("Dup").x + framePadX;
         float btnDelW   = ImGui::CalcTextSize("Del").x + framePadX;
         float spacing   = st.ItemSpacing.x;
         float availW    = ImGui::GetContentRegionAvail().x;
-        // Dup + Del + 两个 SameLine 的 spacing
         float selW = availW - btnDupW - btnDelW - spacing * 2.0f - 4.0f;
         if (selW < 60.0f) selW = 60.0f;
 
@@ -314,7 +335,7 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
         ImGui::SameLine();
         ImGui::PushID("Dup");
         if (ImGui::SmallButton("Dup")) {
-            LogAdd("[UI] Dup clicked for brush");   // printf -> LogAdd
+            LogAdd("[UI] Dup clicked for brush");
             out.bRequestDuplicate = true;
             out.iTargetIndex = i;
         }

@@ -30,6 +30,7 @@ int main() {
         return Vec3{ j[0].get<float>(), j[1].get<float>(), j[2].get<float>() };
     };
 
+    // 1. 只处理普通 Brush 渲染
     if (data.contains("brushes")) {
         for (const auto& jb : data["brushes"]) {
             if (!jb.contains("vertices") || !jb.contains("faces")) continue;
@@ -60,41 +61,19 @@ int main() {
                 indices.push_back(v0); indices.push_back(v1); indices.push_back(v2);
                 indices.push_back(v0); indices.push_back(v2); indices.push_back(v3);
             }
-
-            std::string mat = jb.value("material", "");
-            if (mat == "TRIGGER_END" || mat == "TRIGGER_WIN") {
-                // 计算该 Brush 的包围盒
-                float minX = 999999, minY = 999999, minZ = 999999;
-                float maxX = -999999, maxY = -999999, maxZ = -999999;
-                for (const auto& jv : jb["vertices"]) {
-                    Vec3 v = to_vec3(jv); // ★ 修正：使用自定义的 Vec3 而不是 glm::vec3
-                    minX = std::min(minX, v.x); maxX = std::max(maxX, v.x);
-                    minY = std::min(minY, v.y); maxY = std::max(maxY, v.y);
-                    minZ = std::min(minZ, v.z); maxZ = std::max(maxZ, v.z);
-                }
-                triggerBounds.insert(triggerBounds.end(), { minX, minY, minZ, maxX, maxY, maxZ });
-            }            
         }
     }
 
-    // 写 MYSB
-    std::ofstream out("map.bsp", std::ios::binary);
-    if (!out.is_open()) { std::cerr << "Cannot write map.bsp\n"; return 1; }
-    out.write("MYSB", 4);
-    uint32_t nv = (uint32_t)(verts.size() / 6);   // 顶点数（不是 float 数！）
-    uint32_t ni = (uint32_t)indices.size();
-    out.write((char*)&nv, 4);
-    out.write((char*)&ni, 4);
-    out.write((char*)verts.data(), verts.size() * sizeof(float));
-    out.write((char*)indices.data(), indices.size() * sizeof(uint32_t));
-
-    // --- 解析 info_player_start 并写入 BSP ---
-    float spawnPos[3] = { 0.0f, 32.0f, 0.0f }; // 默认位置
-    float spawnAngles[3] = { 0.0f, 0.0f, 0.0f }; // 默认角度 (pitch, yaw, roll)
+    // 2. 解析实体：出生点 + 触发器
+    float spawnPos[3] = { 0.0f, 32.0f, 0.0f };
+    float spawnAngles[3] = { 0.0f, 0.0f, 0.0f };
 
     if (data.contains("entities")) {
         for (const auto& je : data["entities"]) {
-            if (je.contains("classname") && je["classname"].get<std::string>() == "info_player_start") {
+            std::string classname = je.value("classname", "");
+            
+            // 解析出生点
+            if (classname == "info_player_start") {
                 if (je.contains("origin")) {
                     spawnPos[0] = je["origin"][0].get<float>();
                     spawnPos[1] = je["origin"][1].get<float>();
@@ -105,24 +84,49 @@ int main() {
                     spawnAngles[1] = je["angles"][1].get<float>();
                     spawnAngles[2] = je["angles"][2].get<float>();
                 }
-                break; // 找到第一个就退出
+            }
+            // ★ 解析触发器实体 (trigger_multiple)
+            else if (classname == "trigger_multiple") {
+                if (je.contains("origin")) {
+                    float cx = je["origin"][0].get<float>();
+                    float cy = je["origin"][1].get<float>();
+                    float cz = je["origin"][2].get<float>();
+                    
+                    // 默认给触发器 32x32x32 的半边长（即 64x64x64 的触发空间）
+                    float halfSize = 32.0f; 
+                    
+                    triggerBounds.insert(triggerBounds.end(), { 
+                        cx - halfSize, cy - halfSize, cz - halfSize,
+                        cx + halfSize, cy + halfSize, cz + halfSize 
+                    });
+                    std::cout << "Trigger entity at (" << cx << ", " << cy << ", " << cz << ") with size 64x64x64\n";
+                }
             }
         }
     }
 
-    // 将出生点写入文件尾部
+    // 写 MYSB
+    std::ofstream out("map.bsp", std::ios::binary);
+    if (!out.is_open()) { std::cerr << "Cannot write map.bsp\n"; return 1; }
+    out.write("MYSB", 4);
+    uint32_t nv = (uint32_t)(verts.size() / 6);
+    uint32_t ni = (uint32_t)indices.size();
+    out.write((char*)&nv, 4);
+    out.write((char*)&ni, 4);
+    out.write((char*)verts.data(), verts.size() * sizeof(float));
+    out.write((char*)indices.data(), indices.size() * sizeof(uint32_t));
+
+    // 写入出生点
     out.write((char*)spawnPos, sizeof(spawnPos));
     out.write((char*)spawnAngles, sizeof(spawnAngles));
 
-    // 写入触发器数量
+    // 写入触发器数量和数据
     uint32_t numTriggers = triggerBounds.size() / 6;
     out.write((char*)&numTriggers, 4);
-    // 写入触发器包围盒数据
     out.write((char*)triggerBounds.data(), triggerBounds.size() * sizeof(float));
 
-    std::cout << "Compiled map.bsp: " << nv << " verts (" << verts.size()/6
-              << "), " << ni << " indices\n";
-    std::cout << "Spawn point: " << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << "\n";
+    std::cout << "Compiled map.bsp: " << nv << " verts, " << ni << " indices\n";
+    std::cout << "Spawn: (" << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << ")\n";
     std::cout << "Triggers: " << numTriggers << "\n";
     return 0;
 }
