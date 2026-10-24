@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(SDL2 REQUIRED)
 find_package(glm REQUIRED)
+find_package(Jolt REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -90,6 +91,7 @@ target_link_libraries(game PRIVATE
     SDL2::SDL2main
     SDL2::SDL2
     glm::glm
+    Jolt::Jolt
     GLEW::GLEW
     OpenGL::GL
 )
