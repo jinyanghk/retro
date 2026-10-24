@@ -364,11 +364,25 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
 
     for (size_t i = 0; i < g_entities.size(); i++) {
         const auto& e = g_entities[i];
-        glm::vec3 mn = e.m_vecBBoxMins, mx = e.m_vecBBoxMaxs;
-        // 放大一点 bbox 方便看到
-        if (glm::length(mx - mn) < 16.0f) {
+        
+        glm::vec3 mn = e.m_vecBBoxMins;
+        glm::vec3 mx = e.m_vecBBoxMaxs;
+        
+        bool isTrigger = (e.m_szName.find("trigger") != std::string::npos);
+        
+        // 普通实体如果太小，放大一点方便看
+        if (!isTrigger && glm::length(mx - mn) < 16.0f) {
             mn -= glm::vec3(8);
             mx += glm::vec3(8);
+        }
+        
+        // ★ 确保 Trigger 也有一个最小可见尺寸，防止缩到 0 时看不见
+        if (isTrigger) {
+            glm::vec3 center = (mn + mx) * 0.5f;
+            glm::vec3 size = mx - mn;
+            if (size.x < 4.0f) { mn.x = center.x - 2.0f; mx.x = center.x + 2.0f; }
+            if (size.y < 4.0f) { mn.y = center.y - 2.0f; mx.y = center.y + 2.0f; }
+            if (size.z < 4.0f) { mn.z = center.z - 2.0f; mx.z = center.z + 2.0f; }
         }
         
         glm::vec3 corners[8] = {
@@ -380,8 +394,17 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
             {4,5},{5,6},{6,7},{7,4},
             {0,4},{1,5},{2,6},{3,7},
         };
+        
         bool sel = ((int)i == g_iSelectedEntity);
-        glm::vec3 col = sel ? glm::vec3(1,1,0) : glm::vec3(0.4,1,0.4);
+        
+        glm::vec3 col;
+        if (sel) {
+            col = glm::vec3(1, 1, 0); 
+        } else if (isTrigger) {
+            col = glm::vec3(1, 0.2f, 0.2f); // 红色
+        } else {
+            col = glm::vec3(0.4f, 1, 0.4f);
+        }
 
         std::vector<float> buf;
         for (auto& ed : edges) {
@@ -390,6 +413,7 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
             buf.insert(buf.end(), { p0.x,p0.y,p0.z, col.x,col.y,col.z });
             buf.insert(buf.end(), { p1.x,p1.y,p1.z, col.x,col.y,col.z });
         }
+        
         glBindVertexArray(g_lineVAO);
         glBindBuffer(GL_ARRAY_BUFFER, g_lineVBO);
         glBufferData(GL_ARRAY_BUFFER, buf.size()*sizeof(float), buf.data(), GL_STREAM_DRAW);
