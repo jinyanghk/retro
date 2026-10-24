@@ -139,20 +139,26 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
     for (int i = 0; i < count; i++) {
         ImGui::PushID(i);
 
-        // Selectable
-        char label[128]; 
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float framePadX = st.FramePadding.x * 2.0f;
+        float btnDelW   = ImGui::CalcTextSize("Del").x + framePadX;
+        float spacing   = st.ItemSpacing.x;
+        float availW    = ImGui::GetContentRegionAvail().x;
+        float selW = availW - btnDelW - spacing - 4.0f;
+        if (selW < 60.0f) selW = 60.0f;
+
+        char label[128];
         snprintf(label, sizeof(label), "%s", entities[i].m_szName.c_str());
         bool sel = (i == *pSelEntity);
-        if (ImGui::Selectable(label, sel)) {
-            *pSelEntity = i; 
-            *pSelBrush = -1;
+        if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_None, ImVec2(selW, 0))) {
+            *pSelEntity = i;
+            *pSelBrush  = -1;
         }
 
-        // Del 按钮
         ImGui::SameLine();
         ImGui::PushID("Del");
         if (ImGui::SmallButton("Del")) {
-            printf("[UI] Del clicked for entity %d\n", i);
+            LogAdd("[UI] Del clicked for entity");
             out.bRequestDeleteEntity = true;
             out.iTargetEntityIndex   = i;
         }
@@ -269,35 +275,42 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
     
     ImGui::BeginChild("##BrushListScroll", ImVec2(0, 200), true);
     for (int i = 0; i < count; i++) {
-        // 用数字 i 做外层 PushID
         ImGui::PushID(i);
 
-        // 1. Selectable 占据左侧空间，只负责选择
-        char label[64]; 
+        // ---- 计算按钮宽度，给 Selectable 留出精确剩余宽度 ----
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float framePadX = st.FramePadding.x * 2.0f;
+        float btnDupW   = ImGui::CalcTextSize("Dup").x + framePadX;
+        float btnDelW   = ImGui::CalcTextSize("Del").x + framePadX;
+        float spacing   = st.ItemSpacing.x;
+        float availW    = ImGui::GetContentRegionAvail().x;
+        // Dup + Del + 两个 SameLine 的 spacing
+        float selW = availW - btnDupW - btnDelW - spacing * 2.0f - 4.0f;
+        if (selW < 60.0f) selW = 60.0f;
+
+        char label[64];
         snprintf(label, sizeof(label), "brush #%d", i);
         bool sel = (i == *pSelBrush);
-        if (ImGui::Selectable(label, sel)) { 
-            *pSelBrush = i; 
-            *pSelEntity = -1; 
+        if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_None, ImVec2(selW, 0))) {
+            *pSelBrush = i;
+            *pSelEntity = -1;
         }
-        
-        // 2. Dup 按钮
+
         ImGui::SameLine();
         ImGui::PushID("Dup");
-        if (ImGui::SmallButton("Dup")) { 
-            printf("[UI] Dup clicked for brush %d\n", i);
-            out.bRequestDuplicate = true; 
-            out.iTargetIndex = i; 
+        if (ImGui::SmallButton("Dup")) {
+            LogAdd("[UI] Dup clicked for brush");   // printf -> LogAdd
+            out.bRequestDuplicate = true;
+            out.iTargetIndex = i;
         }
         ImGui::PopID();
 
-        // 3. Del 按钮
         ImGui::SameLine();
         ImGui::PushID("Del");
-        if (ImGui::SmallButton("Del")) { 
-            printf("[UI] Del clicked for brush %d\n", i);
-            out.bRequestDelete = true; 
-            out.iTargetIndex = i; 
+        if (ImGui::SmallButton("Del")) {
+            LogAdd("[UI] Del clicked for brush");
+            out.bRequestDelete = true;
+            out.iTargetIndex = i;
         }
         ImGui::PopID();
 

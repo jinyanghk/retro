@@ -66,9 +66,9 @@ void main() {
 // ---------------------------------------------------------------------------
 struct Camera {
     glm::vec3 target = glm::vec3(0, 100, 0); // 目标看向房间中心
-    float yaw   = -90.0f;
-    float pitch = -20.0f;
-    float dist  = 800.0f;
+    float yaw   = 0.0f;
+    float pitch = 0.0f;
+    float dist  = 500.0f;
 
     glm::vec3 GetEye() const {
         float rp = glm::radians(pitch);
@@ -118,6 +118,15 @@ static glm::mat4     g_proxyMatrixPrev = glm::mat4(1.0f);
 static int           g_iActiveSubIndex = -1;
 
 // ---------------------------------------------------------------------------
+// 通用彩色 line shader（bbox / edge 高亮复用）
+// ---------------------------------------------------------------------------
+static GLuint g_lineColorProg = 0;
+
+static GLuint g_faceHiProg  = 0;
+static GLuint g_faceHiVAO   = 0;
+static GLuint g_faceHiVBO   = 0;
+
+// ---------------------------------------------------------------------------
 // GL 辅助与 FBO
 // ---------------------------------------------------------------------------
 static GLuint CompileShader(GLenum type, const char* src)
@@ -139,6 +148,52 @@ static GLuint LinkProgram(GLuint vs, GLuint fs)
     glLinkProgram(p);
     glDeleteShader(vs); glDeleteShader(fs);
     return p;
+}
+
+static GLuint EnsureLineColorProg()
+{
+    if (g_lineColorProg != 0) return g_lineColorProg;
+    const char* vs = R"(
+        #version 330 core
+        layout(location=0) in vec3 aPos;
+        layout(location=1) in vec3 aColor;
+        uniform mat4 uVP;
+        out vec3 vColor;
+        void main() { gl_Position = uVP * vec4(aPos,1.0); vColor = aColor; }
+    )";
+    const char* fs = R"(
+        #version 330 core
+        in vec3 vColor;
+        out vec4 FragColor;
+        void main() { FragColor = vec4(vColor,1.0); }
+    )";
+    GLuint v = CompileShader(GL_VERTEX_SHADER, vs);
+    GLuint f = CompileShader(GL_FRAGMENT_SHADER, fs);
+    g_lineColorProg = LinkProgram(v, f);
+    return g_lineColorProg;
+}
+
+static void EnsureFaceHighlightGL()
+{
+    if (g_faceHiProg != 0) return;
+    const char* vs = R"(
+        #version 330 core
+        layout(location=0) in vec3 aPos;
+        uniform mat4 uVP;
+        void main() { gl_Position = uVP * vec4(aPos,1.0); }
+    )";
+    const char* fs = R"(
+        #version 330 core
+        uniform vec4 uColor;
+        out vec4 FragColor;
+        void main() { FragColor = uColor; }
+    )";
+    GLuint v = CompileShader(GL_VERTEX_SHADER, vs);
+    GLuint f = CompileShader(GL_FRAGMENT_SHADER, fs);
+    g_faceHiProg = LinkProgram(v, f);
+
+    glGenVertexArrays(1, &g_faceHiVAO);
+    glGenBuffers(1, &g_faceHiVBO);
 }
 
 static void ResizeFBO(int w, int h)
@@ -302,26 +357,7 @@ static void DrawBrushWireframe(const glm::mat4& viewProj)
 
 static void DrawEntityBBoxes(const glm::mat4& viewProj)
 {
-    static GLuint prog = 0;
-    if (prog == 0) {
-        const char* vs = R"(
-            #version 330 core
-            layout(location=0) in vec3 aPos;
-            layout(location=1) in vec3 aColor;
-            uniform mat4 uVP;
-            out vec3 vColor;
-            void main() { gl_Position = uVP * vec4(aPos,1.0); vColor = aColor; }
-        )";
-        const char* fs = R"(
-            #version 330 core
-            in vec3 vColor;
-            out vec4 FragColor;
-            void main() { FragColor = vec4(vColor,1.0); }
-        )";
-        GLuint v = CompileShader(GL_VERTEX_SHADER, vs);
-        GLuint f = CompileShader(GL_FRAGMENT_SHADER, fs);
-        prog = LinkProgram(v, f);
-    }
+    GLuint prog = EnsureLineColorProg();
     glUseProgram(prog);
     GLint uVP = glGetUniformLocation(prog, "uVP");
     glUniformMatrix4fv(uVP, 1, GL_FALSE, glm::value_ptr(viewProj));
@@ -366,35 +402,97 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
     glBindVertexArray(0);
 }
 
-// ---------------------------------------------------------------------------
-// 极简球体（用于 Vertex 编辑的顶点指示器）
-// ---------------------------------------------------------------------------
-static void DrawGlowSphere(float cx, float cy, float cz, float radius, int segments)
+// 用 pos3+color3 布局绘制 GL_LINES，复用 g_lineVAO/g_lineVBO
+static void DrawColorLines(const std::vector<float>& buf, const glm::mat4& viewProj)
 {
-    // 保存当前状态
-    glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_LIGHTING);
+    if (buf.empty()) return;
+    GLuint prog = EnsureLineColorProg();
+    glUseProgram(prog);
+    GLint uVP = glGetUniformLocation(prog, "uVP");
+    glUniformMatrix4fv(uVP, 1, GL_FALSE, glm::value_ptr(viewProj));
 
-    // 画经线
-    for (int i = 0; i <= segments; i++) {
-        float lat0 = 3.14159265f * (-0.5f + (float)(i - 1) / segments);
-        float lat1 = 3.14159265f * (-0.5f + (float)i / segments);
-        float z0 = sinf(lat0), zr0 = cosf(lat0);
-        float z1 = sinf(lat1), zr1 = cosf(lat1);
+    glBindVertexArray(g_lineVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, g_lineVBO);
+    glBufferData(GL_ARRAY_BUFFER, buf.size() * sizeof(float), buf.data(), GL_STREAM_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glDisableVertexAttribArray(2);
+    glDrawArrays(GL_LINES, 0, (GLsizei)(buf.size() / 6));
+    glBindVertexArray(0);
+}
 
-        glBegin(GL_QUAD_STRIP);
-        for (int j = 0; j <= segments; j++) {
-            float lng = 2.0f * 3.14159265f * (float)j / segments;
-            float x = cosf(lng), y = sinf(lng);
+static void DrawFaceHighlight(const glm::vec3* quad, const glm::mat4& viewProj)
+{
+    EnsureFaceHighlightGL();
 
-            glVertex3f(cx + radius * x * zr0, cy + radius * y * zr0, cz + radius * z0);
-            glVertex3f(cx + radius * x * zr1, cy + radius * y * zr1, cz + radius * z1);
-        }
-        glEnd();
+    float buf[4 * 3];
+    for (int k = 0; k < 4; k++) {
+        buf[k*3+0] = quad[k].x;
+        buf[k*3+1] = quad[k].y;
+        buf[k*3+2] = quad[k].z;
     }
 
-    glPopAttrib();
+    glUseProgram(g_faceHiProg);
+    GLint uVP = glGetUniformLocation(g_faceHiProg, "uVP");
+    glUniformMatrix4fv(uVP, 1, GL_FALSE, glm::value_ptr(viewProj));
+    GLint uColor = glGetUniformLocation(g_faceHiProg, "uColor");
+    glUniform4f(uColor, 1.0f, 1.0f, 0.0f, 0.5f);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);          // 让高亮和 brush 同深度也能通过
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f);
+
+    glBindVertexArray(g_faceHiVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, g_faceHiVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(buf), buf, GL_STREAM_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glBindVertexArray(0);
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDisable(GL_BLEND);
+    glDepthFunc(GL_LESS);
+}
+
+// 用 GL_POINTS 画顶点指示器（core profile 合法）
+static void DrawVertexPoints(const std::vector<std::pair<glm::vec3, glm::vec3>>& pts,
+                             const glm::mat4& viewProj)
+{
+    if (pts.empty()) return;
+    GLuint prog = EnsureLineColorProg();
+    glUseProgram(prog);
+    GLint uVP = glGetUniformLocation(prog, "uVP");
+    glUniformMatrix4fv(uVP, 1, GL_FALSE, glm::value_ptr(viewProj));
+
+    // pos3 + color3
+    std::vector<float> buf;
+    buf.reserve(pts.size() * 6);
+    for (auto& p : pts) {
+        buf.push_back(p.first.x);  buf.push_back(p.first.y);  buf.push_back(p.first.z);
+        buf.push_back(p.second.x); buf.push_back(p.second.y); buf.push_back(p.second.z);
+    }
+
+    glBindVertexArray(g_lineVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, g_lineVBO);
+    glBufferData(GL_ARRAY_BUFFER, buf.size()*sizeof(float), buf.data(), GL_STREAM_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glDisableVertexAttribArray(2);
+
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    glPointSize(10.0f);
+    glDisable(GL_DEPTH_TEST);        // x-ray：所有顶点都可见
+    glDrawArrays(GL_POINTS, 0, (GLsizei)pts.size());
+    glEnable(GL_DEPTH_TEST);
+    glBindVertexArray(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -817,6 +915,8 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
             if (hit >= 0) {
                 g_iSubEditIndex = hit;
                 UndoStack::Instance().PushSnapshot("Sub-Edit");
+            } else {
+                g_iSubEditIndex = -1;   // 点到空白就清掉，避免切模式时越界/错位
             }
         }
         else
@@ -850,55 +950,42 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     DrawEntityBBoxes(vp);
 
     // =========================================================
-    // 子编辑高亮渲染
+    // 子编辑高亮渲染（core profile：全部用 shader）
     // =========================================================
     if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
         const CBrush& b = g_brushes[g_iSelectedBrush];
 
         if (g_iSubEditMode == SUB_FACE && g_iSubEditIndex >= 0 && g_iSubEditIndex < 6) {
-            glDisable(GL_TEXTURE_2D);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glEnable(GL_DEPTH_TEST);
-            glEnable(GL_POLYGON_OFFSET_FILL);
-            glPolygonOffset(-1.0f, -1.0f);
-            glColor4ub(255, 255, 0, 128);
-            glBegin(GL_QUADS);
+            glm::vec3 quad[4];
             for (int k = 0; k < 4; k++) {
                 int vi = b.m_faces[g_iSubEditIndex].m_nVertexIndices[k];
-                const glm::vec3& p = b.m_vertices[vi];
-                glVertex3f(p.x, p.y, p.z);
+                quad[k] = b.m_vertices[vi];
             }
-            glEnd();
-            glDisable(GL_POLYGON_OFFSET_FILL);
-            glDisable(GL_BLEND);
+            DrawFaceHighlight(quad, vp);
         }
 
         if (g_iSubEditMode == SUB_EDGE && g_iSubEditIndex >= 0 && g_iSubEditIndex < 12) {
-            glDisable(GL_TEXTURE_2D);
-            glDisable(GL_DEPTH_TEST);
-            glLineWidth(4.0f);
-            glColor3ub(255, 255, 0);
             int i0 = kEdgeVertexIndices[g_iSubEditIndex][0];
             int i1 = kEdgeVertexIndices[g_iSubEditIndex][1];
             const glm::vec3& p0 = b.m_vertices[i0];
             const glm::vec3& p1 = b.m_vertices[i1];
-            glBegin(GL_LINES);
-            glVertex3f(p0.x, p0.y, p0.z);
-            glVertex3f(p1.x, p1.y, p1.z);
-            glEnd();
-            glLineWidth(1.0f);
+            std::vector<float> buf = {
+                p0.x, p0.y, p0.z, 1, 1, 0,
+                p1.x, p1.y, p1.z, 1, 1, 0,
+            };
+            glDisable(GL_DEPTH_TEST);   // x-ray 可见
+            DrawColorLines(buf, vp);
             glEnable(GL_DEPTH_TEST);
         }
 
         if (g_iSubEditMode == SUB_VERTEX) {
-            glDisable(GL_TEXTURE_2D);
+            std::vector<std::pair<glm::vec3, glm::vec3>> pts;
+            pts.reserve(8);
             for (int v = 0; v < 8; v++) {
-                const glm::vec3& p = b.m_vertices[v];
-                if (v == g_iSubEditIndex) glColor3ub(255, 255, 0);
-                else glColor3ub(220, 220, 220);
-                DrawGlowSphere(p.x, p.y, p.z, 4.0f, 8);
+                glm::vec3 col = (v == g_iSubEditIndex) ? glm::vec3(1,1,0) : glm::vec3(0.86f,0.86f,0.86f);
+                pts.emplace_back(b.m_vertices[v], col);
             }
+            DrawVertexPoints(pts, vp);
         }
     }
 
@@ -1047,8 +1134,8 @@ int main(int, char**)
             const Uint8* ks = SDL_GetKeyboardState(nullptr);
             if (ks[SDL_SCANCODE_W]) g_cam.target -= fwdH * flySpeed;
             if (ks[SDL_SCANCODE_S]) g_cam.target += fwdH * flySpeed;
-            if (ks[SDL_SCANCODE_A]) g_cam.target += rightH * flySpeed; // A 是左
-            if (ks[SDL_SCANCODE_D]) g_cam.target -= rightH * flySpeed; // D 是右
+            if (ks[SDL_SCANCODE_A]) g_cam.target -= rightH * flySpeed; // A 是左
+            if (ks[SDL_SCANCODE_D]) g_cam.target += rightH * flySpeed; // D 是右
             if (ks[SDL_SCANCODE_E]) g_cam.target.y += flySpeed;
             if (ks[SDL_SCANCODE_Q]) g_cam.target.y -= flySpeed;
         }
