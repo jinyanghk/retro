@@ -620,6 +620,9 @@ struct DragSnapshot {
 static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
                                     ImVec2 viewportPos, ImVec2 viewportSize)
 {
+    // 每次进入先重置拖拽标志，防止状态卡死
+    g_bDraggingGizmo = false;
+
     if (g_iGizmoMode == GIZMO_NONE) return;
     if (!g_bShowGizmo) return;
 
@@ -639,9 +642,13 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
     if (isSubEdit) {
         isBrush = true;
         const CBrush& b = g_brushes[g_iSelectedBrush];
-        if (g_iGizmoMode == GIZMO_FACE)        pivot = GetFaceCenter(b, g_iSubEditIndex);
-        else if (g_iGizmoMode == GIZMO_EDGE)   pivot = (b.m_vertices[kEdgeVertexIndices[g_iSubEditIndex][0]] + b.m_vertices[kEdgeVertexIndices[g_iSubEditIndex][1]]) * 0.5f;
-        else                                   pivot = b.m_vertices[g_iSubEditIndex];
+        if (g_dragSnap.bValid) {
+            pivot = g_dragSnap.pivot;
+        } else {
+            if (g_iGizmoMode == GIZMO_FACE)        pivot = GetFaceCenter(b, g_iSubEditIndex);
+            else if (g_iGizmoMode == GIZMO_EDGE)   pivot = (b.m_vertices[kEdgeVertexIndices[g_iSubEditIndex][0]] + b.m_vertices[kEdgeVertexIndices[g_iSubEditIndex][1]]) * 0.5f;
+            else                                   pivot = b.m_vertices[g_iSubEditIndex];
+        }
         baseMat = glm::translate(glm::mat4(1.0f), pivot);
     } else {
         if (g_iSelectedBrush >= 0) {
@@ -670,14 +677,14 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
     else if (g_iGizmoMode == GIZMO_SCALE) op = ImGuizmo::SCALE;
     else if (isSubEdit) op = ImGuizmo::TRANSLATE; // 子编辑统一用平移箭头
 
-    // ★ 彻底禁用 Bounds
     float* snapPtr = (g_bUseSnap && g_iGizmoMode != GIZMO_SCALE) ? g_Snap : nullptr;
-    float* boundsPtr = nullptr; // 永远不传 bounds
-    float* boundsSnapPtr = nullptr;
+    
+    // 记录上一帧是否在拖拽（用于判断是否刚刚松开鼠标）
+    bool wasUsing = g_bDraggingGizmo;
 
     bool bUsing = ImGuizmo::Manipulate(glm::value_ptr(viewIm), glm::value_ptr(projIm),
                                        op, ImGuizmo::LOCAL,
-                                       glm::value_ptr(manipulateMat), nullptr, snapPtr, boundsPtr, boundsSnapPtr);
+                                       glm::value_ptr(manipulateMat), nullptr, snapPtr, nullptr, nullptr);
 
     ImVec2 mousePos = ImGui::GetMousePos();
 
@@ -743,6 +750,7 @@ static void DrawAndManipulateGizmo(const glm::mat4& view, const glm::mat4& proj,
                 b.m_vecPos = center;
             } 
             else if (g_iGizmoMode == GIZMO_SCALE) {
+                // 注意：这里的 scale 修复之前的代码。你如果没改，就先保留之前的逻辑。
                 float dx = mousePos.x - g_dragSnap.screenStartX;
                 float dy = mousePos.y - g_dragSnap.screenStartY;
                 float delta = (fabsf(dx) > fabsf(dy)) ? dx : -dy;
@@ -900,41 +908,6 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
                                   (g_iGizmoMode == GIZMO_EDGE ? SUB_EDGE : SUB_VERTEX)) : SUB_NONE;
 
     // =========================================================
-    // 拾取
-    // =========================================================
-    if (bMouseInViewport && g_bLeftMouseDown && !g_bDraggingGizmo && !ImGuizmo::IsUsing())
-    {
-        if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size())
-        {
-            CBrush& b = g_brushes[g_iSelectedBrush];
-            int hit = -1;
-            if (g_iSubEditMode == SUB_FACE)        hit = PickFace  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            else if (g_iSubEditMode == SUB_EDGE)   hit = PickEdge  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            else if (g_iSubEditMode == SUB_VERTEX) hit = PickVertex(b, view, proj, vpW, vpH, localMouseX, localMouseY);
-
-            if (hit >= 0) {
-                g_iSubEditIndex = hit;
-                UndoStack::Instance().PushSnapshot("Sub-Edit");
-            } else {
-                g_iSubEditIndex = -1;   // 点到空白就清掉，避免切模式时越界/错位
-            }
-        }
-        else
-        {
-            int e = PickEntity(view, proj, vpW, vpH, localMouseX, localMouseY);
-            if (e >= 0) {
-                g_iSelectedEntity = e;
-                g_iSelectedBrush  = -1;
-            } else {
-                int bi = PickBrush(view, proj, vpW, vpH, localMouseX, localMouseY);
-                g_iSelectedBrush  = bi;
-                g_iSelectedEntity = -1;
-            }
-            g_iSubEditIndex = -1;
-        }
-    }
-
-    // =========================================================
     // 渲染到 FBO
     // =========================================================
     ResizeFBO(vpW, vpH);
@@ -992,12 +965,54 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // =========================================================
-    // 画到 ImGui 并渲染 Gizmo
+    // 画到 ImGui
     // =========================================================
     ImGui::Image((ImTextureID)(intptr_t)g_fboTex, viewportSize, ImVec2(0, 1), ImVec2(1, 0));
 
+    // =========================================================
+    // 渲染 Gizmo （此时 ImGuizmo 会更新内部状态）
+    // =========================================================
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
     DrawAndManipulateGizmo(view, proj, viewportPos, viewportSize);
+
+    // =========================================================
+    // 拾取逻辑（移到了 Gizmo 之后，此时 IsUsing/IsOver 是最准确的）
+    // =========================================================
+    bool bIsUsingGizmo = ImGuizmo::IsUsing() || ImGuizmo::IsOver();
+    
+    // 使用 IsMouseClicked 保证每次点击只触发一帧
+    if (bMouseInViewport && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bIsUsingGizmo && !g_bDraggingGizmo)
+    {
+        if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size())
+        {
+            CBrush& b = g_brushes[g_iSelectedBrush];
+            int hit = -1;
+            if (g_iSubEditMode == SUB_FACE)        hit = PickFace  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
+            else if (g_iSubEditMode == SUB_EDGE)   hit = PickEdge  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
+            else if (g_iSubEditMode == SUB_VERTEX) hit = PickVertex(b, view, proj, vpW, vpH, localMouseX, localMouseY);
+
+            if (hit >= 0) {
+                g_iSubEditIndex = hit;
+                UndoStack::Instance().PushSnapshot("Sub-Edit");
+            } else {
+                g_iSubEditIndex = -1;
+            }
+        }
+        else
+        {
+            // 先选 Entity，再选 Brush
+            int e = PickEntity(view, proj, vpW, vpH, localMouseX, localMouseY);
+            if (e >= 0) {
+                g_iSelectedEntity = e;
+                g_iSelectedBrush  = -1;
+            } else {
+                int bi = PickBrush(view, proj, vpW, vpH, localMouseX, localMouseY);
+                g_iSelectedBrush  = bi;
+                g_iSelectedEntity = -1;
+            }
+            g_iSubEditIndex = -1;
+        }
+    }
 
     // =========================================================
     // 右上角相机控件
