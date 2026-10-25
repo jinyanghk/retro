@@ -3,11 +3,16 @@
 #include <vector>
 #include <cstdint>
 #include <nlohmann/json.hpp>
-#include <algorithm> // std::min, std::max
+#include <algorithm>
 
 using json = nlohmann::json;
 
 struct Vec3 { float x, y, z; };
+
+static Vec3 GetVec3(const json& je, const char* key, Vec3 fallback) {
+    if (!je.contains(key) || je[key].size() < 3) return fallback;
+    return Vec3{ je[key][0].get<float>(), je[key][1].get<float>(), je[key][2].get<float>() };
+}
 
 int main() {
     std::ifstream f("map.json");
@@ -17,10 +22,11 @@ int main() {
         std::cerr << "json parse error: " << e.what() << "\n"; return 1;
     }
 
-    std::vector<float>    verts;    // x,y,z, nx,ny,nz  (6 floats/顶点)
+    std::vector<float>    verts;
     std::vector<uint32_t> indices;
-    std::vector<float> triggerBounds; // 每个触发器 6 个 float: minX, minY, minZ, maxX, maxY, maxZ
-    std::vector<float> physboxBounds;
+    std::vector<float> triggerBounds;   // 6 float / 个
+    std::vector<float> physboxBounds;   // 6 float / 个
+    std::vector<float> doorBounds;      // 12 float / 个: mins[3], maxs[3], dir[3], dist, speed, wait
 
     auto push_vertex = [&](const Vec3& p, const Vec3& n) -> uint32_t {
         uint32_t id = (uint32_t)(verts.size() / 6);
@@ -31,11 +37,10 @@ int main() {
         return Vec3{ j[0].get<float>(), j[1].get<float>(), j[2].get<float>() };
     };
 
-    // 1. 只处理普通 Brush 渲染
+    // 1. Brush 渲染几何
     if (data.contains("brushes")) {
         for (const auto& jb : data["brushes"]) {
             if (!jb.contains("vertices") || !jb.contains("faces")) continue;
-
             std::vector<Vec3> bverts;
             for (const auto& jv : jb["vertices"]) bverts.push_back(to_vec3(jv));
             if (bverts.size() < 8) continue;
@@ -65,63 +70,80 @@ int main() {
         }
     }
 
-    // 2. 解析实体：出生点 + 触发器
+    // 2. 解析实体
     float spawnPos[3] = { 0.0f, 32.0f, 0.0f };
     float spawnAngles[3] = { 0.0f, 0.0f, 0.0f };
+    int nTriggers = 0, nPhysboxes = 0, nDoors = 0;
 
     if (data.contains("entities")) {
         for (const auto& je : data["entities"]) {
             std::string classname = je.value("classname", "");
-            
-            // 解析出生点
+
             if (classname == "info_player_start") {
-                if (je.contains("origin")) {
-                    spawnPos[0] = je["origin"][0].get<float>();
-                    spawnPos[1] = je["origin"][1].get<float>();
-                    spawnPos[2] = je["origin"][2].get<float>();
-                }
-                if (je.contains("angles")) {
-                    spawnAngles[0] = je["angles"][0].get<float>();
-                    spawnAngles[1] = je["angles"][1].get<float>();
-                    spawnAngles[2] = je["angles"][2].get<float>();
-                }
+                Vec3 p = GetVec3(je, "origin", {0, 32, 0});
+                Vec3 a = GetVec3(je, "angles", {0, 0, 0});
+                spawnPos[0] = p.x; spawnPos[1] = p.y; spawnPos[2] = p.z;
+                spawnAngles[0] = a.x; spawnAngles[1] = a.y; spawnAngles[2] = a.z;
             }
-            // ★ 解析触发器实体 (trigger_multiple)
-            else if (classname == "trigger_multiple") {
-                if (je.contains("origin")) {
-                    float cx = je["origin"][0].get<float>();
-                    float cy = je["origin"][1].get<float>();
-                    float cz = je["origin"][2].get<float>();
-                    
-                    // 默认给触发器 32x32x32 的半边长（即 64x64x64 的触发空间）
-                    float halfSize = 32.0f; 
-                    
-                    triggerBounds.insert(triggerBounds.end(), { 
-                        cx - halfSize, cy - halfSize, cz - halfSize,
-                        cx + halfSize, cy + halfSize, cz + halfSize 
-                    });
-                    std::cout << "Trigger entity at (" << cx << ", " << cy << ", " << cz << ") with size 64x64x64\n";
-                }
+            else if (classname == "trigger_multiple" || classname == "trigger_once") {
+                Vec3 mn = GetVec3(je, "bbox_mins", {-32, -32, -32});
+                Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  32,  32});
+                triggerBounds.insert(triggerBounds.end(), { mn.x, mn.y, mn.z, mx.x, mx.y, mx.z });
+                std::cout << "Trigger [" << classname << "] AABB: ("
+                          << mn.x << "," << mn.y << "," << mn.z << ") - ("
+                          << mx.x << "," << mx.y << "," << mx.z << ")\n";
+                nTriggers++;
             }
             else if (classname == "func_physbox") {
-                if (je.contains("origin")) {
-                    float cx = je["origin"][0].get<float>();
-                    float cy = je["origin"][1].get<float>();
-                    float cz = je["origin"][2].get<float>();
-                    
-                    // 用 FGD 的默认大小（或者暂时写死 32，等以后能改 BBox 了再换）
-                    float halfSize = 32.0f; 
-                    physboxBounds.insert(physboxBounds.end(), { 
-                        cx - halfSize, cy - halfSize, cz - halfSize,
-                        cx + halfSize, cy + halfSize, cz + halfSize 
-                    });
-                    std::cout << "Physbox entity at (" << cx << ", " << cy << ", " << cz << ")\n";
+                Vec3 mn = GetVec3(je, "bbox_mins", {-32, -32, -32});
+                Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  32,  32});
+                physboxBounds.insert(physboxBounds.end(), { mn.x, mn.y, mn.z, mx.x, mx.y, mx.z });
+                std::cout << "Physbox AABB: ("
+                          << mn.x << "," << mn.y << "," << mn.z << ") - ("
+                          << mx.x << "," << mx.y << "," << mx.z << ")\n";
+                nPhysboxes++;
+            }
+            else if (classname == "func_door") {
+                Vec3 mn = GetVec3(je, "bbox_mins", {-32, -64, -8});
+                Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  64,  8});
+
+                // 打开方向：angle KV，0=+X, 90=+Z (Y-up 下水平面)
+                float angleDeg = 0.0f;
+                float openDist = 128.0f;
+                float speed    = 100.0f;
+                float waitTime = 4.0f;
+                if (je.contains("properties") && je["properties"].is_object()) {
+                    auto& p = je["properties"];
+                    auto readFloat = [&](const char* k, float& dst) {
+                        if (p.contains(k) && p[k].is_string()) {
+                            try { dst = std::stof(p[k].get<std::string>()); } catch (...) {}
+                        }
+                    };
+                    readFloat("angle", angleDeg);
+                    readFloat("lip",   openDist);
+                    readFloat("speed", speed);
+                    readFloat("wait",  waitTime);
                 }
+                float rad = angleDeg * 3.14159265f / 180.0f;
+                float dirX = std::cos(rad);
+                float dirY = 0.0f;
+                float dirZ = std::sin(rad);
+
+                doorBounds.insert(doorBounds.end(), {
+                    mn.x, mn.y, mn.z, mx.x, mx.y, mx.z,
+                    dirX, dirY, dirZ,
+                    openDist, speed, waitTime
+                });
+                std::cout << "Door AABB: (" << mn.x << "," << mn.y << "," << mn.z
+                          << ") - (" << mx.x << "," << mx.y << "," << mx.z
+                          << ") dir=(" << dirX << "," << dirY << "," << dirZ
+                          << ") dist=" << openDist << "\n";
+                nDoors++;
             }
         }
     }
 
-    // 写 MYSB
+    // 3. 写 MYSB
     std::ofstream out("map.bsp", std::ios::binary);
     if (!out.is_open()) { std::cerr << "Cannot write map.bsp\n"; return 1; }
     out.write("MYSB", 4);
@@ -132,22 +154,25 @@ int main() {
     out.write((char*)verts.data(), verts.size() * sizeof(float));
     out.write((char*)indices.data(), indices.size() * sizeof(uint32_t));
 
-    // 写入出生点
     out.write((char*)spawnPos, sizeof(spawnPos));
     out.write((char*)spawnAngles, sizeof(spawnAngles));
 
-    // 写入触发器数量和数据
     uint32_t numTriggers = triggerBounds.size() / 6;
     out.write((char*)&numTriggers, 4);
     out.write((char*)triggerBounds.data(), triggerBounds.size() * sizeof(float));
 
-    // ★ 追加 physbox 数据
     uint32_t numPhysboxes = physboxBounds.size() / 6;
     out.write((char*)&numPhysboxes, 4);
     out.write((char*)physboxBounds.data(), physboxBounds.size() * sizeof(float));
 
+    uint32_t numDoors = doorBounds.size() / 12;
+    out.write((char*)&numDoors, 4);
+    out.write((char*)doorBounds.data(), doorBounds.size() * sizeof(float));
+
     std::cout << "Compiled map.bsp: " << nv << " verts, " << ni << " indices\n";
     std::cout << "Spawn: (" << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << ")\n";
-    std::cout << "Triggers: " << numTriggers << "\n";
+    std::cout << "Triggers: " << numTriggers
+              << "  Physboxes: " << numPhysboxes
+              << "  Doors: " << numDoors << "\n";
     return 0;
 }

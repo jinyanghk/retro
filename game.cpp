@@ -145,8 +145,7 @@ static float TraceBVH(const glm::vec3& start, const glm::vec3& dir) {
 }
 
 // ---------------------------------------------------------------------------
-// 对 Jolt 动态箱子做射线检测（近似：用 body 的世界 AABB）
-// 返回沿 dir 的距离，或 -1
+// 对 Jolt 动态箱子做射线检测
 // ---------------------------------------------------------------------------
 static float TraceDynamicBoxes(JPH::BodyInterface& bi,
                                const std::vector<JPH::BodyID>& ids,
@@ -157,17 +156,40 @@ static float TraceDynamicBoxes(JPH::BodyInterface& bi,
     float best = maxDist;
     bool hit = false;
     for (auto id : ids) {
-        if (id == ignoreBody) continue;
-        if (!bi.IsActive(id)) {
-            // 睡着也要测 —— 用 GetWorldTransform 直接从 body 取
-        }
+        if (!ignoreBody.IsInvalid() && id == ignoreBody) continue;
         JPH::RMat44 t = bi.GetWorldTransform(id);
-        // 用 shape 的世界 AABB
         JPH::AABox aabb = bi.GetShape(id)->GetWorldSpaceBounds(t, JPH::Vec3(1,1,1));
         glm::vec3 bmin((float)aabb.mMin.GetX(), (float)aabb.mMin.GetY(), (float)aabb.mMin.GetZ());
         glm::vec3 bmax((float)aabb.mMax.GetX(), (float)aabb.mMax.GetY(), (float)aabb.mMax.GetZ());
         float tmin, tmax;
         if (RayAABB(start, dir, bmin, bmax, tmin, tmax)) {
+            if (tmin >= 0.0f && tmin < best) { best = tmin; hit = true; }
+        }
+    }
+    return hit ? best : -1.0f;
+}
+
+// ---------------------------------------------------------------------------
+// 门对玩家的射线阻挡（openAmount < 0.5 时生效）
+// ---------------------------------------------------------------------------
+struct DoorStateForTrace {
+    glm::vec3 mins, maxs;
+    glm::vec3 openDir;
+    float openDist;
+    float openAmount;
+};
+
+static float TraceDoors(const std::vector<DoorStateForTrace>& ds,
+                        const glm::vec3& start, const glm::vec3& dir, float maxDist)
+{
+    float best = maxDist; bool hit = false;
+    for (auto& d : ds) {
+        if (d.openAmount > 0.5f) continue;
+        glm::vec3 off = d.openDir * (d.openDist * d.openAmount);
+        glm::vec3 worldMin = d.mins + off;
+        glm::vec3 worldMax = d.maxs + off;
+        float tmin, tmax;
+        if (RayAABB(start, dir, worldMin, worldMax, tmin, tmax)) {
             if (tmin >= 0.0f && tmin < best) { best = tmin; hit = true; }
         }
     }
@@ -271,7 +293,7 @@ int main(int, char**) {
     std::vector<float> verts(nv * 6); f.read((char*)verts.data(), nv * 6 * 4);
     std::vector<uint32_t> indices(ni); f.read((char*)indices.data(), ni * 4);
     if (f.read((char*)spawnPos, sizeof(spawnPos))) f.read((char*)spawnAngles, sizeof(spawnAngles));
-    
+
     // 读取 Trigger 数据
     uint32_t numTriggers = 0;
     std::vector<glm::vec3> triggerMins, triggerMaxs;
@@ -282,8 +304,8 @@ int main(int, char**) {
             triggerMaxs.push_back(glm::vec3(tb[i*6+3], tb[i*6+4], tb[i*6+5]));
         }
     }
-    
-    // ★ 读取 Physbox 数据
+
+    // 读取 Physbox 数据
     uint32_t numPhysboxes = 0;
     std::vector<glm::vec3> physboxMins, physboxMaxs;
     if (f.read((char*)&numPhysboxes, 4)) {
@@ -294,6 +316,37 @@ int main(int, char**) {
         }
         printf("Loaded %u physbox zones.\n", numPhysboxes);
     }
+
+    // ---- 读 door 数据 ----
+    struct DoorInfo {
+        glm::vec3 mins, maxs;
+        glm::vec3 openDir;
+        float openDist = 128.0f;
+        float speed    = 100.0f;
+        float waitTime = 4.0f;
+        float   openAmount = 0.0f;
+        bool    isOpening  = false;
+        float   waitTimer  = 0.0f;
+    };
+    std::vector<DoorInfo> doors;
+
+    uint32_t numDoors = 0;
+    if (f.read((char*)&numDoors, 4)) {
+        std::vector<float> db(numDoors * 12);
+        f.read((char*)db.data(), db.size() * 4);
+        for (uint32_t i = 0; i < numDoors; i++) {
+            DoorInfo d;
+            d.mins     = glm::vec3(db[i*12+0], db[i*12+1], db[i*12+2]);
+            d.maxs     = glm::vec3(db[i*12+3], db[i*12+4], db[i*12+5]);
+            d.openDir  = glm::vec3(db[i*12+6], db[i*12+7], db[i*12+8]);
+            d.openDist = db[i*12+9];
+            d.speed    = db[i*12+10];
+            d.waitTime = db[i*12+11];
+            doors.push_back(d);
+        }
+        printf("Loaded %u doors.\n", numDoors);
+    }
+
     f.close();
 
     // 构建 BVH
@@ -369,13 +422,12 @@ int main(int, char**) {
 
     JPH::BodyInterface& body_interface = physics.GetBodyInterface();
 
-    // 在 Jolt 初始化之后、创建地板之前加
+    // BSP 静态 mesh
     {
         JPH::VertexList vertices;
         vertices.reserve(nv);
         for (uint32_t i = 0; i < nv; i++) {
-            vertices.push_back(JPH::Float3(
-                verts[i*6+0], verts[i*6+1], verts[i*6+2]));
+            vertices.push_back(JPH::Float3(verts[i*6+0], verts[i*6+1], verts[i*6+2]));
         }
         JPH::IndexedTriangleList triangles;
         triangles.reserve(ni / 3);
@@ -384,16 +436,12 @@ int main(int, char**) {
         }
 
         JPH::MeshShapeSettings mesh_settings(std::move(vertices), std::move(triangles));
-        // 可选：合并相邻三角形、去除内部边
-        //mesh_settings.mEnhancedInternalEdgeRemoval = true;
-
         JPH::BodyCreationSettings bcs(
             mesh_settings.Create().Get(),
             JPH::RVec3::sZero(),
             JPH::Quat::sIdentity(),
             JPH::EMotionType::Static,
             Layers::NON_MOVING);
-            
         bcs.mEnhancedInternalEdgeRemoval = true;
         body_interface.CreateAndAddBody(bcs, JPH::EActivation::DontActivate);
     }
@@ -405,14 +453,14 @@ int main(int, char**) {
         body_interface.CreateAndAddBody(floor_settings, JPH::EActivation::DontActivate);
     }
 
-    // 玩家的 Kinematic 刚体（用于推箱子）
+    // 玩家的 Kinematic 刚体
     JPH::BodyID player_body;
     {
         JPH::BoxShapeSettings player_shape(JPH::Vec3(16.0f, 36.0f, 16.0f));
         JPH::BodyCreationSettings player_settings(
-            player_shape.Create().Get(), 
-            JPH::RVec3(spawnPos[0], spawnPos[1] + 36.0f, spawnPos[2]), 
-            JPH::Quat::sIdentity(), 
+            player_shape.Create().Get(),
+            JPH::RVec3(spawnPos[0], spawnPos[1] + 36.0f, spawnPos[2]),
+            JPH::Quat::sIdentity(),
             JPH::EMotionType::Kinematic,
             Layers::MOVING
         );
@@ -422,20 +470,20 @@ int main(int, char**) {
         player_body = body_interface.CreateAndAddBody(player_settings, JPH::EActivation::Activate);
     }
 
-    // ★ 为每个 func_physbox 创建 Jolt 动态刚体
+    // 为每个 func_physbox 创建 Jolt 动态刚体
     std::vector<JPH::BodyID> physboxIds;
     for (size_t i = 0; i < physboxMins.size(); i++) {
         glm::vec3 mn = physboxMins[i];
         glm::vec3 mx = physboxMaxs[i];
         glm::vec3 center = (mn + mx) * 0.5f;
         glm::vec3 halfSize = (mx - mn) * 0.5f;
-        
+
         JPH::BoxShapeSettings box_shape(JPH::Vec3(halfSize.x, halfSize.y, halfSize.z));
         JPH::BodyCreationSettings box_settings(
-            box_shape.Create().Get(), 
-            JPH::RVec3(center.x, center.y, center.z), 
-            JPH::Quat::sIdentity(), 
-            JPH::EMotionType::Dynamic, 
+            box_shape.Create().Get(),
+            JPH::RVec3(center.x, center.y, center.z),
+            JPH::Quat::sIdentity(),
+            JPH::EMotionType::Dynamic,
             Layers::MOVING
         );
         box_settings.mLinearDamping = 0.2f;
@@ -445,23 +493,16 @@ int main(int, char**) {
     }
     printf("Created %zu physboxes in Jolt.\n", physboxIds.size());
 
-    // 箱子可视化网格 (用于渲染所有的 physbox)
+    // 箱子可视化网格
     GLuint box_vao, box_vbo, box_ebo;
     glGenVertexArrays(1, &box_vao); glGenBuffers(1, &box_vbo); glGenBuffers(1, &box_ebo);
 
-    // 6 个面，每面 4 顶点独立编号，绕序统一为「从外侧看逆时针 (CCW)」
     std::vector<float> box_verts = {
-        // -Z 面 (0..3)，从 -Z 看 CCW: (-1,-1,-1),(1,-1,-1),(1,1,-1),(-1,1,-1)
         -1,-1,-1, 0,0,-1,   1,-1,-1, 0,0,-1,   1, 1,-1, 0,0,-1,  -1, 1,-1, 0,0,-1,
-        // +Z 面 (4..7)，从 +Z 看 CCW: (-1,-1,1),(1,-1,1),(1,1,1),(-1,1,1)
         -1,-1, 1, 0,0, 1,   1,-1, 1, 0,0, 1,   1, 1, 1, 0,0, 1,  -1, 1, 1, 0,0, 1,
-        // -X 面 (8..11)，从 -X 看 CCW: (-1,-1,-1),(-1,-1,1),(-1,1,1),(-1,1,-1)
         -1,-1,-1, -1,0,0,  -1,-1, 1, -1,0,0,  -1, 1, 1, -1,0,0,  -1, 1,-1, -1,0,0,
-        // +X 面 (12..15)，从 +X 看 CCW: (1,-1,-1),(1,-1,1),(1,1,1),(1,1,-1)
          1,-1,-1,  1,0,0,   1,-1, 1,  1,0,0,   1, 1, 1,  1,0,0,   1, 1,-1,  1,0,0,
-        // +Y 面 (16..19)，从 +Y 看 CCW: (-1,1,-1),(1,1,-1),(1,1,1),(-1,1,1)
         -1, 1,-1, 0,1,0,   1, 1,-1, 0,1,0,   1, 1, 1, 0,1,0,  -1, 1, 1, 0,1,0,
-        // -Y 面 (20..23)，从 -Y 看 CCW: (-1,-1,-1),(-1,-1,1),(1,-1,1),(1,-1,-1)
         -1,-1,-1, 0,-1,0,  -1,-1, 1, 0,-1,0,  1,-1, 1, 0,-1,0,  1,-1,-1, 0,-1,0,
     };
     std::vector<uint32_t> box_idx = {
@@ -479,6 +520,22 @@ int main(int, char**) {
     glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glBindVertexArray(0);
 
+    // 为每个门创建 Kinematic 刚体
+    std::vector<JPH::BodyID> doorBodies;
+    for (size_t i = 0; i < doors.size(); i++) {
+        glm::vec3 center = (doors[i].mins + doors[i].maxs) * 0.5f;
+        glm::vec3 halfSize = (doors[i].maxs - doors[i].mins) * 0.5f;
+        JPH::BoxShapeSettings doorShape(JPH::Vec3(halfSize.x, halfSize.y, halfSize.z));
+        JPH::BodyCreationSettings doorBCS(
+            doorShape.Create().Get(),
+            JPH::RVec3(center.x, center.y, center.z),
+            JPH::Quat::sIdentity(),
+            JPH::EMotionType::Kinematic,
+            Layers::MOVING);
+        doorBCS.mFriction = 0.5f;
+        doorBodies.push_back(body_interface.CreateAndAddBody(doorBCS, JPH::EActivation::Activate));
+    }
+
     // 玩家状态
     glm::vec3 playerPos(spawnPos[0], spawnPos[1] + 36.0f, spawnPos[2]);
     glm::vec3 playerVel(0.0f);
@@ -490,11 +547,16 @@ int main(int, char**) {
     bool running = true;
     Uint32 lastTime = SDL_GetTicks();
 
+    // ★ FIX: doorTrace 提到循环外声明，每帧开头重建（在碰撞检测之前）
+    std::vector<DoorStateForTrace> doorTrace;
+
     while (running) {
         Uint32 currentTime = SDL_GetTicks();
         float deltaTime = (currentTime - lastTime) / 1000.0f;
         if (deltaTime > 0.05f) deltaTime = 0.05f;
         lastTime = currentTime;
+
+        bool bUsePressed = false;   // ★ FIX: 只在循环开头声明一次
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -504,6 +566,11 @@ int main(int, char**) {
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
                 if (mouseLocked) { mouseLocked = false; SDL_SetRelativeMouseMode(SDL_FALSE); }
                 else running = false;
+            }
+            // ★ FIX: E 键用事件触发一次，不用边沿检测
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_e && mouseLocked
+                && !event.key.repeat) {
+                bUsePressed = true;
             }
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
                 if (!mouseLocked) { mouseLocked = true; SDL_SetRelativeMouseMode(SDL_TRUE); }
@@ -541,6 +608,13 @@ int main(int, char**) {
 
         playerVel.y -= gravity * deltaTime;
         isGrounded = false;
+
+        // ★ FIX: 每帧碰撞检测之前，重建 doorTrace（这样开着的门 AABB 也是最新的）
+        doorTrace.clear();
+        doorTrace.reserve(doors.size());
+        for (auto& d : doors) {
+            doorTrace.push_back({d.mins, d.maxs, d.openDir, d.openDist, d.openAmount});
+        }
 
         // 垂直碰撞
         glm::vec3 moveY(0.0f, playerVel.y * deltaTime, 0.0f);
@@ -580,6 +654,10 @@ int main(int, char**) {
                                                playerPos, dirX, playerRadius);
                 if (dynX >= 0.0f && (distX < 0.0f || dynX < distX)) distX = dynX;
             }
+            {
+                float doorX = TraceDoors(doorTrace, playerPos, dirX, playerRadius);
+                if (doorX >= 0.0f && (distX < 0.0f || doorX < distX)) distX = doorX;
+            }
             if (distX != -1.0f && distX < playerRadius) { playerPos.x += (distX - playerRadius) * dirX.x; playerVel.x = 0.0f; }
             else { playerPos.x += dx; }
         }
@@ -593,23 +671,23 @@ int main(int, char**) {
                                                playerPos, dirZ, playerRadius);
                 if (dynZ >= 0.0f && (distZ < 0.0f || dynZ < distZ)) distZ = dynZ;
             }
+            {
+                float doorZ = TraceDoors(doorTrace, playerPos, dirZ, playerRadius);
+                if (doorZ >= 0.0f && (distZ < 0.0f || doorZ < distZ)) distZ = doorZ;
+            }
             if (distZ != -1.0f && distZ < playerRadius) { playerPos.z += (distZ - playerRadius) * dirZ.z; playerVel.z = 0.0f; }
             else { playerPos.z += dz; }
         }
 
-        // ====================================================================
-        // 把玩家的 BVH 位置同步给 Jolt 物理刚体
-        // ====================================================================
+        // 把玩家位置同步给 Jolt 刚体
         body_interface.SetPositionAndRotation(
-            player_body, 
-            JPH::RVec3(playerPos.x, playerPos.y, playerPos.z), 
-            JPH::Quat::sIdentity(), 
+            player_body,
+            JPH::RVec3(playerPos.x, playerPos.y, playerPos.z),
+            JPH::Quat::sIdentity(),
             JPH::EActivation::Activate
         );
 
-        // ====================================================================
-        // 推箱子：直接给箱子设置水平速度（绕过 Kinematic 接触约束的死锁）
-        // ====================================================================
+        // 推箱子
         {
             glm::vec3 playerVelH(playerVel.x, 0.0f, playerVel.z);
             float playerSpeedH = glm::length(playerVelH);
@@ -621,20 +699,8 @@ int main(int, char**) {
                 diff.y = 0.0f;
                 float horizontalDist = glm::length(diff);
 
-                // 放宽阈值：playerRadius + 箱子半宽 + 余量
                 glm::vec3 halfSize = (physboxMaxs[i] - physboxMins[i]) * 0.5f;
                 float contactRange = playerRadius + std::max(halfSize.x, halfSize.z) + 6.0f;
-
-                // ---- 日志 1：进入接触范围时打印 ----
-                if (horizontalDist < contactRange) {
-                    float dotDbg = 0.0f;
-                    if (playerSpeedH > 0.01f && horizontalDist > 0.001f) {
-                        glm::vec3 pushDir = glm::normalize(-diff);
-                        dotDbg = glm::dot(glm::normalize(playerVelH), pushDir);
-                    }
-                    printf("[PUSH] box#%zu dist=%.1f range=%.1f playerSpd=%.1f dot=%.2f\n",
-                           i, horizontalDist, contactRange, playerSpeedH, dotDbg);
-                }
 
                 if (horizontalDist < contactRange && playerSpeedH > 0.01f) {
                     glm::vec3 pushDir = glm::normalize(-diff);
@@ -651,10 +717,6 @@ int main(int, char**) {
                                            v.GetZ() + pushDir.z * add);
                             body_interface.SetLinearVelocity(physboxIds[i], newV);
                             body_interface.ActivateBody(physboxIds[i]);
-
-                            // ---- 日志 2（可选，调试速度设置）：放开这行会刷屏 ----
-                            // printf("[PUSH-SET] box#%zu add=%.2f newV=(%.2f,%.2f,%.2f)\n",
-                            //        i, add, newV.GetX(), newV.GetY(), newV.GetZ());
                         }
                     }
                 }
@@ -663,6 +725,64 @@ int main(int, char**) {
 
         // Jolt 物理更新
         physics.Update(deltaTime, 1, temp_allocator, job_system);
+
+        // Use 交互
+        if (bUsePressed) {
+            glm::vec3 eyePos = playerPos + glm::vec3(0.0f, 8.0f, 0.0f);
+            float pitchRad2 = glm::radians(camPitch);
+            glm::vec3 front2;
+            front2.x = cos(glm::radians(camYaw)) * cos(pitchRad2);
+            front2.y = sin(pitchRad2);
+            front2.z = sin(glm::radians(camYaw)) * cos(pitchRad2);
+            front2 = glm::normalize(front2);
+
+            float bestT = 64.0f;
+            int   bestDoor = -1;
+            for (size_t i = 0; i < doors.size(); i++) {
+                glm::vec3 off = doors[i].openDir * (doors[i].openDist * doors[i].openAmount);
+                glm::vec3 wMin = doors[i].mins + off;
+                glm::vec3 wMax = doors[i].maxs + off;
+                float tmin, tmax;
+                if (RayAABB(eyePos, front2, wMin, wMax, tmin, tmax)) {
+                    if (tmin >= 0.0f && tmin < bestT) { bestT = tmin; bestDoor = (int)i; }
+                }
+            }
+            if (bestDoor >= 0 && doors[bestDoor].openAmount < 0.01f) {
+                doors[bestDoor].isOpening = true;
+                doors[bestDoor].waitTimer = 0.0f;
+                printf("[USE] door %d opened\n", bestDoor);
+            }
+        }
+
+        // 门动画推进
+        for (auto& d : doors) {
+            float move = (d.speed * deltaTime) / std::max(d.openDist, 1.0f);
+            if (d.isOpening) {
+                d.openAmount += move;
+                if (d.openAmount >= 1.0f) {
+                    d.openAmount = 1.0f;
+                    d.isOpening = false;
+                    d.waitTimer = d.waitTime;
+                }
+            } else if (d.waitTimer > 0.0f) {
+                d.waitTimer -= deltaTime;
+            } else if (d.openAmount > 0.0f) {
+                d.openAmount -= move;
+                if (d.openAmount <= 0.0f) d.openAmount = 0.0f;
+            }
+        }
+
+        // 同步门 Kinematic 位置
+        for (size_t i = 0; i < doors.size(); i++) {
+            if (i >= doorBodies.size()) break;
+            glm::vec3 center = (doors[i].mins + doors[i].maxs) * 0.5f
+                             + doors[i].openDir * (doors[i].openDist * doors[i].openAmount);
+            body_interface.SetPositionAndRotation(
+                doorBodies[i],
+                JPH::RVec3(center.x, center.y, center.z),
+                JPH::Quat::sIdentity(),
+                JPH::EActivation::Activate);
+        }
 
         // 渲染
         ImGui_ImplOpenGL3_NewFrame();
@@ -674,6 +794,7 @@ int main(int, char**) {
         ImGui::Text("Grounded: %s", isGrounded ? "YES" : "NO");
         ImGui::Text("Tris: %zu BVH nodes: %zu", g_sortedTris.size(), g_bvh.size());
         ImGui::Text("Physboxes: %zu", physboxIds.size());
+        ImGui::Text("Doors: %zu", doors.size());
         ImGui::End();
 
         int scrW, scrH; SDL_GetWindowSize(window, &scrW, &scrH);
@@ -716,21 +837,33 @@ int main(int, char**) {
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, ni, GL_UNSIGNED_INT, 0);
 
-        // 渲染所有 Jolt Physbox 箱子
+        // 渲染所有 Physbox 箱子
         for (size_t i = 0; i < physboxIds.size(); i++) {
             JPH::RMat44 box_transform = body_interface.GetWorldTransform(physboxIds[i]);
             JPH::Vec3 t = box_transform.GetTranslation();
             JPH::Quat q = box_transform.GetQuaternion();
             glm::vec3 box_pos((float)t.GetX(), (float)t.GetY(), (float)t.GetZ());
             glm::quat box_quat((float)q.GetW(), (float)q.GetX(), (float)q.GetY(), (float)q.GetZ());
-            
-            // 从 Physbox 数据中获取半长，用来缩放
+
             glm::vec3 halfSize = (physboxMaxs[i] - physboxMins[i]) * 0.5f;
-            
+
             glm::mat4 box_model = glm::translate(glm::mat4(1.0f), box_pos) * glm::mat4_cast(box_quat) * glm::scale(glm::mat4(1.0f), halfSize);
             glm::mat4 box_mvp = projection * view * box_model;
             glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(box_mvp));
             glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(box_model));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        }
+
+        // 渲染门
+        for (auto& d : doors) {
+            glm::vec3 center = (d.mins + d.maxs) * 0.5f + d.openDir * (d.openDist * d.openAmount);
+            glm::vec3 halfSize = (d.maxs - d.mins) * 0.5f;
+            glm::mat4 doorModel = glm::translate(glm::mat4(1.0f), center)
+                                * glm::scale(glm::mat4(1.0f), halfSize);
+            glm::mat4 doorMvp = projection * view * doorModel;
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(doorMvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(doorModel));
             glBindVertexArray(box_vao);
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
@@ -741,6 +874,10 @@ int main(int, char**) {
 
     // 清理
     for (auto id : physboxIds) {
+        body_interface.RemoveBody(id);
+        body_interface.DestroyBody(id);
+    }
+    for (auto id : doorBodies) {
         body_interface.RemoveBody(id);
         body_interface.DestroyBody(id);
     }

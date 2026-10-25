@@ -53,6 +53,8 @@ bool ExportMapJson(const std::string& path)
         je["origin"]    = Vec3ToJson(e.m_vecPos);
         je["angles"]    = Vec3ToJson(e.m_angRot);
         je["type"]      = (int)e.m_iType;
+        je["bbox_mins"]  = Vec3ToJson(e.m_vecBBoxMins);   // ★ 新增
+        je["bbox_maxs"]  = Vec3ToJson(e.m_vecBBoxMaxs);   // ★ 新增
 
         json props = json::object();
         for (const auto& kv : e.m_properties) props[kv.first] = kv.second;
@@ -125,11 +127,17 @@ bool ImportMapJson(const std::string& path)
             e.m_angRot = ParseVec3(je["angles"]);
             e.m_iType  = (EntityType)je.value("type", (int)ENTITY_MODEL);
 
+            if (je.contains("bbox_mins") && je.contains("bbox_maxs")) {
+                e.m_vecBBoxMins = ParseVec3(je["bbox_mins"]);
+                e.m_vecBBoxMaxs = ParseVec3(je["bbox_maxs"]);
+            }
+
             if (je.contains("properties") && je["properties"].is_object()) {
                 for (auto it = je["properties"].begin(); it != je["properties"].end(); ++it)
                     e.m_properties[it.key()] = it.value().get<std::string>();
             }
-            UpdateEntityBBox(e);
+            // 如果 bbox 没从 json 里读到，才走 UpdateEntityBBox
+            if (!je.contains("bbox_mins")) UpdateEntityBBox(e);
             g_entities.push_back(e);
         }
     }
