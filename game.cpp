@@ -494,17 +494,50 @@ int main(int, char**) {
         uniform mat4 uMVP;
         uniform mat4 uModel;
         out vec3 vNormal;
-        void main() { gl_Position = uMVP * vec4(aPos, 1.0); vNormal = mat3(uModel) * aNormal; }
+        out vec3 vWorldPos;
+        void main() { 
+            gl_Position = uMVP * vec4(aPos, 1.0); 
+            vNormal = mat3(uModel) * aNormal; 
+            vWorldPos = vec3(uModel * vec4(aPos, 1.0)); // 计算世界坐标
+        }
     )";
     const char* fs_src = R"(
         #version 330 core
         in vec3 vNormal;
+        in vec3 vWorldPos;
         out vec4 FragColor;
+        
         uniform vec3 uColor;
+        uniform int uMode; // 0 = 纯色, 1 = 棋盘格, 2 = 枪械材质
+        
         void main() {
             vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
             float diff = max(dot(vNormal, lightDir), 0.0);
-            FragColor = vec4(uColor * (0.3 + 0.7 * diff), 1.0); 
+            vec3 baseColor = uColor;
+            
+            if (uMode == 1) {
+                // 三平面映射棋盘格
+                vec3 blend = abs(vNormal);
+                blend /= (blend.x + blend.y + blend.z);
+                
+                vec3 p = vWorldPos * 0.05; // 贴图缩放（越小格子越大）
+                // 在三个平面上分别算棋盘格并混合
+                float checkerX = mod(floor(p.y) + floor(p.z), 2.0);
+                float checkerY = mod(floor(p.x) + floor(p.z), 2.0);
+                float checkerZ = mod(floor(p.x) + floor(p.y), 2.0);
+                float checker = checkerX * blend.x + checkerY * blend.y + checkerZ * blend.z;
+                
+                vec3 color1 = vec3(0.6, 0.6, 0.65); // 浅灰
+                vec3 color2 = vec3(0.4, 0.4, 0.45); // 深灰
+                baseColor = mix(color1, color2, checker);
+            }
+            else if (uMode == 2) {
+                // 枪械材质（黑色，带一点光泽）
+                baseColor = vec3(0.15, 0.15, 0.15);
+                diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5; // 增强高光对比
+            }
+
+            FragColor = vec4(baseColor * (0.3 + 0.7 * diff), 1.0); 
         }
     )";
     auto compile_shader = [](GLenum type, const char* src) {
@@ -1155,6 +1188,9 @@ int main(int, char**) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(program);
+        // 获取 uniform 的 location
+        GLint uModeLoc = glGetUniformLocation(program, "uMode");
+        GLint uColorLoc = glGetUniformLocation(program, "uColor");
 
         glm::mat4 projection = glm::perspective(glm::radians(90.0f), (float)scrW / (float)scrH, 0.1f, 5000.0f);
         float pitchRad = glm::radians(camPitch);
@@ -1170,12 +1206,16 @@ int main(int, char**) {
         // 渲染地图
         glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
         glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
-        glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.6f, 0.65f); // 地图颜色
+        //glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.6f, 0.65f); // 地图颜色
+        glUniform1i(uModeLoc, 1); // 棋盘格模式
+        glUniform3f(uColorLoc, 0.6f, 0.6f, 0.65f); // 颜色作为底色
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, ni, GL_UNSIGNED_INT, 0);
 
         // 渲染物理箱子
-        glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.4f, 0.2f); // 箱子颜色偏黄
+        //glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.4f, 0.2f); // 箱子颜色偏黄
+        glUniform1i(uModeLoc, 0); // 纯色模式
+        glUniform3f(uColorLoc, 0.6f, 0.4f, 0.2f); // 箱子颜色
         for (size_t i = 0; i < physboxIds.size(); i++) {
             JPH::RMat44 box_transform = body_interface.GetWorldTransform(physboxIds[i]);
             JPH::Vec3 t = box_transform.GetTranslation();
@@ -1194,7 +1234,9 @@ int main(int, char**) {
         }
 
         // 渲染门
-        glUniform3f(glGetUniformLocation(program, "uColor"), 0.2f, 0.6f, 0.8f); // 门颜色偏蓝
+        //glUniform3f(glGetUniformLocation(program, "uColor"), 0.2f, 0.6f, 0.8f); // 门颜色偏蓝
+        glUniform1i(uModeLoc, 0);
+        glUniform3f(uColorLoc, 0.2f, 0.6f, 0.8f);
         for (auto& d : doors) {
             glm::vec3 center = (d.mins + d.maxs) * 0.5f + d.openDir * (d.openDist * d.openAmount);
             glm::vec3 halfSize = (d.maxs - d.mins) * 0.5f;
@@ -1212,9 +1254,9 @@ int main(int, char**) {
             if (enemy.state == EnemyInfo::DEAD && enemy.deathTimer > 10.0f) continue; // 死后10秒消失
             
             if (enemy.state == EnemyInfo::DEAD) {
-                glUniform3f(glGetUniformLocation(program, "uColor"), 0.2f, 0.1f, 0.1f);
+                glUniform3f(uColorLoc, 0.2f, 0.1f, 0.1f);
             } else {
-                glUniform3f(glGetUniformLocation(program, "uColor"), 0.8f, 0.2f, 0.2f); // 活着红色
+                glUniform3f(uColorLoc, 0.8f, 0.2f, 0.2f);
             }
 
             glm::vec3 halfSize(enemy.radius, enemy.height * 0.5f, enemy.radius);
@@ -1236,7 +1278,9 @@ int main(int, char**) {
         }
 
         // 渲染弹孔
-        glUniform3f(glGetUniformLocation(program, "uColor"), 0.1f, 0.1f, 0.1f); // 弹孔纯黑
+        //glUniform3f(glGetUniformLocation(program, "uColor"), 0.1f, 0.1f, 0.1f); // 弹孔纯黑
+        glUniform1i(uModeLoc, 0);
+        glUniform3f(uColorLoc, 0.1f, 0.1f, 0.1f);
         for (auto& bh : bulletHoles) {
             glm::mat4 bulletModel = glm::translate(glm::mat4(1.0f), bh.pos)
                                   * glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)); // 极小方块
@@ -1247,42 +1291,78 @@ int main(int, char**) {
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
 
+        // 渲染枪
         // ====================================================================
-        // 渲染第一人称武器（枪）
+        // 渲染第一人称武器（战术步枪拼装）
         // ====================================================================
-        // 用独立的投影矩阵，视野窄一点，保证枪不穿模
         glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.01f, 10.0f);
-        glm::mat4 gunView = glm::mat4(1.0f); // 视角固定在原点
+        glm::mat4 gunView = glm::mat4(1.0f);
 
-        // 基础位置：右下方，腰间
         float baseX = 0.25f;
         float baseY = -0.25f;
-        float baseZ = -0.4f;
+        float baseZ = -0.5f;
 
-        // 后坐力偏移计算
         float recoilOffset = 0.0f;
         float recoilPitch = 0.0f;
         if (recoilTimer > 0.0f) {
-            float progress = recoilTimer / recoilDuration; // 1.0 -> 0.0
-            // 模拟枪托向后猛推，枪口向上抬
-            recoilOffset = progress * 0.1f; // 向后移动
-            recoilPitch = progress * 15.0f; // 向上抬
+            float progress = recoilTimer / recoilDuration;
+            recoilOffset = progress * 0.08f;
+            recoilPitch = progress * 10.0f;
         }
 
-        // 组合枪的模型矩阵
-        glm::mat4 gunModel = glm::translate(glm::mat4(1.0f), glm::vec3(baseX, baseY, baseZ + recoilOffset));
-        gunModel = glm::rotate(gunModel, glm::radians(recoilPitch), glm::vec3(1, 0, 0)); // 枪口上抬
-        gunModel = glm::rotate(gunModel, glm::radians(-5.0f), glm::vec3(0, 1, 0));       // 稍微偏转一点
-        gunModel = glm::scale(gunModel, glm::vec3(0.1f, 0.1f, 0.4f));                    // 拉伸成细长形
+        // 基础枪械姿态（加到全局矩阵）
+        glm::mat4 gunBase = glm::translate(glm::mat4(1.0f), glm::vec3(baseX, baseY, baseZ + recoilOffset));
+        gunBase = glm::rotate(gunBase, glm::radians(recoilPitch), glm::vec3(1, 0, 0));
+        gunBase = glm::rotate(gunBase, glm::radians(-5.0f), glm::vec3(0, 1, 0));
 
-        glm::mat4 gunMvp = gunProj * gunView * gunModel;
+        glUniform1i(uModeLoc, 2); // 开启枪械材质
 
-        // 渲染枪
-        glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(gunMvp));
-        glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(gunModel));
-        glUniform3f(glGetUniformLocation(program, "uColor"), 0.2f, 0.2f, 0.2f); // 枪身深灰色
-        glBindVertexArray(gun_vao);
-        glDrawElements(GL_TRIANGLES, (GLsizei)gun_idx.size(), GL_UNSIGNED_INT, 0);
+        // 辅助函数：画枪的零件
+        auto DrawGunPart = [&](glm::vec3 offset, glm::vec3 scale) {
+            glm::mat4 partModel = glm::translate(gunBase, offset) * glm::scale(glm::mat4(1.0f), scale);
+            glm::mat4 partMvp = gunProj * gunView * partModel;
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(partMvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(partModel));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        };
+
+        // 1. 枪管 (细长)
+        DrawGunPart(glm::vec3(0.0f, 0.02f, -0.3f), glm::vec3(0.015f, 0.015f, 0.3f));
+        // 2. 枪身主体 (稍宽)
+        DrawGunPart(glm::vec3(0.0f, 0.0f, -0.05f), glm::vec3(0.03f, 0.04f, 0.15f));
+        // 3. 弹匣 (向下弯曲)
+        glm::mat4 magModel = glm::translate(gunBase, glm::vec3(0.0f, -0.08f, 0.02f));
+        magModel = glm::rotate(magModel, glm::radians(15.0f), glm::vec3(1, 0, 0)); // 倾斜
+        magModel = glm::scale(magModel, glm::vec3(0.02f, 0.08f, 0.04f));
+        glm::mat4 magMvp = gunProj * gunView * magModel;
+        glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(magMvp));
+        glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(magModel));
+        glBindVertexArray(box_vao);
+        glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+
+        // 4. 握把
+        glm::mat4 gripModel = glm::translate(gunBase, glm::vec3(0.0f, -0.06f, 0.1f));
+        gripModel = glm::rotate(gripModel, glm::radians(-10.0f), glm::vec3(1, 0, 0));
+        gripModel = glm::scale(gripModel, glm::vec3(0.025f, 0.06f, 0.03f));
+        glm::mat4 gripMvp = gunProj * gunView * gripModel;
+        glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(gripMvp));
+        glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(gripModel));
+        glBindVertexArray(box_vao);
+        glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+
+        // 5. 枪口（开火时闪一下红/黄光）
+        if (recoilTimer > 0.05f) { // 只在开火瞬间
+            glUniform1i(uModeLoc, 0);
+            glUniform3f(uColorLoc, 1.0f, 0.8f, 0.2f); // 黄光
+            glm::mat4 flashModel = glm::translate(gunBase, glm::vec3(0.0f, 0.02f, -0.6f));
+            flashModel = glm::scale(flashModel, glm::vec3(0.03f, 0.03f, 0.03f));
+            glm::mat4 flashMvp = gunProj * gunView * flashModel;
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(flashMvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(flashModel));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        }
 
         // 为了避免枪的深度值污染主场景（虽然清空了深度缓冲区，但安全起见）
         // 其实因为 ImGui 是 2D 的，所以直接画在上面就行
