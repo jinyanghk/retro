@@ -25,6 +25,8 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Body/BodyLockInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/MotionProperties.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -140,6 +142,36 @@ static float TraceBVH(const glm::vec3& start, const glm::vec3& dir) {
         }
     }
     return hit ? closestT : -1.0f;
+}
+
+// ---------------------------------------------------------------------------
+// 对 Jolt 动态箱子做射线检测（近似：用 body 的世界 AABB）
+// 返回沿 dir 的距离，或 -1
+// ---------------------------------------------------------------------------
+static float TraceDynamicBoxes(JPH::BodyInterface& bi,
+                               const std::vector<JPH::BodyID>& ids,
+                               JPH::BodyID ignoreBody,
+                               const glm::vec3& start, const glm::vec3& dir,
+                               float maxDist)
+{
+    float best = maxDist;
+    bool hit = false;
+    for (auto id : ids) {
+        if (id == ignoreBody) continue;
+        if (!bi.IsActive(id)) {
+            // 睡着也要测 —— 用 GetWorldTransform 直接从 body 取
+        }
+        JPH::RMat44 t = bi.GetWorldTransform(id);
+        // 用 shape 的世界 AABB
+        JPH::AABox aabb = bi.GetShape(id)->GetWorldSpaceBounds(t, JPH::Vec3(1,1,1));
+        glm::vec3 bmin((float)aabb.mMin.GetX(), (float)aabb.mMin.GetY(), (float)aabb.mMin.GetZ());
+        glm::vec3 bmax((float)aabb.mMax.GetX(), (float)aabb.mMax.GetY(), (float)aabb.mMax.GetZ());
+        float tmin, tmax;
+        if (RayAABB(start, dir, bmin, bmax, tmin, tmax)) {
+            if (tmin >= 0.0f && tmin < best) { best = tmin; hit = true; }
+        }
+    }
+    return hit ? best : -1.0f;
 }
 
 // ============================================================================
@@ -337,6 +369,35 @@ int main(int, char**) {
 
     JPH::BodyInterface& body_interface = physics.GetBodyInterface();
 
+    // 在 Jolt 初始化之后、创建地板之前加
+    {
+        JPH::VertexList vertices;
+        vertices.reserve(nv);
+        for (uint32_t i = 0; i < nv; i++) {
+            vertices.push_back(JPH::Float3(
+                verts[i*6+0], verts[i*6+1], verts[i*6+2]));
+        }
+        JPH::IndexedTriangleList triangles;
+        triangles.reserve(ni / 3);
+        for (uint32_t i = 0; i + 2 < ni; i += 3) {
+            triangles.push_back(JPH::IndexedTriangle(indices[i], indices[i+1], indices[i+2], 0));
+        }
+
+        JPH::MeshShapeSettings mesh_settings(std::move(vertices), std::move(triangles));
+        // 可选：合并相邻三角形、去除内部边
+        //mesh_settings.mEnhancedInternalEdgeRemoval = true;
+
+        JPH::BodyCreationSettings bcs(
+            mesh_settings.Create().Get(),
+            JPH::RVec3::sZero(),
+            JPH::Quat::sIdentity(),
+            JPH::EMotionType::Static,
+            Layers::NON_MOVING);
+            
+        bcs.mEnhancedInternalEdgeRemoval = true;
+        body_interface.CreateAndAddBody(bcs, JPH::EActivation::DontActivate);
+    }
+
     // 简易静态地板
     {
         JPH::BoxShapeSettings floor_shape(JPH::Vec3(1024.0f, 8.0f, 1024.0f));
@@ -387,17 +448,29 @@ int main(int, char**) {
     // 箱子可视化网格 (用于渲染所有的 physbox)
     GLuint box_vao, box_vbo, box_ebo;
     glGenVertexArrays(1, &box_vao); glGenBuffers(1, &box_vbo); glGenBuffers(1, &box_ebo);
+
+    // 6 个面，每面 4 顶点独立编号，绕序统一为「从外侧看逆时针 (CCW)」
     std::vector<float> box_verts = {
-        -1,-1,-1, 0,0,-1,  1,-1,-1, 0,0,-1,  1, 1,-1, 0,0,-1,  -1, 1,-1, 0,0,-1,
-        -1,-1, 1, 0,0, 1,  1,-1, 1, 0,0, 1,  1, 1, 1, 0,0, 1,  -1, 1, 1, 0,0, 1,
-        -1,-1,-1, -1,0,0, -1,-1, 1, -1,0,0, -1, 1, 1, -1,0,0, -1, 1,-1, -1,0,0,
-         1,-1,-1,  1,0,0,  1,-1, 1,  1,0,0,  1, 1, 1,  1,0,0,  1, 1,-1,  1,0,0,
+        // -Z 面 (0..3)，从 -Z 看 CCW: (-1,-1,-1),(1,-1,-1),(1,1,-1),(-1,1,-1)
+        -1,-1,-1, 0,0,-1,   1,-1,-1, 0,0,-1,   1, 1,-1, 0,0,-1,  -1, 1,-1, 0,0,-1,
+        // +Z 面 (4..7)，从 +Z 看 CCW: (-1,-1,1),(1,-1,1),(1,1,1),(-1,1,1)
+        -1,-1, 1, 0,0, 1,   1,-1, 1, 0,0, 1,   1, 1, 1, 0,0, 1,  -1, 1, 1, 0,0, 1,
+        // -X 面 (8..11)，从 -X 看 CCW: (-1,-1,-1),(-1,-1,1),(-1,1,1),(-1,1,-1)
+        -1,-1,-1, -1,0,0,  -1,-1, 1, -1,0,0,  -1, 1, 1, -1,0,0,  -1, 1,-1, -1,0,0,
+        // +X 面 (12..15)，从 +X 看 CCW: (1,-1,-1),(1,-1,1),(1,1,1),(1,1,-1)
+         1,-1,-1,  1,0,0,   1,-1, 1,  1,0,0,   1, 1, 1,  1,0,0,   1, 1,-1,  1,0,0,
+        // +Y 面 (16..19)，从 +Y 看 CCW: (-1,1,-1),(1,1,-1),(1,1,1),(-1,1,1)
         -1, 1,-1, 0,1,0,   1, 1,-1, 0,1,0,   1, 1, 1, 0,1,0,  -1, 1, 1, 0,1,0,
-        -1,-1,-1, 0,-1,0,  1,-1,-1, 0,-1,0,  1,-1, 1, 0,-1,0, -1,-1, 1, 0,-1,0
+        // -Y 面 (20..23)，从 -Y 看 CCW: (-1,-1,-1),(-1,-1,1),(1,-1,1),(1,-1,-1)
+        -1,-1,-1, 0,-1,0,  -1,-1, 1, 0,-1,0,  1,-1, 1, 0,-1,0,  1,-1,-1, 0,-1,0,
     };
     std::vector<uint32_t> box_idx = {
-        0,1,2, 0,2,3, 4,5,6, 4,6,7, 8,9,10, 8,10,11,
-        12,13,14, 12,14,15, 16,17,18, 16,18,19, 20,21,22, 20,22,23
+        0,1,2, 0,2,3,        // -Z
+        4,5,6, 4,6,7,        // +Z
+        8,9,10, 8,10,11,     // -X
+        12,13,14, 12,14,15,  // +X
+        16,17,18, 16,18,19,  // +Y
+        20,21,22, 20,22,23,  // -Y
     };
     glBindVertexArray(box_vao);
     glBindBuffer(GL_ARRAY_BUFFER, box_vbo); glBufferData(GL_ARRAY_BUFFER, box_verts.size() * 4, box_verts.data(), GL_STATIC_DRAW);
@@ -472,12 +545,26 @@ int main(int, char**) {
         // 垂直碰撞
         glm::vec3 moveY(0.0f, playerVel.y * deltaTime, 0.0f);
         glm::vec3 newPosY = playerPos + moveY;
+
         float floorDist = TraceBVH(newPosY, glm::vec3(0.0f, -1.0f, 0.0f));
+        {
+            float dynDown = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+                                              newPosY, glm::vec3(0.0f, -1.0f, 0.0f),
+                                              playerHeight);
+            if (dynDown >= 0.0f && (floorDist < 0.0f || dynDown < floorDist)) floorDist = dynDown;
+        }
         if (floorDist != -1.0f && floorDist <= (playerHeight * 0.5f + 0.5f)) {
             newPosY.y -= (floorDist - playerHeight * 0.5f); playerVel.y = 0.0f;
             if (moveY.y <= 0.0f) isGrounded = true;
         }
+
         float ceilDist = TraceBVH(newPosY, glm::vec3(0.0f, 1.0f, 0.0f));
+        {
+            float dynUp = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+                                            newPosY, glm::vec3(0.0f, 1.0f, 0.0f),
+                                            playerHeight);
+            if (dynUp >= 0.0f && (ceilDist < 0.0f || dynUp < ceilDist)) ceilDist = dynUp;
+        }
         if (ceilDist != -1.0f && ceilDist <= (playerHeight * 0.5f + 0.5f)) {
             newPosY.y += (ceilDist - playerHeight * 0.5f); playerVel.y = 0.0f;
         }
@@ -486,16 +573,26 @@ int main(int, char**) {
         // 水平碰撞 X
         float dx = playerVel.x * deltaTime;
         if (fabsf(dx) > 0.0001f) {
-            glm::vec3 dirX(signbit(dx) ? -1.0f : 1.0f, 0.0f, 0.0f);
+            glm::vec3 dirX(dx > 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f);
             float distX = TraceBVH(playerPos, dirX);
+            {
+                float dynX = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+                                               playerPos, dirX, playerRadius);
+                if (dynX >= 0.0f && (distX < 0.0f || dynX < distX)) distX = dynX;
+            }
             if (distX != -1.0f && distX < playerRadius) { playerPos.x += (distX - playerRadius) * dirX.x; playerVel.x = 0.0f; }
             else { playerPos.x += dx; }
         }
         // 水平碰撞 Z
         float dz = playerVel.z * deltaTime;
         if (fabsf(dz) > 0.0001f) {
-            glm::vec3 dirZ(0.0f, 0.0f, signbit(dz) ? -1.0f : 1.0f);
+            glm::vec3 dirZ(0.0f, 0.0f, dz > 0.0f ? 1.0f : -1.0f);
             float distZ = TraceBVH(playerPos, dirZ);
+            {
+                float dynZ = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+                                               playerPos, dirZ, playerRadius);
+                if (dynZ >= 0.0f && (distZ < 0.0f || dynZ < distZ)) distZ = dynZ;
+            }
             if (distZ != -1.0f && distZ < playerRadius) { playerPos.z += (distZ - playerRadius) * dirZ.z; playerVel.z = 0.0f; }
             else { playerPos.z += dz; }
         }
@@ -511,27 +608,54 @@ int main(int, char**) {
         );
 
         // ====================================================================
-        // 物理推挤增强：针对所有 Physbox 施加冲量
+        // 推箱子：直接给箱子设置水平速度（绕过 Kinematic 接触约束的死锁）
         // ====================================================================
         {
+            glm::vec3 playerVelH(playerVel.x, 0.0f, playerVel.z);
+            float playerSpeedH = glm::length(playerVelH);
             for (size_t i = 0; i < physboxIds.size(); i++) {
                 JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(physboxIds[i]);
                 glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
-                
+
                 glm::vec3 diff = playerPos - bpos;
-                diff.y = 0.0f; // 忽略Y轴，只要贴得近就推
-                
+                diff.y = 0.0f;
                 float horizontalDist = glm::length(diff);
-                // 如果玩家在箱子周围 48 单位内，且正在朝箱子方向移动
-                if (horizontalDist < 48.0f) {
-                    glm::vec3 pushDir = glm::normalize(-diff); // 玩家朝箱子的方向
-                    float dot = glm::dot(glm::normalize(glm::vec3(playerVel.x, 0, playerVel.z)), pushDir);
-                    
-                    if (dot > 0.1f) { // 玩家确实在朝箱子走
-                        // 增加冲量
-                        JPH::Vec3 impulse(pushDir.x * 80.0f, 0.0f, pushDir.z * 80.0f);
-                        body_interface.AddImpulse(physboxIds[i], impulse);
-                        body_interface.ActivateBody(physboxIds[i]);
+
+                // 放宽阈值：playerRadius + 箱子半宽 + 余量
+                glm::vec3 halfSize = (physboxMaxs[i] - physboxMins[i]) * 0.5f;
+                float contactRange = playerRadius + std::max(halfSize.x, halfSize.z) + 6.0f;
+
+                // ---- 日志 1：进入接触范围时打印 ----
+                if (horizontalDist < contactRange) {
+                    float dotDbg = 0.0f;
+                    if (playerSpeedH > 0.01f && horizontalDist > 0.001f) {
+                        glm::vec3 pushDir = glm::normalize(-diff);
+                        dotDbg = glm::dot(glm::normalize(playerVelH), pushDir);
+                    }
+                    printf("[PUSH] box#%zu dist=%.1f range=%.1f playerSpd=%.1f dot=%.2f\n",
+                           i, horizontalDist, contactRange, playerSpeedH, dotDbg);
+                }
+
+                if (horizontalDist < contactRange && playerSpeedH > 0.01f) {
+                    glm::vec3 pushDir = glm::normalize(-diff);
+                    float dot = glm::dot(glm::normalize(playerVelH), pushDir);
+                    if (dot > 0.1f) {
+                        JPH::Vec3 v = body_interface.GetLinearVelocity(physboxIds[i]);
+                        glm::vec3 boxVel(v.GetX(), 0.0f, v.GetZ());
+                        float boxSpeedAlongPush = glm::dot(boxVel, pushDir);
+                        float desiredSpeed = playerSpeedH * dot * 0.8f;
+                        if (boxSpeedAlongPush < desiredSpeed) {
+                            float add = desiredSpeed - boxSpeedAlongPush;
+                            JPH::Vec3 newV(v.GetX() + pushDir.x * add,
+                                           v.GetY(),
+                                           v.GetZ() + pushDir.z * add);
+                            body_interface.SetLinearVelocity(physboxIds[i], newV);
+                            body_interface.ActivateBody(physboxIds[i]);
+
+                            // ---- 日志 2（可选，调试速度设置）：放开这行会刷屏 ----
+                            // printf("[PUSH-SET] box#%zu add=%.2f newV=(%.2f,%.2f,%.2f)\n",
+                            //        i, add, newV.GetX(), newV.GetY(), newV.GetZ());
+                        }
                     }
                 }
             }

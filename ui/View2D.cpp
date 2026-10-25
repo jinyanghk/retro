@@ -35,7 +35,7 @@ struct View2D
     glm::vec3 vecDragStartEntityPos;
     glm::vec3 vecDragStartBBoxMins;
     glm::vec3 vecDragStartBBoxMaxs;
-    
+
     // 缩放状态 entity
     bool   bResizingEntity      = false;
     int    iResizingEntity      = -1;
@@ -46,7 +46,7 @@ struct View2D
     // 手柄缩放状态 (Brush)
     bool   bResizingBrush       = false;
     int    iResizingBrush       = -1;
-    int    iResizeHandle        = -1;   
+    int    iResizeHandle        = -1;
     float  fResizeFixedMinX     = 0.0f;
     float  fResizeFixedMaxX     = 0.0f;
     float  fResizeFixedMinY     = 0.0f;
@@ -68,12 +68,16 @@ struct View2D
     {}
 };
 
-// 2D 视图专用的 UI 状态机
+// 2D 视图专用的 UI 状态机 —— 每个视图独立一份！
 struct View2DUIState {
     bool isDragging = false;
     enum Mode { NONE, DRAG_BRUSH, DRAG_ENTITY, RESIZE_BRUSH, RESIZE_ENTITY, BOX_CREATE } mode = NONE;
 };
-static View2DUIState s_uiState;
+
+// 每个视图独立的状态，解决"只有 Side View 能拖"的 bug
+static View2DUIState s_topUI;
+static View2DUIState s_frontUI;
+static View2DUIState s_sideUI;
 
 static View2D s_topView(   0, 0, 0.5f, 0, 2, 1);
 static View2D s_frontView( 0, 0, 0.5f, 0, 1, 2);
@@ -197,7 +201,7 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
         ImVec2 p1 = WorldToScreen2D(minX, minY, view, canvasPos, canvasSize);
         ImVec2 p2 = WorldToScreen2D(maxX, maxY, view, canvasPos, canvasSize);
         ImVec2 minP(std::min(p1.x, p2.x), std::min(p1.y, p2.y)), maxP(std::max(p1.x, p2.x), std::max(p1.y, p2.y));
-        
+
         if (maxP.x - minP.x < 4.0f) maxP.x = minP.x + 4.0f;
         if (maxP.y - minP.y < 4.0f) maxP.y = minP.y + 4.0f;
 
@@ -234,16 +238,16 @@ static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& c
         ImVec2 p1 = WorldToScreen2D(minX, minY, view, canvasPos, canvasSize);
         ImVec2 p2 = WorldToScreen2D(maxX, maxY, view, canvasPos, canvasSize);
         ImVec2 minP(std::min(p1.x, p2.x), std::min(p1.y, p2.y)), maxP(std::max(p1.x, p2.x), std::max(p1.y, p2.y));
-        
+
         if (maxP.x - minP.x < 4.0f) maxP.x = minP.x + 4.0f;
         if (maxP.y - minP.y < 4.0f) maxP.y = minP.y + 4.0f;
-        
+
         if (e.m_szName.find("trigger") != std::string::npos) {
             color = bSelected ? IM_COL32(255, 255, 0, 255) : IM_COL32(255, 100, 100, 255);
         }
 
         draw->AddRect(minP, maxP, color, 0.0f, 0, bSelected ? 2.0f : 1.0f);
-        
+
         float wx = e.m_vecPos[view.axisMapX];
         float wy = e.m_vecPos[view.axisMapY];
         ImVec2 p = WorldToScreen2D(wx, wy, view, canvasPos, canvasSize);
@@ -251,7 +255,7 @@ static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& c
         draw->AddLine(ImVec2(p.x - 8, p.y), ImVec2(p.x + 8, p.y), color);
         draw->AddLine(ImVec2(p.x, p.y - 8), ImVec2(p.x, p.y + 8), color);
     }
-    
+
     if (g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size()) {
         float handles[8][2];
         GetEntityHandles(g_entities[g_iSelectedEntity], view, handles);
@@ -272,7 +276,6 @@ static int HitTestBrushHandles(const CBrush& b, const View2D& view, const ImVec2
     GetBrushHandles(b, view, handles);
     for (int h = 0; h < 8; h++) {
         ImVec2 p = WorldToScreen2D(handles[h][0], handles[h][1], view, canvasPos, canvasSize);
-        // 加大判定半径到 10 像素，避免难以点中
         if (mousePos.x >= p.x - 10.0f && mousePos.x <= p.x + 10.0f && mousePos.y >= p.y - 10.0f && mousePos.y <= p.y + 10.0f) return h;
     }
     return -1;
@@ -284,7 +287,6 @@ static int HitTestEntityHandles(const CEntity& e, const View2D& view, const ImVe
     GetEntityHandles(e, view, handles);
     for (int h = 0; h < 8; h++) {
         ImVec2 p = WorldToScreen2D(handles[h][0], handles[h][1], view, canvasPos, canvasSize);
-        // 加大判定半径
         if (mousePos.x >= p.x - 10.0f && mousePos.x <= p.x + 10.0f && mousePos.y >= p.y - 10.0f && mousePos.y <= p.y + 10.0f) return h;
     }
     return -1;
@@ -352,28 +354,23 @@ static void UpdateEntityResize(View2D& view, ImGuiIO& io, const ImVec2& canvasPo
     }
 
     CEntity& ent = g_entities[view.iResizingEntity];
-    
-    // 使用鼠标的世界坐标增量，而不是绝对坐标。这样点击的瞬间不会产生跳跃。
+
     float dxWorld = io.MouseDelta.x / view.zoom;
-    float dyWorld = -io.MouseDelta.y / view.zoom; // 屏幕 Y 是向下的，世界 Y 是向上的
+    float dyWorld = -io.MouseDelta.y / view.zoom;
 
     int h = view.iResizeEntityHandle;
 
-    // 根据拖拽的手柄，更新包围盒
-    // 注意：更新的是当前实体的包围盒
     if (h == 0 || h == 3 || h == 7) SetGlmAxis(ent.m_vecBBoxMins, view.axisMapX, GetGlmAxis(ent.m_vecBBoxMins, view.axisMapX) + dxWorld);
     if (h == 1 || h == 2 || h == 5) SetGlmAxis(ent.m_vecBBoxMaxs, view.axisMapX, GetGlmAxis(ent.m_vecBBoxMaxs, view.axisMapX) + dxWorld);
-    
+
     if (h == 0 || h == 1 || h == 4) SetGlmAxis(ent.m_vecBBoxMaxs, view.axisMapY, GetGlmAxis(ent.m_vecBBoxMaxs, view.axisMapY) + dyWorld);
     if (h == 2 || h == 3 || h == 6) SetGlmAxis(ent.m_vecBBoxMins, view.axisMapY, GetGlmAxis(ent.m_vecBBoxMins, view.axisMapY) + dyWorld);
 
-    // 确保 mins <= maxs
     for(int i=0; i<3; i++) {
         if (ent.m_vecBBoxMins[i] > ent.m_vecBBoxMaxs[i]) std::swap(ent.m_vecBBoxMins[i], ent.m_vecBBoxMaxs[i]);
     }
 
-    // 同步实体的中心点位置，这样下次 UpdateEntityBBox 时就不会错位
-    ent.m_vecPos = (ent.m_vecBBoxMins + ent.m_vecBBoxMaxs) * 0.5f; 
+    ent.m_vecPos = (ent.m_vecBBoxMins + ent.m_vecBBoxMaxs) * 0.5f;
 }
 
 static void CreateBrushFromBox(View2D& view)
@@ -412,7 +409,156 @@ static void CreateBrushFromBox(View2D& view)
     g_iSelectedEntity = -1;
 }
 
-static void Draw2DViewCommon(const char* name, View2D& view)
+// 拖拽开始时判定选择目标的辅助函数。返回 true 表示已经开始某种拖拽。
+static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
+                             ImGuiIO& io, const ImVec2& canvasPos, const ImVec2& canvasSize,
+                             float wx, float wy)
+{
+    if (g_bBlockToolActive) {
+        view.bBoxCreating = true;
+        view.fBoxCreateStartX = view.fBoxCreateEndX = wx;
+        view.fBoxCreateStartY = view.fBoxCreateEndY = wy;
+        uiState.isDragging = true;
+        uiState.mode = View2DUIState::BOX_CREATE;
+        return true;
+    }
+
+    // 优先判定 Entity 手柄
+    if (g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size()) {
+        int handle = HitTestEntityHandles(g_entities[g_iSelectedEntity], view, io.MousePos, canvasPos, canvasSize);
+        if (handle >= 0) {
+            view.bResizingEntity = true; view.iResizingEntity = g_iSelectedEntity; view.iResizeEntityHandle = handle;
+            view.bPushedDragSnapshot = false;
+            view.vecResizeStartMins = g_entities[g_iSelectedEntity].m_vecBBoxMins;
+            view.vecResizeStartMaxs = g_entities[g_iSelectedEntity].m_vecBBoxMaxs;
+            uiState.isDragging = true;
+            uiState.mode = View2DUIState::RESIZE_ENTITY;
+            return true;
+        }
+    }
+
+    // 其次判定 Brush 手柄
+    if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+        int handle = HitTestBrushHandles(g_brushes[g_iSelectedBrush], view, io.MousePos, canvasPos, canvasSize);
+        if (handle >= 0) {
+            view.bResizingBrush = true; view.iResizingBrush = g_iSelectedBrush; view.iResizeHandle = handle;
+            view.bPushedDragSnapshot = false;
+            GetBrush2DRange(g_brushes[view.iResizingBrush], view, view.fResizeFixedMinX, view.fResizeFixedMaxX, view.fResizeFixedMinY, view.fResizeFixedMaxY);
+            uiState.isDragging = true;
+            uiState.mode = View2DUIState::RESIZE_BRUSH;
+            return true;
+        }
+    }
+
+    // 再次判定实体身体
+    {
+        int hitEntity = -1;
+        for (int i = (int)g_entities.size() - 1; i >= 0; i--) {
+            float minX, maxX, minY, maxY; GetEntity2DRange(g_entities[i], view, minX, maxX, minY, maxY);
+            if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitEntity = i; break; }
+        }
+        if (hitEntity >= 0) {
+            g_iSelectedEntity = hitEntity; g_iSelectedBrush = -1;
+            view.bDraggingEntity = true; view.iDraggingEntity = hitEntity;
+            view.fDragStartWorldX = wx; view.fDragStartWorldY = wy;
+            view.vecDragStartEntityPos = g_entities[hitEntity].m_vecPos; view.bPushedDragSnapshot = false;
+            view.vecDragStartBBoxMins = g_entities[hitEntity].m_vecBBoxMins;
+            view.vecDragStartBBoxMaxs = g_entities[hitEntity].m_vecBBoxMaxs;
+            uiState.isDragging = true;
+            uiState.mode = View2DUIState::DRAG_ENTITY;
+            return true;
+        }
+    }
+
+    // 最后判定 Brush 身体
+    {
+        int hitBrush = -1;
+        for (int i = (int)g_brushes.size() - 1; i >= 0; i--) {
+            float minX, maxX, minY, maxY; GetBrush2DRange(g_brushes[i], view, minX, maxX, minY, maxY);
+            if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitBrush = i; break; }
+        }
+        if (hitBrush >= 0) {
+            g_iSelectedBrush = hitBrush; g_iSelectedEntity = -1;
+            view.bDraggingBrush = true; view.iDraggingBrush = hitBrush;
+            view.fDragStartWorldX = wx; view.fDragStartWorldY = wy;
+            view.vecDragStartBrushPos = g_brushes[hitBrush].m_vecPos; view.bPushedDragSnapshot = false;
+            uiState.isDragging = true;
+            uiState.mode = View2DUIState::DRAG_BRUSH;
+            return true;
+        }
+    }
+
+    // 点空白 —— 取消选择（不进入拖拽状态）
+    g_iSelectedBrush = -1; g_iSelectedEntity = -1;
+    return false;
+}
+
+// 拖动中的推进逻辑。返回 true 表示拖拽刚结束。
+static bool TickDrag(View2D& view, View2DUIState& uiState,
+                     ImGuiIO& io, const ImVec2& canvasPos, const ImVec2& canvasSize)
+{
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        if (uiState.mode == View2DUIState::BOX_CREATE) {
+            CreateBrushFromBox(view);
+            view.bBoxCreating = false;
+        }
+        view.bDraggingBrush = false; view.iDraggingBrush = -1;
+        view.bDraggingEntity = false; view.iDraggingEntity = -1;
+        view.bResizingBrush = false; view.iResizingBrush = -1; view.iResizeHandle = -1;
+        view.bResizingEntity = false; view.iResizingEntity = -1; view.iResizeEntityHandle = -1;
+        view.bPushedDragSnapshot = false;
+        uiState.isDragging = false;
+        uiState.mode = View2DUIState::NONE;
+        return true;
+    }
+
+    if (uiState.mode == View2DUIState::RESIZE_BRUSH) {
+        UpdateBrushResize(view, io, canvasPos, canvasSize);
+    } else if (uiState.mode == View2DUIState::RESIZE_ENTITY) {
+        UpdateEntityResize(view, io, canvasPos, canvasSize);
+    } else if (uiState.mode == View2DUIState::BOX_CREATE) {
+        ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, view.fBoxCreateEndX, view.fBoxCreateEndY);
+    } else {
+        bool bAnyDragging = view.bDraggingBrush || view.bDraggingEntity;
+        if (bAnyDragging) {
+            float wx, wy; ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wx, wy);
+            float deltaX = wx - view.fDragStartWorldX, deltaY = wy - view.fDragStartWorldY;
+            if (!view.bPushedDragSnapshot && (fabsf(deltaX) > 0.01f || fabsf(deltaY) > 0.01f)) {
+                UndoStack::Instance().PushSnapshot(view.bDraggingBrush ? "2D Drag Brush" : "2D Drag Entity");
+                view.bPushedDragSnapshot = true;
+            }
+            if (view.bDraggingBrush) {
+                CBrush& brush = g_brushes[view.iDraggingBrush];
+                glm::vec3 newPos = view.vecDragStartBrushPos;
+                SetGlmAxis(newPos, view.axisMapX, GetGlmAxis(view.vecDragStartBrushPos, view.axisMapX) + deltaX);
+                SetGlmAxis(newPos, view.axisMapY, GetGlmAxis(view.vecDragStartBrushPos, view.axisMapY) + deltaY);
+                if (g_flGridSize > 0.0f) {
+                    SetGlmAxis(newPos, view.axisMapX, roundf(GetGlmAxis(newPos, view.axisMapX) / g_flGridSize) * g_flGridSize);
+                    SetGlmAxis(newPos, view.axisMapY, roundf(GetGlmAxis(newPos, view.axisMapY) / g_flGridSize) * g_flGridSize);
+                }
+                glm::vec3 offset = newPos - brush.m_vecPos;
+                for (auto& v : brush.m_vertices) v += offset;
+                brush.m_vecPos = newPos;
+            } else if (view.bDraggingEntity) {
+                CEntity& ent = g_entities[view.iDraggingEntity];
+                glm::vec3 newPos = view.vecDragStartEntityPos;
+                SetGlmAxis(newPos, view.axisMapX, GetGlmAxis(view.vecDragStartEntityPos, view.axisMapX) + deltaX);
+                SetGlmAxis(newPos, view.axisMapY, GetGlmAxis(view.vecDragStartEntityPos, view.axisMapY) + deltaY);
+                if (g_flGridSize > 0.0f) {
+                    SetGlmAxis(newPos, view.axisMapX, roundf(GetGlmAxis(newPos, view.axisMapX) / g_flGridSize) * g_flGridSize);
+                    SetGlmAxis(newPos, view.axisMapY, roundf(GetGlmAxis(newPos, view.axisMapY) / g_flGridSize) * g_flGridSize);
+                }
+                glm::vec3 offset = newPos - ent.m_vecPos;
+                ent.m_vecPos = newPos;
+                ent.m_vecBBoxMins += offset;
+                ent.m_vecBBoxMaxs += offset;
+            }
+        }
+    }
+    return false;
+}
+
+static void Draw2DViewCommon(const char* name, View2D& view, View2DUIState& uiState)
 {
     if (!ImGui::Begin(name)) { ImGui::End(); return; }
     ImVec2 canvasPos = ImGui::GetCursorScreenPos();
@@ -422,180 +568,41 @@ static void Draw2DViewCommon(const char* name, View2D& view)
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), IM_COL32(25, 25, 25, 255));
 
-    // 重置状态，只在左键按下的瞬间进行模式判定
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        s_uiState.isDragging = false;
-        s_uiState.mode = View2DUIState::NONE;
-    }
+    ImGuiIO& io = ImGui::GetIO();
 
-    if (!s_uiState.isDragging) {
-        // 如果没有拖动，正常处理悬停和点击判断
-        ImGui::SetCursorScreenPos(canvasPos);
-        ImGui::InvisibleButton("##canvas", canvasSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
-        
-        if (ImGui::IsItemHovered()) {
-            ImGuiIO& io = ImGui::GetIO();
-            if (io.MouseWheel != 0.0f) {
-                float wxBefore, wyBefore;
-                ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wxBefore, wyBefore);
-                view.zoom *= (1.0f + io.MouseWheel * 0.15f);
-                view.zoom = glm::clamp(view.zoom, 0.01f, 20.0f);
-                float wxAfter, wyAfter;
-                ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wxAfter, wyAfter);
-                view.centerX += wxBefore - wxAfter; view.centerY += wyBefore - wyAfter;
-            }
-            if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
-                view.centerX -= io.MouseDelta.x / view.zoom; view.centerY += io.MouseDelta.y / view.zoom;
-            }
+    // 固定位置放置 InvisibleButton（每帧都执行，保证 hover 稳定）
+    ImGui::SetCursorScreenPos(canvasPos);
+    ImGui::InvisibleButton("##canvas", canvasSize,
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+    bool bHovered = ImGui::IsItemHovered();
 
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                float wx, wy;
-                ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wx, wy);
-
-                if (g_bBlockToolActive) {
-                    view.bBoxCreating = true;
-                    view.fBoxCreateStartX = view.fBoxCreateEndX = wx; view.fBoxCreateStartY = view.fBoxCreateEndY = wy;
-                    s_uiState.isDragging = true;
-                    s_uiState.mode = View2DUIState::BOX_CREATE;
-                } else {
-                    // 优先判定 Entity 手柄
-                    bool handleHit = false;
-                    if (g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size()) {
-                        int handle = HitTestEntityHandles(g_entities[g_iSelectedEntity], view, io.MousePos, canvasPos, canvasSize);
-                        if (handle >= 0) {
-                            view.bResizingEntity = true; view.iResizingEntity = g_iSelectedEntity; view.iResizeEntityHandle = handle;
-                            view.bPushedDragSnapshot = false;
-                            view.vecResizeStartMins = g_entities[g_iSelectedEntity].m_vecBBoxMins;
-                            view.vecResizeStartMaxs = g_entities[g_iSelectedEntity].m_vecBBoxMaxs;
-                            s_uiState.isDragging = true;
-                            s_uiState.mode = View2DUIState::RESIZE_ENTITY;
-                            handleHit = true;
-                        }
-                    }
-                    
-                    // 其次判定 Brush 手柄
-                    if (!handleHit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
-                        int handle = HitTestBrushHandles(g_brushes[g_iSelectedBrush], view, io.MousePos, canvasPos, canvasSize);
-                        if (handle >= 0) {
-                            view.bResizingBrush = true; view.iResizingBrush = g_iSelectedBrush; view.iResizeHandle = handle;
-                            view.bPushedDragSnapshot = false;
-                            GetBrush2DRange(g_brushes[view.iResizingBrush], view, view.fResizeFixedMinX, view.fResizeFixedMaxX, view.fResizeFixedMinY, view.fResizeFixedMaxY);
-                            s_uiState.isDragging = true;
-                            s_uiState.mode = View2DUIState::RESIZE_BRUSH;
-                            handleHit = true;
-                        }
-                    }
-
-                    // 再次判定实体身体
-                    if (!handleHit) {
-                        int hitEntity = -1;
-                        for (int i = (int)g_entities.size() - 1; i >= 0; i--) {
-                            float minX, maxX, minY, maxY; GetEntity2DRange(g_entities[i], view, minX, maxX, minY, maxY);
-                            if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitEntity = i; break; }
-                        }
-                        if (hitEntity >= 0) {
-                            g_iSelectedEntity = hitEntity; g_iSelectedBrush = -1;
-                            view.bDraggingEntity = true; view.iDraggingEntity = hitEntity;
-                            view.fDragStartWorldX = wx; view.fDragStartWorldY = wy;
-                            view.vecDragStartEntityPos = g_entities[hitEntity].m_vecPos; view.bPushedDragSnapshot = false;
-                            view.vecDragStartBBoxMins = g_entities[hitEntity].m_vecBBoxMins;
-                            view.vecDragStartBBoxMaxs = g_entities[hitEntity].m_vecBBoxMaxs;
-                            s_uiState.isDragging = true;
-                            s_uiState.mode = View2DUIState::DRAG_ENTITY;
-                            handleHit = true;
-                        }
-                    }
-
-                    // 最后判定 Brush 身体
-                    if (!handleHit) {
-                        int hitBrush = -1;
-                        for (int i = (int)g_brushes.size() - 1; i >= 0; i--) {
-                            float minX, maxX, minY, maxY; GetBrush2DRange(g_brushes[i], view, minX, maxX, minY, maxY);
-                            if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitBrush = i; break; }
-                        }
-                        if (hitBrush >= 0) {
-                            g_iSelectedBrush = hitBrush; g_iSelectedEntity = -1;
-                            view.bDraggingBrush = true; view.iDraggingBrush = hitBrush;
-                            view.fDragStartWorldX = wx; view.fDragStartWorldY = wy;
-                            view.vecDragStartBrushPos = g_brushes[hitBrush].m_vecPos; view.bPushedDragSnapshot = false;
-                            s_uiState.isDragging = true;
-                            s_uiState.mode = View2DUIState::DRAG_BRUSH;
-                            handleHit = true;
-                        }
-                    }
-
-                    // 点空白
-                    if (!handleHit) {
-                        g_iSelectedBrush = -1; g_iSelectedEntity = -1;
-                    }
-                }
-            }
+    // -------- 1. 未在拖拽：处理 hover 上的滚轮、平移、点击起拖 --------
+    if (!uiState.isDragging && bHovered) {
+        if (io.MouseWheel != 0.0f) {
+            float wxBefore, wyBefore;
+            ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wxBefore, wyBefore);
+            view.zoom *= (1.0f + io.MouseWheel * 0.15f);
+            view.zoom = glm::clamp(view.zoom, 0.01f, 20.0f);
+            float wxAfter, wyAfter;
+            ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wxAfter, wyAfter);
+            view.centerX += wxBefore - wxAfter; view.centerY += wyBefore - wyAfter;
         }
-    } else {
-        // 正在拖动
-        ImGuiIO& io = ImGui::GetIO();
-        // 鼠标松开时，结束状态
-        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-            if (s_uiState.mode == View2DUIState::BOX_CREATE) {
-                CreateBrushFromBox(view);
-                view.bBoxCreating = false;
-            }
-            view.bDraggingBrush = false; view.iDraggingBrush = -1;
-            view.bDraggingEntity = false; view.iDraggingEntity = -1;
-            view.bResizingBrush = false; view.iResizingBrush = -1; view.iResizeHandle = -1;
-            view.bResizingEntity = false; view.iResizingEntity = -1; view.iResizeEntityHandle = -1;
-            view.bPushedDragSnapshot = false;
-            s_uiState.isDragging = false;
-            s_uiState.mode = View2DUIState::NONE;
-        } else {
-            // 执行拖动/缩放逻辑
-            if (s_uiState.mode == View2DUIState::RESIZE_BRUSH) {
-                UpdateBrushResize(view, io, canvasPos, canvasSize);
-            } else if (s_uiState.mode == View2DUIState::RESIZE_ENTITY) {
-                UpdateEntityResize(view, io, canvasPos, canvasSize);
-            } else if (s_uiState.mode == View2DUIState::BOX_CREATE) {
-                ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, view.fBoxCreateEndX, view.fBoxCreateEndY);
-            } else {
-                // 拖动身体
-                bool bAnyDragging = view.bDraggingBrush || view.bDraggingEntity;
-                if (bAnyDragging) {
-                    float wx, wy; ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wx, wy);
-                    float deltaX = wx - view.fDragStartWorldX, deltaY = wy - view.fDragStartWorldY;
-                    if (!view.bPushedDragSnapshot && (fabsf(deltaX) > 0.01f || fabsf(deltaY) > 0.01f)) {
-                        UndoStack::Instance().PushSnapshot(view.bDraggingBrush ? "2D Drag Brush" : "2D Drag Entity");
-                        view.bPushedDragSnapshot = true;
-                    }
-                    if (view.bDraggingBrush) {
-                        CBrush& brush = g_brushes[view.iDraggingBrush];
-                        glm::vec3 newPos = view.vecDragStartBrushPos;
-                        SetGlmAxis(newPos, view.axisMapX, GetGlmAxis(view.vecDragStartBrushPos, view.axisMapX) + deltaX);
-                        SetGlmAxis(newPos, view.axisMapY, GetGlmAxis(view.vecDragStartBrushPos, view.axisMapY) + deltaY);
-                        if (g_flGridSize > 0.0f) {
-                            SetGlmAxis(newPos, view.axisMapX, roundf(GetGlmAxis(newPos, view.axisMapX) / g_flGridSize) * g_flGridSize);
-                            SetGlmAxis(newPos, view.axisMapY, roundf(GetGlmAxis(newPos, view.axisMapY) / g_flGridSize) * g_flGridSize);
-                        }
-                        glm::vec3 offset = newPos - brush.m_vecPos;
-                        for (auto& v : brush.m_vertices) v += offset;
-                        brush.m_vecPos = newPos;
-                    } else if (view.bDraggingEntity) {
-                        CEntity& ent = g_entities[view.iDraggingEntity];
-                        glm::vec3 newPos = view.vecDragStartEntityPos;
-                        SetGlmAxis(newPos, view.axisMapX, GetGlmAxis(view.vecDragStartEntityPos, view.axisMapX) + deltaX);
-                        SetGlmAxis(newPos, view.axisMapY, GetGlmAxis(view.vecDragStartEntityPos, view.axisMapY) + deltaY);
-                        if (g_flGridSize > 0.0f) {
-                            SetGlmAxis(newPos, view.axisMapX, roundf(GetGlmAxis(newPos, view.axisMapX) / g_flGridSize) * g_flGridSize);
-                            SetGlmAxis(newPos, view.axisMapY, roundf(GetGlmAxis(newPos, view.axisMapY) / g_flGridSize) * g_flGridSize);
-                        }
-                        glm::vec3 offset = newPos - ent.m_vecPos;
-                        ent.m_vecPos = newPos;
-                        ent.m_vecBBoxMins += offset;
-                        ent.m_vecBBoxMaxs += offset;
-                    }
-                }
-            }
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+            view.centerX -= io.MouseDelta.x / view.zoom; view.centerY += io.MouseDelta.y / view.zoom;
+        }
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            float wx, wy;
+            ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wx, wy);
+            BeginDragOnClick(view, uiState, io, canvasPos, canvasSize, wx, wy);
         }
     }
 
+    // -------- 2. 正在拖拽：不管 hover 与否都推进 --------
+    if (uiState.isDragging) {
+        TickDrag(view, uiState, io, canvasPos, canvasSize);
+    }
+
+    // -------- 3. 绘制 --------
     DrawGrid2D(draw, view, canvasPos, canvasSize);
     DrawBrushes2D(draw, view, canvasPos, canvasSize);
     DrawEntities2D(draw, view, canvasPos, canvasSize);
@@ -611,9 +618,9 @@ static void Draw2DViewCommon(const char* name, View2D& view)
     ImGui::End();
 }
 
-void DrawTopView()   { Draw2DViewCommon("Top View",   s_topView);   }
-void DrawFrontView() { Draw2DViewCommon("Front View", s_frontView); }
-void DrawSideView()  { Draw2DViewCommon("Side View",  s_sideView);  }
+void DrawTopView()   { Draw2DViewCommon("Top View",   s_topView,   s_topUI);   }
+void DrawFrontView() { Draw2DViewCommon("Front View", s_frontView, s_frontUI); }
+void DrawSideView()  { Draw2DViewCommon("Side View",  s_sideView,  s_sideUI);  }
 
 void Draw2DViews()
 {
