@@ -630,6 +630,42 @@ int main(int, char**) {
     glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glBindVertexArray(0);
 
+    // 生成一个简单的圆柱体网格（用于画枪管）
+    GLuint gun_vao, gun_vbo, gun_ebo;
+    glGenVertexArrays(1, &gun_vao); glGenBuffers(1, &gun_vbo); glGenBuffers(1, &gun_ebo);
+    
+    std::vector<float> gun_verts;
+    std::vector<uint32_t> gun_idx;
+    int segments = 16;
+    float radius = 0.1f;
+    float length = 1.0f;
+    
+    // 侧面顶点
+    for (int i = 0; i <= segments; i++) {
+        float angle = (float)i / segments * 2.0f * 3.14159265f;
+        float x = cosf(angle) * radius;
+        float y = sinf(angle) * radius;
+        float nx = cosf(angle);
+        float ny = sinf(angle);
+        // 前面的圈
+        gun_verts.insert(gun_verts.end(), {x, y, -length, nx, ny, 0.0f});
+        // 后面的圈
+        gun_verts.insert(gun_verts.end(), {x, y, 0.0f, nx, ny, 0.0f});
+    }
+    // 侧面索引
+    for (int i = 0; i < segments; i++) {
+        int base = i * 2;
+        gun_idx.insert(gun_idx.end(), {(uint32_t)base, (uint32_t)base+1, (uint32_t)base+2});
+        gun_idx.insert(gun_idx.end(), {(uint32_t)base+1, (uint32_t)base+3, (uint32_t)base+2});
+    }
+    
+    glBindVertexArray(gun_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, gun_vbo); glBufferData(GL_ARRAY_BUFFER, gun_verts.size() * 4, gun_verts.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gun_ebo); glBufferData(GL_ELEMENT_ARRAY_BUFFER, gun_idx.size() * 4, gun_idx.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glBindVertexArray(0);
+
     // 为每个门创建 Kinematic 刚体
     std::vector<JPH::BodyID> doorBodies;
     for (size_t i = 0; i < doors.size(); i++) {
@@ -656,6 +692,9 @@ int main(int, char**) {
     SDL_SetRelativeMouseMode(SDL_TRUE);
     bool running = true;
     Uint32 lastTime = SDL_GetTicks();
+
+    float recoilTimer = 0.0f; // 后坐力动画计时器
+    float recoilDuration = 0.1f; // 动画持续 0.1 秒
 
     std::vector<DoorStateForTrace> doorTrace;
 
@@ -892,6 +931,7 @@ int main(int, char**) {
         // 武器射击
         // ====================================================================
         if (bFirePressed) {
+            recoilTimer = recoilDuration; // 触发射击后坐力
             glm::vec3 eyePos = playerPos + glm::vec3(0.0f, 8.0f, 0.0f);
             float pitchRad = glm::radians(camPitch);
             glm::vec3 front;
@@ -1044,6 +1084,7 @@ int main(int, char**) {
         }
 
         if (crosshairHitTimer > 0.0f) crosshairHitTimer -= deltaTime;
+        if (recoilTimer > 0.0f) recoilTimer -= deltaTime;
 
         // 渲染
         ImGui_ImplOpenGL3_NewFrame();
@@ -1188,6 +1229,47 @@ int main(int, char**) {
             glBindVertexArray(box_vao);
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
+
+        // ====================================================================
+        // 渲染第一人称武器（枪）
+        // ====================================================================
+        // 用独立的投影矩阵，视野窄一点，保证枪不穿模
+        glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.01f, 10.0f);
+        glm::mat4 gunView = glm::mat4(1.0f); // 视角固定在原点
+
+        // 基础位置：右下方，腰间
+        float baseX = 0.25f;
+        float baseY = -0.25f;
+        float baseZ = -0.4f;
+
+        // 后坐力偏移计算
+        float recoilOffset = 0.0f;
+        float recoilPitch = 0.0f;
+        if (recoilTimer > 0.0f) {
+            float progress = recoilTimer / recoilDuration; // 1.0 -> 0.0
+            // 模拟枪托向后猛推，枪口向上抬
+            recoilOffset = progress * 0.1f; // 向后移动
+            recoilPitch = progress * 15.0f; // 向上抬
+        }
+
+        // 组合枪的模型矩阵
+        glm::mat4 gunModel = glm::translate(glm::mat4(1.0f), glm::vec3(baseX, baseY, baseZ + recoilOffset));
+        gunModel = glm::rotate(gunModel, glm::radians(recoilPitch), glm::vec3(1, 0, 0)); // 枪口上抬
+        gunModel = glm::rotate(gunModel, glm::radians(-5.0f), glm::vec3(0, 1, 0));       // 稍微偏转一点
+        gunModel = glm::scale(gunModel, glm::vec3(0.1f, 0.1f, 0.4f));                    // 拉伸成细长形
+
+        glm::mat4 gunMvp = gunProj * gunView * gunModel;
+
+        // 渲染枪
+        glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(gunMvp));
+        glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(gunModel));
+        glUniform3f(glGetUniformLocation(program, "uColor"), 0.2f, 0.2f, 0.2f); // 枪身深灰色
+        glBindVertexArray(gun_vao);
+        glDrawElements(GL_TRIANGLES, (GLsizei)gun_idx.size(), GL_UNSIGNED_INT, 0);
+
+        // 为了避免枪的深度值污染主场景（虽然清空了深度缓冲区，但安全起见）
+        // 其实因为 ImGui 是 2D 的，所以直接画在上面就行
+        // ====================================================================
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
