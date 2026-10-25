@@ -754,6 +754,8 @@ int main(int, char**) {
 
     float playerHP = 100.0f;
     float playerDamageTimer = 0.0f;
+    bool levelComplete = false;
+    float levelCompleteTimer = 0.0f;
 
     while (running) {
         Uint32 currentTime = SDL_GetTicks();
@@ -776,6 +778,39 @@ int main(int, char**) {
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_e && mouseLocked && !event.key.repeat) {
                 bUsePressed = true;
             }
+            if (levelComplete) {
+                if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_r && levelComplete) {
+                    // 重置关卡状态
+                    levelComplete = false;
+                    playerHP = 100.0f;
+                    playerPos = glm::vec3(spawnPos[0], spawnPos[1] + 36.0f, spawnPos[2]);
+                    playerVel = glm::vec3(0);
+                    
+                    // 重置敌人
+                    enemies.clear();
+                    enemies.push_back({glm::vec3(-200.0f, 36.0f, 200.0f)});
+                    enemies.push_back({glm::vec3(200.0f, 36.0f, 200.0f)});
+                    
+                    // 重置物理箱子和门（可选，如果你想让它们也重置，需要重新 SetPosition）
+                    for (size_t i = 0; i < physboxIds.size(); i++) {
+                        body_interface.SetPositionAndRotation(
+                            physboxIds[i],
+                            JPH::RVec3((physboxMins[i].x + physboxMaxs[i].x)*0.5f, (physboxMins[i].y + physboxMaxs[i].y)*0.5f, (physboxMins[i].z + physboxMaxs[i].z)*0.5f),
+                            JPH::Quat::sIdentity(),
+                            JPH::EActivation::Activate
+                        );
+                        body_interface.SetLinearVelocity(physboxIds[i], JPH::Vec3(0,0,0));
+                    }
+                    for (auto& d : doors) {
+                        d.openAmount = 0.0f;
+                        d.isOpening = false;
+                        d.waitTimer = 0.0f;
+                    }
+                    
+                    printf("[GAME] Level Restarted!\n");
+                }
+                continue; // 忽略其他事件
+            }                        
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
                 if (!mouseLocked) { mouseLocked = true; SDL_SetRelativeMouseMode(SDL_TRUE); }
                 else if (!event.button.clicks || event.button.clicks == 1) { // 防连点
@@ -791,7 +826,7 @@ int main(int, char**) {
         }
 
         // 移动输入
-        if (mouseLocked && !io.WantCaptureKeyboard) {
+        if (!levelComplete && mouseLocked && !io.WantCaptureKeyboard) {
             const Uint8* keys = SDL_GetKeyboardState(nullptr);
             float yawRad = glm::radians(camYaw);
             glm::vec3 forward(cos(yawRad), 0.0f, sin(yawRad));
@@ -895,6 +930,27 @@ int main(int, char**) {
         );
 
         // ====================================================================
+        // 关卡终点检测 (trigger_multiple / trigger_once)
+        // ====================================================================
+        if (!levelComplete) {
+            glm::vec3 pMin = playerPos - glm::vec3(playerRadius, playerHeight * 0.5f, playerRadius);
+            glm::vec3 pMax = playerPos + glm::vec3(playerRadius, playerHeight * 0.5f, playerRadius);
+            
+            for (size_t i = 0; i < triggerMins.size(); i++) {
+                // AABB 相交测试
+                if (pMax.x >= triggerMins[i].x && pMin.x <= triggerMaxs[i].x &&
+                    pMax.y >= triggerMins[i].y && pMin.y <= triggerMaxs[i].y &&
+                    pMax.z >= triggerMins[i].z && pMin.z <= triggerMaxs[i].z) {
+                    levelComplete = true;
+                    levelCompleteTimer = 0.0f;
+                    if (sndHit) Mix_PlayChannel(-1, sndHit, 0); // 可以用个音效代替过关音
+                    printf("[GAME] Level Complete! Press R to restart.\n");
+                    break;
+                }
+            }
+        }
+
+        // ====================================================================
         // 敌人 AI 逻辑
         // ====================================================================
         for (auto& enemy : enemies) {
@@ -977,7 +1033,7 @@ int main(int, char**) {
         // ====================================================================
         // 武器射击
         // ====================================================================
-        if (bFirePressed) {
+        if (!levelComplete && bFirePressed) {
             recoilTimer = recoilDuration; // 触发射击后坐力
             if (sndShoot) Mix_PlayChannel(-1, sndShoot, 0); // 播放开枪声
             glm::vec3 eyePos = playerPos + glm::vec3(0.0f, 8.0f, 0.0f);
@@ -1175,6 +1231,26 @@ int main(int, char**) {
         char hpText[64];
         snprintf(hpText, sizeof(hpText), "HP: %.0f", playerHP);
         drawList->AddText(ImGui::GetFont(), 32.0f, ImVec2(30, scrH - 60), IM_COL32(255, 255, 255, 255), hpText);
+
+        // 关卡过关 UI
+        if (levelComplete) {
+            levelCompleteTimer += deltaTime;
+            // 画一层半透明黑色遮罩
+            drawList->AddRectFilled(ImVec2(0, 0), ImVec2((float)scrW, (float)scrH), IM_COL32(0, 0, 0, 180));
+            
+            // 居中显示文字
+            const char* winText = "LEVEL COMPLETE";
+            ImVec2 textSize = ImGui::CalcTextSize(winText);
+            drawList->AddText(ImGui::GetFont(), 64.0f, 
+                ImVec2((scrW - textSize.x * 2.0f) * 0.5f, scrH * 0.4f), 
+                IM_COL32(255, 215, 0, 255), winText);
+            
+            const char* subText = "Press 'R' to Restart";
+            ImVec2 subSize = ImGui::CalcTextSize(subText);
+            drawList->AddText(ImGui::GetFont(), 24.0f, 
+                ImVec2((scrW - subSize.x) * 0.5f, scrH * 0.55f), 
+                IM_COL32(255, 255, 255, 255), subText);
+        }
 
         ImGui::End();
 
