@@ -892,12 +892,23 @@ static void OnImportMap() {
 }
 static void OnCompileAndRun() {
     if (!ExportMapJson("map.json")) { LogAdd("[COMPILE] export map.json FAILED"); return; }
-    int ret = system("map");
+    
+    // 根据平台决定执行命令
+#ifdef _WIN32
+    const char* cmdMap = "map.exe";
+    const char* cmdGame = "game.exe";
+#else
+    const char* cmdMap = "./map";
+    const char* cmdGame = "./game";
+#endif
+
+    int ret = system(cmdMap);
     char b[128]; 
-    snprintf(b, sizeof(b), "[COMPILE] map.exe exit=%d", ret);
+    snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdMap, ret);
     LogAdd(b);
-    ret = system("game");
-    snprintf(b, sizeof(b), "[COMPILE] game.exe exit=%d", ret);
+    
+    ret = system(cmdGame);
+    snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdGame, ret);
     LogAdd(b);
 }
 
