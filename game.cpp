@@ -988,34 +988,125 @@ int main(int, char**) {
                 enemy.vel.z = 0.0f;
             }
 
-            // 3. 重力与碰撞
+            // 3. 重力与碰撞 (改为 AABB 驱动)
             enemy.vel.y -= 800.0f * deltaTime;
-            glm::vec3 newPos = enemy.pos + enemy.vel * deltaTime;
+            glm::vec3 newPos = enemy.pos;
 
-            // 垂直碰撞 (脚底往下打射线)
-            float eFloorDist = TraceBVH(newPos - glm::vec3(0, enemy.height*0.5f, 0), glm::vec3(0, -1, 0), dummyNormal);
-            if (eFloorDist >= 0.0f && eFloorDist <= 1.5f) {
-                newPos.y -= (eFloorDist - 1.0f);
-                enemy.vel.y = 0.0f;
-                enemy.isGrounded = true;
+            // 辅助函数：检测敌方 AABB 是否撞墙/撞箱子/撞门
+            auto CheckEnemyAABBCollision = [&](glm::vec3 testPos) {
+                float halfH = enemy.height * 0.5f;
+                // 敌人的包围盒
+                glm::vec3 eMin = testPos - glm::vec3(enemy.radius, halfH, enemy.radius);
+                glm::vec3 eMax = testPos + glm::vec3(enemy.radius, halfH, enemy.radius);
+
+                // 1. 测物理箱子（直接 AABB 碰撞，绝对不漏）
+                for (size_t i = 0; i < physboxIds.size(); i++) {
+                    JPH::RMat44 t = body_interface.GetWorldTransform(physboxIds[i]);
+                    JPH::AABox aabb = body_interface.GetShape(physboxIds[i])->GetWorldSpaceBounds(t, JPH::Vec3(1,1,1));
+                    glm::vec3 bMin((float)aabb.mMin.GetX(), (float)aabb.mMin.GetY(), (float)aabb.mMin.GetZ());
+                    glm::vec3 bMax((float)aabb.mMax.GetX(), (float)aabb.mMax.GetY(), (float)aabb.mMax.GetZ());
+                    
+                    // AABB 相交测试
+                    if (eMax.x > bMin.x && eMin.x < bMax.x &&
+                        eMax.y > bMin.y && eMin.y < bMax.y &&
+                        eMax.z > bMin.z && eMin.z < bMax.z) {
+                        return true;
+                    }
+                }
+
+                // 2. 测门
+                for (auto& d : doorTrace) {
+                    if (d.openAmount > 0.5f) continue;
+                    glm::vec3 off = d.openDir * (d.openDist * d.openAmount);
+                    glm::vec3 dMin = d.mins + off;
+                    glm::vec3 dMax = d.maxs + off;
+                    if (eMax.x > dMin.x && eMin.x < dMax.x &&
+                        eMax.y > dMin.y && eMin.y < dMax.y &&
+                        eMax.z > dMin.z && eMin.z < dMax.z) {
+                        return true;
+                    }
+                }
+
+                // 3. 测静态地图（用四根射线）
+                float r = enemy.radius;
+                glm::vec3 dirs[4] = { {r, 0, 0}, {-r, 0, 0}, {0, 0, r}, {0, 0, -r} };
+                for (int i = 0; i < 4; i++) {
+                    glm::vec3 dir = glm::normalize(dirs[i]);
+                    float d = TraceBVH(testPos, dir, dummyNormal);
+                    if (d >= 0.0f && d < r) return true;
+                }
+                return false;
+            };
+
+            // 垂直移动 (Y轴)
+            glm::vec3 testY = newPos + glm::vec3(0, enemy.vel.y * deltaTime, 0);
+            if (enemy.vel.y < 0) {
+                // 往下掉的时候，检查脚底
+                float floorDist = TraceBVH(testY - glm::vec3(0, enemy.height*0.5f, 0), glm::vec3(0, -1, 0), dummyNormal);
+                if (floorDist >= 0.0f && floorDist <= 5.0f) { // 地面在脚底 5 单位内
+                    testY.y -= (floorDist - 1.0f);
+                    enemy.vel.y = 0.0f;
+                    enemy.isGrounded = true;
+                } else {
+                    enemy.isGrounded = false;
+                }
+            }
+            newPos.y = testY.y;
+
+            // 水平移动 (X轴)
+            glm::vec3 testX = newPos + glm::vec3(enemy.vel.x * deltaTime, 0, 0);
+            if (!CheckEnemyAABBCollision(testX)) {
+                newPos.x = testX.x; // 不撞墙就移动
             } else {
-                enemy.isGrounded = false;
+                enemy.vel.x = 0; // 撞墙了，X轴速度归零
             }
 
-            // 水平碰撞
-            float edx = enemy.vel.x * deltaTime;
-            float edz = enemy.vel.z * deltaTime;
-            if (fabsf(edx) > 0.0001f) {
-                glm::vec3 dirX(edx > 0 ? 1.0f : -1.0f, 0, 0);
-                float d = TraceBVH(newPos, dirX, dummyNormal);
-                if (d < 0 || d > enemy.radius) newPos.x += edx;
-                else enemy.vel.x = 0;
+            // 水平移动 (Z轴)
+            glm::vec3 testZ = newPos + glm::vec3(0, 0, enemy.vel.z * deltaTime);
+            if (!CheckEnemyAABBCollision(testZ)) {
+                newPos.z = testZ.z; // 不撞墙就移动
+            } else {
+                enemy.vel.z = 0; // 撞墙了，Z轴速度归零
             }
-            if (fabsf(edz) > 0.0001f) {
-                glm::vec3 dirZ(0, 0, edz > 0 ? 1.0f : -1.0f);
-                float d = TraceBVH(newPos, dirZ, dummyNormal);
-                if (d < 0 || d > enemy.radius) newPos.z += edz;
-                else enemy.vel.z = 0;
+
+            // 敌人推箱子逻辑
+            {
+                glm::vec3 enemyVelH(enemy.vel.x, 0.0f, enemy.vel.z);
+                float enemySpeedH = glm::length(enemyVelH);
+                if (enemySpeedH > 0.01f) {
+                    for (size_t i = 0; i < physboxIds.size(); i++) {
+                        JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(physboxIds[i]);
+                        glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
+
+                        glm::vec3 diff = newPos - bpos;
+                        diff.y = 0.0f;
+                        float horizontalDist = glm::length(diff);
+
+                        glm::vec3 halfSize = (physboxMaxs[i] - physboxMins[i]) * 0.5f;
+                        float contactRange = enemy.radius + std::max(halfSize.x, halfSize.z) + 6.0f;
+
+                        // 如果敌人贴着箱子，且正在朝箱子走，就推它
+                        if (horizontalDist < contactRange) {
+                            glm::vec3 pushDir = glm::normalize(-diff);
+                            float dot = glm::dot(glm::normalize(enemyVelH), pushDir);
+                            if (dot > 0.1f) {
+                                JPH::Vec3 v = body_interface.GetLinearVelocity(physboxIds[i]);
+                                glm::vec3 boxVel(v.GetX(), 0.0f, v.GetZ());
+                                float boxSpeedAlongPush = glm::dot(boxVel, pushDir);
+                                // 敌人推力稍微弱一点，设为敌人速度的 50%
+                                float desiredSpeed = enemySpeedH * dot * 0.5f; 
+                                if (boxSpeedAlongPush < desiredSpeed) {
+                                    float add = desiredSpeed - boxSpeedAlongPush;
+                                    JPH::Vec3 newV(v.GetX() + pushDir.x * add,
+                                                   v.GetY(),
+                                                   v.GetZ() + pushDir.z * add);
+                                    body_interface.SetLinearVelocity(physboxIds[i], newV);
+                                    body_interface.ActivateBody(physboxIds[i]);
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             enemy.pos = newPos;
@@ -1258,8 +1349,8 @@ int main(int, char**) {
 
         glViewport(0, 0, scrW, scrH);
         glEnable(GL_DEPTH_TEST);
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
+        //glEnable(GL_CULL_FACE);
+        //glCullFace(GL_BACK);
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1280,6 +1371,8 @@ int main(int, char**) {
         glm::mat4 mvp = projection * view * model;
         
         // 渲染地图
+        glEnable(GL_CULL_FACE);   // ★ 开启背面剔除
+        glCullFace(GL_BACK);        
         glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
         glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
         //glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.6f, 0.65f); // 地图颜色
@@ -1289,6 +1382,7 @@ int main(int, char**) {
         glDrawElements(GL_TRIANGLES, ni, GL_UNSIGNED_INT, 0);
 
         // 渲染物理箱子
+        glDisable(GL_CULL_FACE);  // ★ 关闭背面剔除，保证不透明
         //glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.4f, 0.2f); // 箱子颜色偏黄
         glUniform1i(uModeLoc, 0); // 纯色模式
         glUniform3f(uColorLoc, 0.6f, 0.4f, 0.2f); // 箱子颜色
