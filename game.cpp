@@ -153,7 +153,6 @@ static float TraceBVH(const glm::vec3& start, const glm::vec3& dir, glm::vec3& o
     return hit ? closestT : -1.0f;
 }
 
-// 对 Jolt 动态箱子做射线检测
 static float TraceDynamicBoxes(JPH::BodyInterface& bi,
                                const std::vector<JPH::BodyID>& ids,
                                JPH::BodyID ignoreBody,
@@ -176,7 +175,24 @@ static float TraceDynamicBoxes(JPH::BodyInterface& bi,
     return hit ? best : -1.0f;
 }
 
-// 门对玩家的射线阻挡（openAmount < 0.5 时生效）
+// ---------------------------------------------------------------------------
+// 敌人定义（提前声明，供 TraceFire 和主循环使用）
+// ---------------------------------------------------------------------------
+struct EnemyInfo {
+    glm::vec3 pos;
+    glm::vec3 vel = glm::vec3(0.0f);
+    float hp = 100.0f;
+    float radius = 20.0f;
+    float height = 60.0f;
+    bool isGrounded = false;
+    float attackTimer = 0.0f;
+    enum State { IDLE, CHASE, ATTACK, DEAD } state = CHASE;
+    float deathTimer = 0.0f;
+};
+
+// ---------------------------------------------------------------------------
+// 门对玩家的射线阻挡
+// ---------------------------------------------------------------------------
 struct DoorStateForTrace {
     glm::vec3 mins, maxs;
     glm::vec3 openDir;
@@ -203,12 +219,12 @@ static float TraceDoors(const std::vector<DoorStateForTrace>& ds,
 
 // ---------------------------------------------------------------------------
 // 武器开火检测
-// 返回最近命中的距离，并将法线、类型、索引写入引用
-// type: 0=无, 1=BSP静态, 2=物理箱子, 3=门
+// type: 0=无, 1=BSP静态, 2=物理箱子, 3=门, 4=敌人
 // ---------------------------------------------------------------------------
 static float TraceFire(const glm::vec3& start, const glm::vec3& dir,
                        JPH::BodyInterface& bi, const std::vector<JPH::BodyID>& physboxIds,
                        const std::vector<DoorStateForTrace>& doorTrace,
+                       const std::vector<EnemyInfo>& enemies,
                        glm::vec3& outNormal, int& outHitType, int& outHitIndex)
 {
     float closestDist = 2048.0f;
@@ -258,6 +274,22 @@ static float TraceFire(const glm::vec3& start, const glm::vec3& dir,
             glm::vec3 hitPos = start + dir * tmin;
             glm::vec3 doorCenter = (wMin + wMax) * 0.5f;
             outNormal = glm::normalize(hitPos - doorCenter);
+        }
+    }
+
+    // 4. 敌人
+    for (size_t i = 0; i < enemies.size(); i++) {
+        if (enemies[i].state == EnemyInfo::DEAD) continue;
+        glm::vec3 bmin = enemies[i].pos - glm::vec3(enemies[i].radius, enemies[i].height * 0.5f, enemies[i].radius);
+        glm::vec3 bmax = enemies[i].pos + glm::vec3(enemies[i].radius, enemies[i].height * 0.5f, enemies[i].radius);
+        
+        float tmin, tmax;
+        if (RayAABB(start, dir, bmin, bmax, tmin, tmax) && tmin >= 0.0f && tmin < closestDist) {
+            closestDist = tmin;
+            outHitType = 4;
+            outHitIndex = (int)i;
+            glm::vec3 hitPos = start + dir * tmin;
+            outNormal = glm::normalize(hitPos - enemies[i].pos);
         }
     }
 
@@ -496,8 +528,6 @@ int main(int, char**) {
 
     JPH::PhysicsSystem physics;
     physics.Init(1024, 0, 1024, 1024, bp_layer_interface, obj_vs_bp_filter, obj_vs_obj_filter);
-
-    // ★ 修改 Jolt 全局重力（默认是 -9.81，你的单位如果是厘米，就填 -980.0f）
     physics.SetGravity(JPH::Vec3(0.0f, -1200.0f, 0.0f)); 
 
     JPH::BodyInterface& body_interface = physics.GetBodyInterface();
@@ -631,6 +661,14 @@ int main(int, char**) {
 
     // 准星命中反馈计时器
     float crosshairHitTimer = 0.0f;
+
+    // ---- 敌人初始化 ----
+    std::vector<EnemyInfo> enemies;
+    enemies.push_back({glm::vec3(-200.0f, 36.0f, 200.0f)});
+    enemies.push_back({glm::vec3(200.0f, 36.0f, 200.0f)});
+
+    float playerHP = 100.0f;
+    float playerDamageTimer = 0.0f;
 
     while (running) {
         Uint32 currentTime = SDL_GetTicks();
@@ -772,6 +810,85 @@ int main(int, char**) {
         );
 
         // ====================================================================
+        // 敌人 AI 逻辑
+        // ====================================================================
+        for (auto& enemy : enemies) {
+            if (enemy.state == EnemyInfo::DEAD) {
+                enemy.deathTimer += deltaTime;
+                continue;
+            }
+
+            glm::vec3 toPlayer = playerPos - enemy.pos;
+            float distToPlayer = glm::length(toPlayer);
+            
+            // 1. 状态切换
+            if (distToPlayer < 60.0f) enemy.state = EnemyInfo::ATTACK;
+            else if (distToPlayer < 800.0f) enemy.state = EnemyInfo::CHASE;
+            else enemy.state = EnemyInfo::IDLE;
+
+            // 2. 执行状态
+            if (enemy.state == EnemyInfo::CHASE) {
+                glm::vec3 dir = glm::normalize(glm::vec3(toPlayer.x, 0, toPlayer.z));
+                enemy.vel.x = dir.x * 150.0f; // 敌人速度 150
+                enemy.vel.z = dir.z * 150.0f;
+            } else if (enemy.state == EnemyInfo::ATTACK) {
+                enemy.vel.x = 0.0f;
+                enemy.vel.z = 0.0f;
+                enemy.attackTimer -= deltaTime;
+                if (enemy.attackTimer <= 0.0f) {
+                    playerHP -= 10.0f;
+                    playerDamageTimer = 0.2f;
+                    enemy.attackTimer = 1.0f; // 1秒咬一口
+                    printf("[AI] Enemy attacked player! HP: %.1f\n", playerHP);
+                }
+            } else {
+                enemy.vel.x = 0.0f;
+                enemy.vel.z = 0.0f;
+            }
+
+            // 3. 重力与碰撞
+            enemy.vel.y -= 800.0f * deltaTime;
+            glm::vec3 newPos = enemy.pos + enemy.vel * deltaTime;
+
+            // 垂直碰撞 (脚底往下打射线)
+            float eFloorDist = TraceBVH(newPos - glm::vec3(0, enemy.height*0.5f, 0), glm::vec3(0, -1, 0), dummyNormal);
+            if (eFloorDist >= 0.0f && eFloorDist <= 1.5f) {
+                newPos.y -= (eFloorDist - 1.0f);
+                enemy.vel.y = 0.0f;
+                enemy.isGrounded = true;
+            } else {
+                enemy.isGrounded = false;
+            }
+
+            // 水平碰撞
+            float edx = enemy.vel.x * deltaTime;
+            float edz = enemy.vel.z * deltaTime;
+            if (fabsf(edx) > 0.0001f) {
+                glm::vec3 dirX(edx > 0 ? 1.0f : -1.0f, 0, 0);
+                float d = TraceBVH(newPos, dirX, dummyNormal);
+                if (d < 0 || d > enemy.radius) newPos.x += edx;
+                else enemy.vel.x = 0;
+            }
+            if (fabsf(edz) > 0.0001f) {
+                glm::vec3 dirZ(0, 0, edz > 0 ? 1.0f : -1.0f);
+                float d = TraceBVH(newPos, dirZ, dummyNormal);
+                if (d < 0 || d > enemy.radius) newPos.z += edz;
+                else enemy.vel.z = 0;
+            }
+
+            enemy.pos = newPos;
+        }
+
+        if (playerDamageTimer > 0.0f) playerDamageTimer -= deltaTime;
+
+        if (playerHP <= 0.0f) {
+            printf("Player Died! Respawning...\n");
+            playerHP = 100.0f;
+            playerPos = glm::vec3(spawnPos[0], spawnPos[1] + 36.0f, spawnPos[2]);
+            playerVel = glm::vec3(0);
+        }
+
+        // ====================================================================
         // 武器射击
         // ====================================================================
         if (bFirePressed) {
@@ -785,7 +902,7 @@ int main(int, char**) {
 
             glm::vec3 hitNormal;
             int hitType = 0, hitIndex = -1;
-            float hitDist = TraceFire(eyePos, front, body_interface, physboxIds, doorTrace, hitNormal, hitType, hitIndex);
+            float hitDist = TraceFire(eyePos, front, body_interface, physboxIds, doorTrace, enemies, hitNormal, hitType, hitIndex);
 
             if (hitDist >= 0.0f) {
                 glm::vec3 hitPos = eyePos + front * hitDist;
@@ -798,24 +915,26 @@ int main(int, char**) {
 
                 // 打飞物理箱子
                 if (hitType == 2 && hitIndex >= 0) {
-                    // 1. 唤醒刚体，防止在休眠状态下无法受力
                     body_interface.ActivateBody(physboxIds[hitIndex]);
                     
-                    // 2. 直接设置线性速度（不用冲量了，这样不管质量多大，瞬间起飞）
-                    // 注意：这里的 front 是朝向箱子的，所以为了把箱子打飞，应该用 +front
-                    float shootForce = 800.0f; // 速度越快，飞得越猛
+                    float shootForce = 800.0f;
                     JPH::Vec3 newV(
                         front.x * shootForce, 
-                        200.0f, // 强制给一个向上的速度，避免箱子被地板摩擦力卡住
+                        200.0f,
                         front.z * shootForce
                     );
                     body_interface.SetLinearVelocity(physboxIds[hitIndex], newV);
                     
-                    // 3. （可选）如果你希望箱子被打飞时带点旋转，可以加一点角速度
-                    // JPH::Vec3 spin(rand()%100-50, rand()%100-50, rand()%100-50);
-                    // body_interface.SetAngularVelocity(physboxIds[hitIndex], spin);
-
-                    printf("[WEAPON] Hit box %d! Applied velocity: (%.1f, %.1f, %.1f)\n", hitIndex, front.x, front.y, front.z);
+                    printf("[WEAPON] Hit box %d! Applied velocity.\n", hitIndex);
+                }
+                // 打中敌人
+                else if (hitType == 4 && hitIndex >= 0) {
+                    enemies[hitIndex].hp -= 34.0f; // 3枪打死
+                    printf("[WEAPON] Hit enemy %d! HP left: %.1f\n", hitIndex, enemies[hitIndex].hp);
+                    if (enemies[hitIndex].hp <= 0.0f) {
+                        enemies[hitIndex].state = EnemyInfo::DEAD;
+                        printf("[WEAPON] Enemy %d is DEAD!\n", hitIndex);
+                    }
                 }
             }
         }
@@ -937,6 +1056,7 @@ int main(int, char**) {
         ImGui::Text("Tris: %zu BVH nodes: %zu", g_sortedTris.size(), g_bvh.size());
         ImGui::Text("Physboxes: %zu", physboxIds.size());
         ImGui::Text("Doors: %zu", doors.size());
+        ImGui::Text("Enemies: %zu", enemies.size());
         ImGui::End();
 
         int scrW, scrH; SDL_GetWindowSize(window, &scrW, &scrH);
@@ -954,6 +1074,17 @@ int main(int, char**) {
         ImU32 crossColor = (crosshairHitTimer > 0.0f) ? IM_COL32(255, 50, 50, 255) : IM_COL32(255, 255, 255, 255);
         drawList->AddLine(ImVec2(center.x - 5, center.y), ImVec2(center.x + 5, center.y), crossColor, 2.0f);
         drawList->AddLine(ImVec2(center.x, center.y - 5), ImVec2(center.x, center.y + 5), crossColor, 2.0f);
+
+        // 玩家受击红屏反馈
+        if (playerDamageTimer > 0.0f) {
+            drawList->AddRectFilled(ImVec2(0, 0), ImVec2((float)scrW, (float)scrH), IM_COL32(255, 0, 0, (int)(playerDamageTimer * 150.0f / 0.2f)));
+        }
+
+        // 左下角血量
+        char hpText[64];
+        snprintf(hpText, sizeof(hpText), "HP: %.0f", playerHP);
+        drawList->AddText(ImGui::GetFont(), 32.0f, ImVec2(30, scrH - 60), IM_COL32(255, 255, 255, 255), hpText);
+
         ImGui::End();
 
         ImGui::Render();
@@ -1014,6 +1145,34 @@ int main(int, char**) {
             glm::mat4 doorMvp = projection * view * doorModel;
             glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(doorMvp));
             glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(doorModel));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        }
+
+        // 渲染敌人
+        for (auto& enemy : enemies) {
+            if (enemy.state == EnemyInfo::DEAD && enemy.deathTimer > 10.0f) continue; // 死后10秒消失
+            
+            if (enemy.state == EnemyInfo::DEAD) {
+                glUniform3f(glGetUniformLocation(program, "uColor"), 0.2f, 0.1f, 0.1f);
+            } else {
+                glUniform3f(glGetUniformLocation(program, "uColor"), 0.8f, 0.2f, 0.2f); // 活着红色
+            }
+
+            glm::vec3 halfSize(enemy.radius, enemy.height * 0.5f, enemy.radius);
+            glm::mat4 enemyModel = glm::translate(glm::mat4(1.0f), enemy.pos) 
+                                 * glm::scale(glm::mat4(1.0f), halfSize);
+            
+            if (enemy.state == EnemyInfo::DEAD) {
+                // 死亡倒地效果：躺平 + 压扁
+                enemyModel = glm::translate(glm::mat4(1.0f), enemy.pos)
+                           * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1,0,0))
+                           * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.radius, enemy.height * 0.5f));
+            }
+
+            glm::mat4 enemyMvp = projection * view * enemyModel;
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(enemyMvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(enemyModel));
             glBindVertexArray(box_vao);
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
