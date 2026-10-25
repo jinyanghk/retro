@@ -40,7 +40,7 @@ struct CollisionTri {
     glm::vec3 normal;
 };
 
-static bool RaycastTriangle(const glm::vec3& orig, const glm::vec3& dir, const CollisionTri& tri, float& t) {
+static bool RaycastTriangle(const glm::vec3& orig, const glm::vec3& dir, const CollisionTri& tri, float& t, glm::vec3& outNormal) {
     const float EPSILON = 1e-7f;
     glm::vec3 edge1 = tri.v1 - tri.v0;
     glm::vec3 edge2 = tri.v2 - tri.v0;
@@ -55,7 +55,11 @@ static bool RaycastTriangle(const glm::vec3& orig, const glm::vec3& dir, const C
     float v = f * glm::dot(dir, q);
     if (v < 0.0f || u + v > 1.0f) return false;
     t = f * glm::dot(edge2, q);
-    return t > EPSILON;
+    if (t > EPSILON) {
+        outNormal = tri.normal;
+        return true;
+    }
+    return false;
 }
 
 struct BVHNode {
@@ -122,7 +126,7 @@ static bool RayAABB(const glm::vec3& o, const glm::vec3& d, const glm::vec3& bmi
     return true;
 }
 
-static float TraceBVH(const glm::vec3& start, const glm::vec3& dir) {
+static float TraceBVH(const glm::vec3& start, const glm::vec3& dir, glm::vec3& outNormal) {
     if (g_bvh.empty()) return -1.0f;
     float closestT = 1e30f; bool hit = false;
     int stack[64], sp = 0; stack[sp++] = 0;
@@ -135,7 +139,12 @@ static float TraceBVH(const glm::vec3& start, const glm::vec3& dir) {
         if (node.isLeaf()) {
             for (int i = node.start; i < node.start + node.count; i++) {
                 float t;
-                if (RaycastTriangle(start, dir, g_sortedTris[i], t) && t < closestT) { closestT = t; hit = true; }
+                glm::vec3 n;
+                if (RaycastTriangle(start, dir, g_sortedTris[i], t, n) && t < closestT) { 
+                    closestT = t; 
+                    outNormal = n;
+                    hit = true; 
+                }
             }
         } else {
             if (sp + 2 <= 64) { stack[sp++] = node.left; stack[sp++] = node.right; }
@@ -144,9 +153,7 @@ static float TraceBVH(const glm::vec3& start, const glm::vec3& dir) {
     return hit ? closestT : -1.0f;
 }
 
-// ---------------------------------------------------------------------------
 // 对 Jolt 动态箱子做射线检测
-// ---------------------------------------------------------------------------
 static float TraceDynamicBoxes(JPH::BodyInterface& bi,
                                const std::vector<JPH::BodyID>& ids,
                                JPH::BodyID ignoreBody,
@@ -169,9 +176,7 @@ static float TraceDynamicBoxes(JPH::BodyInterface& bi,
     return hit ? best : -1.0f;
 }
 
-// ---------------------------------------------------------------------------
 // 门对玩家的射线阻挡（openAmount < 0.5 时生效）
-// ---------------------------------------------------------------------------
 struct DoorStateForTrace {
     glm::vec3 mins, maxs;
     glm::vec3 openDir;
@@ -194,6 +199,69 @@ static float TraceDoors(const std::vector<DoorStateForTrace>& ds,
         }
     }
     return hit ? best : -1.0f;
+}
+
+// ---------------------------------------------------------------------------
+// 武器开火检测
+// 返回最近命中的距离，并将法线、类型、索引写入引用
+// type: 0=无, 1=BSP静态, 2=物理箱子, 3=门
+// ---------------------------------------------------------------------------
+static float TraceFire(const glm::vec3& start, const glm::vec3& dir,
+                       JPH::BodyInterface& bi, const std::vector<JPH::BodyID>& physboxIds,
+                       const std::vector<DoorStateForTrace>& doorTrace,
+                       glm::vec3& outNormal, int& outHitType, int& outHitIndex)
+{
+    float closestDist = 2048.0f;
+    outHitType = 0;
+    outHitIndex = -1;
+    outNormal = glm::vec3(0, 1, 0);
+
+    // 1. BSP 静态几何
+    glm::vec3 bspNormal;
+    float distBSP = TraceBVH(start, dir, bspNormal);
+    if (distBSP >= 0.0f && distBSP < closestDist) {
+        closestDist = distBSP;
+        outHitType = 1;
+        outNormal = bspNormal;
+    }
+
+    // 2. 物理箱子
+    for (size_t i = 0; i < physboxIds.size(); i++) {
+        JPH::RMat44 t = bi.GetWorldTransform(physboxIds[i]);
+        JPH::AABox aabb = bi.GetShape(physboxIds[i])->GetWorldSpaceBounds(t, JPH::Vec3(1,1,1));
+        glm::vec3 bmin((float)aabb.mMin.GetX(), (float)aabb.mMin.GetY(), (float)aabb.mMin.GetZ());
+        glm::vec3 bmax((float)aabb.mMax.GetX(), (float)aabb.mMax.GetY(), (float)aabb.mMax.GetZ());
+        
+        float tmin, tmax;
+        if (RayAABB(start, dir, bmin, bmax, tmin, tmax) && tmin >= 0.0f && tmin < closestDist) {
+            closestDist = tmin;
+            outHitType = 2;
+            outHitIndex = (int)i;
+            glm::vec3 hitPos = start + dir * tmin;
+            glm::vec3 boxCenter = (bmin + bmax) * 0.5f;
+            outNormal = glm::normalize(hitPos - boxCenter);
+        }
+    }
+
+    // 3. 门
+    for (size_t i = 0; i < doorTrace.size(); i++) {
+        auto& d = doorTrace[i];
+        glm::vec3 off = d.openDir * (d.openDist * d.openAmount);
+        glm::vec3 wMin = d.mins + off;
+        glm::vec3 wMax = d.maxs + off;
+        
+        float tmin, tmax;
+        if (RayAABB(start, dir, wMin, wMax, tmin, tmax) && tmin >= 0.0f && tmin < closestDist) {
+            closestDist = tmin;
+            outHitType = 3;
+            outHitIndex = (int)i;
+            glm::vec3 hitPos = start + dir * tmin;
+            glm::vec3 doorCenter = (wMin + wMax) * 0.5f;
+            outNormal = glm::normalize(hitPos - doorCenter);
+        }
+    }
+
+    return closestDist < 2048.0f ? closestDist : -1.0f;
 }
 
 // ============================================================================
@@ -317,7 +385,7 @@ int main(int, char**) {
         printf("Loaded %u physbox zones.\n", numPhysboxes);
     }
 
-    // ---- 读 door 数据 ----
+    // 读取 door 数据
     struct DoorInfo {
         glm::vec3 mins, maxs;
         glm::vec3 openDir;
@@ -348,6 +416,14 @@ int main(int, char**) {
     }
 
     f.close();
+
+    // 弹孔数据
+    struct BulletHole {
+        glm::vec3 pos;
+        glm::vec3 normal;
+        float life;
+    };
+    std::vector<BulletHole> bulletHoles;
 
     // 构建 BVH
     std::vector<CollisionTri> collisionTris;
@@ -387,10 +463,11 @@ int main(int, char**) {
         #version 330 core
         in vec3 vNormal;
         out vec4 FragColor;
+        uniform vec3 uColor;
         void main() {
             vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
             float diff = max(dot(vNormal, lightDir), 0.0);
-            FragColor = vec4(vec3(0.6, 0.6, 0.65) * (0.3 + 0.7 * diff), 1.0); 
+            FragColor = vec4(uColor * (0.3 + 0.7 * diff), 1.0); 
         }
     )";
     auto compile_shader = [](GLenum type, const char* src) {
@@ -419,6 +496,9 @@ int main(int, char**) {
 
     JPH::PhysicsSystem physics;
     physics.Init(1024, 0, 1024, 1024, bp_layer_interface, obj_vs_bp_filter, obj_vs_obj_filter);
+
+    // ★ 修改 Jolt 全局重力（默认是 -9.81，你的单位如果是厘米，就填 -980.0f）
+    physics.SetGravity(JPH::Vec3(0.0f, -1200.0f, 0.0f)); 
 
     JPH::BodyInterface& body_interface = physics.GetBodyInterface();
 
@@ -487,7 +567,7 @@ int main(int, char**) {
             Layers::MOVING
         );
         box_settings.mLinearDamping = 0.2f;
-        box_settings.mFriction = 0.5f;
+        box_settings.mFriction = 1.0f;
         JPH::BodyID id = body_interface.CreateAndAddBody(box_settings, JPH::EActivation::Activate);
         physboxIds.push_back(id);
     }
@@ -547,8 +627,10 @@ int main(int, char**) {
     bool running = true;
     Uint32 lastTime = SDL_GetTicks();
 
-    // ★ FIX: doorTrace 提到循环外声明，每帧开头重建（在碰撞检测之前）
     std::vector<DoorStateForTrace> doorTrace;
+
+    // 准星命中反馈计时器
+    float crosshairHitTimer = 0.0f;
 
     while (running) {
         Uint32 currentTime = SDL_GetTicks();
@@ -556,7 +638,8 @@ int main(int, char**) {
         if (deltaTime > 0.05f) deltaTime = 0.05f;
         lastTime = currentTime;
 
-        bool bUsePressed = false;   // ★ FIX: 只在循环开头声明一次
+        bool bUsePressed = false;
+        bool bFirePressed = false;
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -567,13 +650,14 @@ int main(int, char**) {
                 if (mouseLocked) { mouseLocked = false; SDL_SetRelativeMouseMode(SDL_FALSE); }
                 else running = false;
             }
-            // ★ FIX: E 键用事件触发一次，不用边沿检测
-            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_e && mouseLocked
-                && !event.key.repeat) {
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_e && mouseLocked && !event.key.repeat) {
                 bUsePressed = true;
             }
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
                 if (!mouseLocked) { mouseLocked = true; SDL_SetRelativeMouseMode(SDL_TRUE); }
+                else if (!event.button.clicks || event.button.clicks == 1) { // 防连点
+                    bFirePressed = true;
+                }
             }
             if (event.type == SDL_MOUSEMOTION && mouseLocked) {
                 camYaw += event.motion.xrel * mouseSensitivity;
@@ -609,7 +693,6 @@ int main(int, char**) {
         playerVel.y -= gravity * deltaTime;
         isGrounded = false;
 
-        // ★ FIX: 每帧碰撞检测之前，重建 doorTrace（这样开着的门 AABB 也是最新的）
         doorTrace.clear();
         doorTrace.reserve(doors.size());
         for (auto& d : doors) {
@@ -620,7 +703,8 @@ int main(int, char**) {
         glm::vec3 moveY(0.0f, playerVel.y * deltaTime, 0.0f);
         glm::vec3 newPosY = playerPos + moveY;
 
-        float floorDist = TraceBVH(newPosY, glm::vec3(0.0f, -1.0f, 0.0f));
+        glm::vec3 dummyNormal;
+        float floorDist = TraceBVH(newPosY, glm::vec3(0.0f, -1.0f, 0.0f), dummyNormal);
         {
             float dynDown = TraceDynamicBoxes(body_interface, physboxIds, player_body,
                                               newPosY, glm::vec3(0.0f, -1.0f, 0.0f),
@@ -632,7 +716,7 @@ int main(int, char**) {
             if (moveY.y <= 0.0f) isGrounded = true;
         }
 
-        float ceilDist = TraceBVH(newPosY, glm::vec3(0.0f, 1.0f, 0.0f));
+        float ceilDist = TraceBVH(newPosY, glm::vec3(0.0f, 1.0f, 0.0f), dummyNormal);
         {
             float dynUp = TraceDynamicBoxes(body_interface, physboxIds, player_body,
                                             newPosY, glm::vec3(0.0f, 1.0f, 0.0f),
@@ -648,7 +732,7 @@ int main(int, char**) {
         float dx = playerVel.x * deltaTime;
         if (fabsf(dx) > 0.0001f) {
             glm::vec3 dirX(dx > 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f);
-            float distX = TraceBVH(playerPos, dirX);
+            float distX = TraceBVH(playerPos, dirX, dummyNormal);
             {
                 float dynX = TraceDynamicBoxes(body_interface, physboxIds, player_body,
                                                playerPos, dirX, playerRadius);
@@ -665,7 +749,7 @@ int main(int, char**) {
         float dz = playerVel.z * deltaTime;
         if (fabsf(dz) > 0.0001f) {
             glm::vec3 dirZ(0.0f, 0.0f, dz > 0.0f ? 1.0f : -1.0f);
-            float distZ = TraceBVH(playerPos, dirZ);
+            float distZ = TraceBVH(playerPos, dirZ, dummyNormal);
             {
                 float dynZ = TraceDynamicBoxes(body_interface, physboxIds, player_body,
                                                playerPos, dirZ, playerRadius);
@@ -686,6 +770,62 @@ int main(int, char**) {
             JPH::Quat::sIdentity(),
             JPH::EActivation::Activate
         );
+
+        // ====================================================================
+        // 武器射击
+        // ====================================================================
+        if (bFirePressed) {
+            glm::vec3 eyePos = playerPos + glm::vec3(0.0f, 8.0f, 0.0f);
+            float pitchRad = glm::radians(camPitch);
+            glm::vec3 front;
+            front.x = cos(glm::radians(camYaw)) * cos(pitchRad);
+            front.y = sin(pitchRad);
+            front.z = sin(glm::radians(camYaw)) * cos(pitchRad);
+            front = glm::normalize(front);
+
+            glm::vec3 hitNormal;
+            int hitType = 0, hitIndex = -1;
+            float hitDist = TraceFire(eyePos, front, body_interface, physboxIds, doorTrace, hitNormal, hitType, hitIndex);
+
+            if (hitDist >= 0.0f) {
+                glm::vec3 hitPos = eyePos + front * hitDist;
+                
+                // 添加弹孔，沿法线稍微往外推一点防 Z-fighting
+                bulletHoles.push_back({hitPos + hitNormal * 0.1f, hitNormal, 10.0f});
+                
+                // 准星反馈
+                crosshairHitTimer = 0.15f;
+
+                // 打飞物理箱子
+                if (hitType == 2 && hitIndex >= 0) {
+                    // 1. 唤醒刚体，防止在休眠状态下无法受力
+                    body_interface.ActivateBody(physboxIds[hitIndex]);
+                    
+                    // 2. 直接设置线性速度（不用冲量了，这样不管质量多大，瞬间起飞）
+                    // 注意：这里的 front 是朝向箱子的，所以为了把箱子打飞，应该用 +front
+                    float shootForce = 800.0f; // 速度越快，飞得越猛
+                    JPH::Vec3 newV(
+                        front.x * shootForce, 
+                        200.0f, // 强制给一个向上的速度，避免箱子被地板摩擦力卡住
+                        front.z * shootForce
+                    );
+                    body_interface.SetLinearVelocity(physboxIds[hitIndex], newV);
+                    
+                    // 3. （可选）如果你希望箱子被打飞时带点旋转，可以加一点角速度
+                    // JPH::Vec3 spin(rand()%100-50, rand()%100-50, rand()%100-50);
+                    // body_interface.SetAngularVelocity(physboxIds[hitIndex], spin);
+
+                    printf("[WEAPON] Hit box %d! Applied velocity: (%.1f, %.1f, %.1f)\n", hitIndex, front.x, front.y, front.z);
+                }
+            }
+        }
+
+        // 弹孔寿命更新
+        for (auto it = bulletHoles.begin(); it != bulletHoles.end(); ) {
+            it->life -= deltaTime;
+            if (it->life <= 0.0f) it = bulletHoles.erase(it);
+            else ++it;
+        }
 
         // 推箱子
         {
@@ -747,7 +887,7 @@ int main(int, char**) {
                     if (tmin >= 0.0f && tmin < bestT) { bestT = tmin; bestDoor = (int)i; }
                 }
             }
-            if (bestDoor >= 0 && doors[bestDoor].openAmount < 0.01f) {
+            if (bestDoor >= 0 && doors[bestDoor].openAmount < 0.01f && !doors[bestDoor].isOpening) {
                 doors[bestDoor].isOpening = true;
                 doors[bestDoor].waitTimer = 0.0f;
                 printf("[USE] door %d opened\n", bestDoor);
@@ -784,6 +924,8 @@ int main(int, char**) {
                 JPH::EActivation::Activate);
         }
 
+        if (crosshairHitTimer > 0.0f) crosshairHitTimer -= deltaTime;
+
         // 渲染
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
@@ -807,8 +949,11 @@ int main(int, char**) {
             ImGuiWindowFlags_NoBackground);
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         ImVec2 center((float)scrW * 0.5f, (float)scrH * 0.5f);
-        drawList->AddLine(ImVec2(center.x - 5, center.y), ImVec2(center.x + 5, center.y), IM_COL32(255, 255, 255, 255), 2.0f);
-        drawList->AddLine(ImVec2(center.x, center.y - 5), ImVec2(center.x, center.y + 5), IM_COL32(255, 255, 255, 255), 2.0f);
+        
+        // 准星颜色反馈
+        ImU32 crossColor = (crosshairHitTimer > 0.0f) ? IM_COL32(255, 50, 50, 255) : IM_COL32(255, 255, 255, 255);
+        drawList->AddLine(ImVec2(center.x - 5, center.y), ImVec2(center.x + 5, center.y), crossColor, 2.0f);
+        drawList->AddLine(ImVec2(center.x, center.y - 5), ImVec2(center.x, center.y + 5), crossColor, 2.0f);
         ImGui::End();
 
         ImGui::Render();
@@ -832,12 +977,16 @@ int main(int, char**) {
         glm::mat4 view = glm::lookAt(eyePos, eyePos + glm::normalize(front), glm::vec3(0, 1, 0));
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 mvp = projection * view * model;
+        
+        // 渲染地图
         glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
         glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.6f, 0.65f); // 地图颜色
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, ni, GL_UNSIGNED_INT, 0);
 
-        // 渲染所有 Physbox 箱子
+        // 渲染物理箱子
+        glUniform3f(glGetUniformLocation(program, "uColor"), 0.6f, 0.4f, 0.2f); // 箱子颜色偏黄
         for (size_t i = 0; i < physboxIds.size(); i++) {
             JPH::RMat44 box_transform = body_interface.GetWorldTransform(physboxIds[i]);
             JPH::Vec3 t = box_transform.GetTranslation();
@@ -856,6 +1005,7 @@ int main(int, char**) {
         }
 
         // 渲染门
+        glUniform3f(glGetUniformLocation(program, "uColor"), 0.2f, 0.6f, 0.8f); // 门颜色偏蓝
         for (auto& d : doors) {
             glm::vec3 center = (d.mins + d.maxs) * 0.5f + d.openDir * (d.openDist * d.openAmount);
             glm::vec3 halfSize = (d.maxs - d.mins) * 0.5f;
@@ -864,6 +1014,18 @@ int main(int, char**) {
             glm::mat4 doorMvp = projection * view * doorModel;
             glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(doorMvp));
             glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(doorModel));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        }
+
+        // 渲染弹孔
+        glUniform3f(glGetUniformLocation(program, "uColor"), 0.1f, 0.1f, 0.1f); // 弹孔纯黑
+        for (auto& bh : bulletHoles) {
+            glm::mat4 bulletModel = glm::translate(glm::mat4(1.0f), bh.pos)
+                                  * glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)); // 极小方块
+            glm::mat4 bulletMvp = projection * view * bulletModel;
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(bulletMvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(bulletModel));
             glBindVertexArray(box_vao);
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
