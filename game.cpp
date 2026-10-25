@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -359,6 +360,10 @@ int main(int, char**) {
     ::SetProcessDPIAware();
 #endif
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
+    // 初始化音频设备
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        printf("SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
+    }    
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -682,6 +687,14 @@ int main(int, char**) {
         doorBodies.push_back(body_interface.CreateAndAddBody(doorBCS, JPH::EActivation::Activate));
     }
 
+    // 加载音效
+    Mix_Chunk* sndShoot = Mix_LoadWAV("sounds/shoot.wav");
+    Mix_Chunk* sndHit   = Mix_LoadWAV("sounds/hit.wav");
+    Mix_Chunk* sndPain  = Mix_LoadWAV("sounds/pain.wav");
+    Mix_Chunk* sndDoor  = Mix_LoadWAV("sounds/door.wav");
+    
+    // 如果找不到文件，会返回 nullptr，不会崩溃，只是没声音
+
     // 玩家状态
     glm::vec3 playerPos(spawnPos[0], spawnPos[1] + 36.0f, spawnPos[2]);
     glm::vec3 playerVel(0.0f);
@@ -878,6 +891,7 @@ int main(int, char**) {
                     playerHP -= 10.0f;
                     playerDamageTimer = 0.2f;
                     enemy.attackTimer = 1.0f; // 1秒咬一口
+                    if (sndPain) Mix_PlayChannel(-1, sndPain, 0); // 播放受伤声
                     printf("[AI] Enemy attacked player! HP: %.1f\n", playerHP);
                 }
             } else {
@@ -932,6 +946,7 @@ int main(int, char**) {
         // ====================================================================
         if (bFirePressed) {
             recoilTimer = recoilDuration; // 触发射击后坐力
+            if (sndShoot) Mix_PlayChannel(-1, sndShoot, 0); // 播放开枪声
             glm::vec3 eyePos = playerPos + glm::vec3(0.0f, 8.0f, 0.0f);
             float pitchRad = glm::radians(camPitch);
             glm::vec3 front;
@@ -970,6 +985,7 @@ int main(int, char**) {
                 // 打中敌人
                 else if (hitType == 4 && hitIndex >= 0) {
                     enemies[hitIndex].hp -= 34.0f; // 3枪打死
+                    if (sndHit) Mix_PlayChannel(-1, sndHit, 0); // 播放命中声
                     printf("[WEAPON] Hit enemy %d! HP left: %.1f\n", hitIndex, enemies[hitIndex].hp);
                     if (enemies[hitIndex].hp <= 0.0f) {
                         enemies[hitIndex].state = EnemyInfo::DEAD;
@@ -1049,6 +1065,7 @@ int main(int, char**) {
             if (bestDoor >= 0 && doors[bestDoor].openAmount < 0.01f && !doors[bestDoor].isOpening) {
                 doors[bestDoor].isOpening = true;
                 doors[bestDoor].waitTimer = 0.0f;
+                if (sndDoor) Mix_PlayChannel(-1, sndDoor, 0); // 播放开门声
                 printf("[USE] door %d opened\n", bestDoor);
             }
         }
@@ -1290,6 +1307,14 @@ int main(int, char**) {
 
     ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext(); SDL_GL_DeleteContext(gl_context);
-    SDL_DestroyWindow(window); SDL_Quit();
+    SDL_DestroyWindow(window); 
+    // 在 SDL_Quit() 之前
+    Mix_FreeChunk(sndShoot);
+    Mix_FreeChunk(sndHit);
+    Mix_FreeChunk(sndPain);
+    Mix_FreeChunk(sndDoor);
+    Mix_CloseAudio();
+        
+    SDL_Quit();
     return 0;
 }
