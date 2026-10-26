@@ -31,6 +31,7 @@ int main() {
     std::vector<float> physboxBounds;   // 6 float / 个
     std::vector<float> doorBounds;      // 12 float / 个: mins[3], maxs[3], dir[3], dist, speed, wait
     std::vector<float> zombieSpawns;    // 每个僵尸3个 float (x, y, zs)
+    std::vector<float> barrelSpawns;    // 3个 float (x, y, zs)
 
     auto push_vertex = [&](const Vec3& p, const Vec3& n) -> uint32_t {
         uint32_t id = (uint32_t)(verts.size() / 6);
@@ -111,7 +112,12 @@ int main() {
                 Vec3 p = GetVec3(je, "origin", {0, 36, 0});
                 zombieSpawns.insert(zombieSpawns.end(), {p.x, p.y, p.z});
                 std::cout << "Zombie spawn at (" << p.x << ", " << p.y << ", " << p.z << ")\n";
-            }            
+            } 
+            else if (classname == "prop_physics") {
+                Vec3 p = GetVec3(je, "origin", {0, 32, 0});
+                barrelSpawns.insert(barrelSpawns.end(), {p.x, p.y, p.z});
+                std::cout << "barrel spawn at (" << p.x << ", " << p.y << ", " << p.z << ")\n";
+            }                       
             else if (classname == "func_door") {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -64, -8});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  64,  8});
@@ -156,6 +162,7 @@ int main() {
     std::ofstream out("map.bvh", std::ios::binary);
     if (!out.is_open()) { std::cerr << "Cannot write map.bvh\n"; return 1; }
     out.write("MBVH", 4);
+    // brush
     uint32_t nv = (uint32_t)(verts.size() / 6);
     uint32_t ni = (uint32_t)indices.size();
     out.write((char*)&nv, 4);
@@ -163,17 +170,21 @@ int main() {
     out.write((char*)verts.data(), verts.size() * sizeof(float));
     out.write((char*)indices.data(), indices.size() * sizeof(uint32_t));
 
+    // entity info_player_start
     out.write((char*)spawnPos, sizeof(spawnPos));
     out.write((char*)spawnAngles, sizeof(spawnAngles));
 
+    // triggerBounds
     uint32_t numTriggers = triggerBounds.size() / 6;
     out.write((char*)&numTriggers, 4);
     out.write((char*)triggerBounds.data(), triggerBounds.size() * sizeof(float));
 
+    // physboxBounds
     uint32_t numPhysboxes = physboxBounds.size() / 6;
     out.write((char*)&numPhysboxes, 4);
     out.write((char*)physboxBounds.data(), physboxBounds.size() * sizeof(float));
 
+    // doorBounds
     uint32_t numDoors = doorBounds.size() / 12;
     out.write((char*)&numDoors, 4);
     out.write((char*)doorBounds.data(), doorBounds.size() * sizeof(float));
@@ -182,6 +193,11 @@ int main() {
     uint32_t numZombies = zombieSpawns.size() / 3;
     out.write((char *)&numZombies, 4);
     out.write((char *)zombieSpawns.data(), zombieSpawns.size() * sizeof(float));
+
+    // prop_physics
+    uint32_t numBarrels = barrelSpawns.size() / 3;
+    out.write((char*)&numBarrels, 4);
+    out.write((char*)barrelSpawns.data(), barrelSpawns.size() * sizeof(float));
 
     std::cout << "Compiled map.bvh: " << nv << " verts, " << ni << " indices\n";
     std::cout << "Spawn: (" << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << ")\n";

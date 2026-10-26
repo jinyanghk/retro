@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <thread>
 #include <iostream>
+#include <utility>
 
 // Jolt 核心头文件
 #include <Jolt/Jolt.h>
@@ -398,9 +399,11 @@ int main(int, char**) {
     if (!f.is_open()) { printf("Cannot open map.bvh\n"); return 1; }
     char magic[4]; f.read(magic, 4);
     if (strncmp(magic, "MBVH", 4) != 0) return 1;
+    // brush
     uint32_t nv, ni; f.read((char*)&nv, 4); f.read((char*)&ni, 4);
     std::vector<float> verts(nv * 6); f.read((char*)verts.data(), nv * 6 * 4);
     std::vector<uint32_t> indices(ni); f.read((char*)indices.data(), ni * 4);
+    // info_player_start
     if (f.read((char*)spawnPos, sizeof(spawnPos))) f.read((char*)spawnAngles, sizeof(spawnAngles));
 
     // 读取 Trigger 数据
@@ -781,6 +784,19 @@ int main(int, char**) {
     bool levelComplete = false;
     float levelCompleteTimer = 0.0f;
 
+    // ---- 重力枪 ----
+    struct GravityGunState {
+        JPH::BodyID heldBody;
+        bool holding = false;
+        float holdDistance = 300.0f;
+        JPH::BodyID justReleasedBody;   // 刚刚放下的物体
+        float releaseCooldown = 0.0f;   // 冷却计时器
+    } gravityGun;
+
+    float rightMousePressed = 0.0f; // 不用，改用事件标志
+    bool  bGrabPressed  = false;    // 右键按下（本帧）
+    bool  bThrowPressed = false;    // 左键按下（本帧，已抓时）
+
     while (running) {
         Uint32 currentTime = SDL_GetTicks();
         float deltaTime = (currentTime - lastTime) / 1000.0f;
@@ -789,6 +805,19 @@ int main(int, char**) {
 
         bool bUsePressed = false;
         bool bFirePressed = false;
+        bool bGrabPressed = false;      // 新增
+        bool bThrowPressed = false;     // 新增
+
+        // 提前定义瞄准计算（被重力枪和射击多处复用）
+        auto ComputeAim = [&]() -> std::pair<glm::vec3, glm::vec3> {
+            glm::vec3 eye = playerPos + glm::vec3(0.0f, 8.0f, 0.0f);
+            float pitchRad = glm::radians(camPitch);
+            glm::vec3 front;
+            front.x = cos(glm::radians(camYaw)) * cos(pitchRad);
+            front.y = sin(pitchRad);
+            front.z = sin(glm::radians(camYaw)) * cos(pitchRad);
+            return { eye, glm::normalize(front) };
+        };
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -836,10 +865,20 @@ int main(int, char**) {
                 }
                 continue; // 忽略其他事件
             }                        
-            if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
-                if (!mouseLocked) { mouseLocked = true; SDL_SetRelativeMouseMode(SDL_TRUE); }
-                else if (!event.button.clicks || event.button.clicks == 1) { // 防连点
-                    bFirePressed = true;
+            if (event.type == SDL_MOUSEBUTTONDOWN) {
+                if (!mouseLocked) {
+                    mouseLocked = true;
+                    SDL_SetRelativeMouseMode(SDL_TRUE);
+                }
+                else if (event.button.button == SDL_BUTTON_RIGHT) {
+                    bGrabPressed = true;
+                }
+                else if (event.button.button == SDL_BUTTON_LEFT) {
+                    if (gravityGun.holding) {
+                        bThrowPressed = true;
+                    } else {
+                        if (!event.button.clicks || event.button.clicks == 1) bFirePressed = true;
+                    }
                 }
             }
             if (event.type == SDL_MOUSEMOTION && mouseLocked) {
@@ -1175,17 +1214,22 @@ int main(int, char**) {
 
                 // 打飞物理箱子
                 if (hitType == 2 && hitIndex >= 0) {
-                    body_interface.ActivateBody(physboxIds[hitIndex]);
-                    
-                    float shootForce = 800.0f;
-                    JPH::Vec3 newV(
-                        front.x * shootForce, 
-                        200.0f,
-                        front.z * shootForce
-                    );
-                    body_interface.SetLinearVelocity(physboxIds[hitIndex], newV);
-                    
-                    printf("[WEAPON] Hit box %d! Applied velocity.\n", hitIndex);
+                    // 不要打飞正抓着的箱子
+                    if (gravityGun.holding && physboxIds[hitIndex] == gravityGun.heldBody) {
+                        // 忽略命中效果
+                    } else {                    
+                        body_interface.ActivateBody(physboxIds[hitIndex]);
+                        
+                        float shootForce = 800.0f;
+                        JPH::Vec3 newV(
+                            front.x * shootForce, 
+                            200.0f,
+                            front.z * shootForce
+                        );
+                        body_interface.SetLinearVelocity(physboxIds[hitIndex], newV);
+                        
+                        printf("[WEAPON] Hit box %d! Applied velocity.\n", hitIndex);
+                    }
                 }
                 // 打中敌人
                 else if (hitType == 4 && hitIndex >= 0) {
@@ -1243,7 +1287,146 @@ int main(int, char**) {
             }
         }
 
-        // Jolt 物理更新
+        // ====================================================================
+        // 重力枪：每帧把箱子往准星前方拉（速度控制版）
+        // ====================================================================
+        if (gravityGun.holding) {
+            auto [eye, front] = ComputeAim();
+            
+            // 动态调整抓取距离：如果遇到墙角，让箱子稍微贴脸一点，避免卡墙
+            float dynamic_hold_dist = gravityGun.holdDistance;
+            
+            JPH::RVec3 jpos = body_interface.GetCenterOfMassPosition(gravityGun.heldBody);
+            glm::vec3 cur((float)jpos.GetX(), (float)jpos.GetY(), (float)jpos.GetZ());
+            
+            // 如果箱子离玩家太近（比如被墙壁挤过来的），强制推远
+            float distToPlayer = glm::length(cur - eye);
+            if (distToPlayer < 60.0f) dynamic_hold_dist = 60.0f; 
+
+            glm::vec3 target = eye + front * dynamic_hold_dist;
+            glm::vec3 delta = target - cur;
+            float distToTarget = glm::length(delta);
+
+            // 太远了（比如被卡在墙后），自动松手
+            if (distToTarget > 600.0f) {
+                body_interface.SetLinearVelocity(gravityGun.heldBody, JPH::Vec3(0,0,0));
+                gravityGun.holding = false;
+                gravityGun.heldBody = JPH::BodyID();
+                printf("[GRAV] Lost grip (too far)\n");
+            } else {
+                // 核心物理：直接设定速度，速度正比于位移
+                const float stiffness = 15.0f;  // 拉拽力度
+                const float maxSpeed  = 1200.0f;
+                
+                glm::vec3 desiredVel = delta * stiffness;
+                float spd = glm::length(desiredVel);
+                if (spd > maxSpeed) desiredVel *= (maxSpeed / spd);
+
+                body_interface.ActivateBody(gravityGun.heldBody);
+                // 强行覆盖速度，压制重力，让它乖乖跟着准星飞
+                body_interface.SetLinearVelocity(gravityGun.heldBody,
+                    JPH::Vec3(desiredVel.x, desiredVel.y, desiredVel.z));
+
+                // 阻尼角速度，避免箱子在空中打转
+                JPH::Vec3 av = body_interface.GetAngularVelocity(gravityGun.heldBody);
+                body_interface.SetAngularVelocity(gravityGun.heldBody, av * 0.85f);
+            }
+        }
+
+        // ====================================================================
+        // 重力枪：右键抓取 / 放下
+        // ====================================================================
+        if (bGrabPressed) {
+            if (gravityGun.holding) {
+                // 获取目标位置：直接放在准星前方 50 单位，脱离任何可能的重叠
+                auto [eye, front] = ComputeAim();
+                glm::vec3 safePos = eye + front * 50.0f;
+                
+                // 1. 强行设置位置与旋转，并清零速度
+                body_interface.SetPositionAndRotation(
+                    gravityGun.heldBody, 
+                    JPH::RVec3(safePos.x, safePos.y, safePos.z), 
+                    JPH::Quat::sIdentity(), 
+                    JPH::EActivation::Activate
+                );
+                body_interface.SetLinearVelocity(gravityGun.heldBody, JPH::Vec3(playerVel.x * 0.5f, 0.0f, playerVel.z * 0.5f));
+                body_interface.SetAngularVelocity(gravityGun.heldBody, JPH::Vec3(0,0,0));
+                
+                // 2. 记录刚刚放下的物体，并开启冷却（一帧的强制保护）
+                gravityGun.justReleasedBody = gravityGun.heldBody;
+                gravityGun.releaseCooldown = 0.05f; // 保护 50 毫秒
+                
+                gravityGun.holding = false;
+                gravityGun.heldBody = JPH::BodyID();
+                if (sndDoor) Mix_PlayChannel(-1, sndDoor, 0); 
+                printf("[GRAV] Released (Freeze protection active)\n");
+            }
+            else {
+                auto [eye, front] = ComputeAim();
+                glm::vec3 n; int hitType, hitIdx;
+                float dist = TraceFire(eye, front, body_interface, physboxIds,
+                                    doorTrace, enemies, n, hitType, hitIdx);
+                if (hitType == 2 && hitIdx >= 0 && dist >= 0.0f && dist < 400.0f) {
+                    gravityGun.heldBody = physboxIds[hitIdx];
+                    gravityGun.holding = true;
+                    body_interface.ActivateBody(gravityGun.heldBody);
+                    if (sndDoor) Mix_PlayChannel(-1, sndDoor, 0);
+                    printf("[GRAV] Grabbed box %d at dist %.1f\n", hitIdx, dist);
+                }
+            }
+        }
+
+        // 投掷
+        if (bThrowPressed && gravityGun.holding) {
+            auto [eye, front] = ComputeAim();
+            const float throwSpeed = 1800.0f;
+            
+            // 先瞬移到准星前方一个安全点，再给予速度
+            glm::vec3 throwPos = eye + front * 60.0f;
+            body_interface.SetPositionAndRotation(
+                gravityGun.heldBody, 
+                JPH::RVec3(throwPos.x, throwPos.y, throwPos.z), 
+                JPH::Quat::sIdentity(), 
+                JPH::EActivation::Activate
+            );
+            
+            body_interface.SetLinearVelocity(
+                gravityGun.heldBody,
+                JPH::Vec3(front.x * throwSpeed, front.y * throwSpeed + 80.0f, front.z * throwSpeed));
+            body_interface.SetAngularVelocity(gravityGun.heldBody, JPH::Vec3(0,0,0));
+            
+            gravityGun.holding = false;
+            gravityGun.heldBody = JPH::BodyID();
+            if (sndShoot) Mix_PlayChannel(-1, sndShoot, 0);
+            printf("[GRAV] Thrown!\n");
+        }
+
+        // ====================================================================
+        // 重力枪：刚放下的物体物理免疫一帧（防止 Jolt 防穿透强行回弹）
+        // ====================================================================
+        if (gravityGun.releaseCooldown > 0.0f) {
+            gravityGun.releaseCooldown -= deltaTime;
+            
+            // 在这短短的 50ms 内，强行压制它的位置和速度
+            JPH::RVec3 p = body_interface.GetCenterOfMassPosition(gravityGun.justReleasedBody);
+            glm::vec3 pv((float)p.GetX(), (float)p.GetY(), (float)p.GetZ());
+            
+            // 把它速度设为完全向下 0（不累加任何水平/垂直的之前惯性）
+            body_interface.SetLinearVelocity(gravityGun.justReleasedBody, JPH::Vec3(0, 0, 0));
+            body_interface.SetAngularVelocity(gravityGun.justReleasedBody, JPH::Vec3(0, 0, 0));
+            
+            // 强迫它不睡眠，必须被唤醒让物理引擎重新计算它的 AABB
+            body_interface.ActivateBody(gravityGun.justReleasedBody);
+            
+            // 冷却结束后清空引用
+            if (gravityGun.releaseCooldown <= 0.0f) {
+                gravityGun.justReleasedBody = JPH::BodyID();
+            }
+        }
+
+        // ====================================================================
+        // Jolt 物理更新 (必须放在所有 SetLinearVelocity 等逻辑之后)
+        // ====================================================================
         physics.Update(deltaTime, 1, temp_allocator, job_system);
 
         // Use 交互
@@ -1334,7 +1517,11 @@ int main(int, char**) {
         ImVec2 center((float)scrW * 0.5f, (float)scrH * 0.5f);
         
         // 准星颜色反馈
-        ImU32 crossColor = (crosshairHitTimer > 0.0f) ? IM_COL32(255, 50, 50, 255) : IM_COL32(255, 255, 255, 255);
+        //ImU32 crossColor = (crosshairHitTimer > 0.0f) ? IM_COL32(255, 50, 50, 255) : IM_COL32(255, 255, 255, 255);
+        ImU32 crossColor;
+        if (gravityGun.holding) crossColor = IM_COL32(80, 200, 255, 255);
+        else if (crosshairHitTimer > 0.0f) crossColor = IM_COL32(255, 50, 50, 255);
+        else crossColor = IM_COL32(255, 255, 255, 255);
         drawList->AddLine(ImVec2(center.x - 5, center.y), ImVec2(center.x + 5, center.y), crossColor, 2.0f);
         drawList->AddLine(ImVec2(center.x, center.y - 5), ImVec2(center.x, center.y + 5), crossColor, 2.0f);
 
@@ -1384,7 +1571,7 @@ int main(int, char**) {
         GLint uModeLoc = glGetUniformLocation(program, "uMode");
         GLint uColorLoc = glGetUniformLocation(program, "uColor");
 
-        glm::mat4 projection = glm::perspective(glm::radians(90.0f), (float)scrW / (float)scrH, 0.1f, 10000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(85.0f), (float)scrW / (float)scrH, 1.0f, 10000.0f);
         float pitchRad = glm::radians(camPitch);
         glm::vec3 front;
         front.x = cos(glm::radians(camYaw)) * cos(pitchRad);
@@ -1444,6 +1631,34 @@ int main(int, char**) {
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
 
+        // 重力光束
+        if (gravityGun.holding) {
+            JPH::RVec3 bp = body_interface.GetCenterOfMassPosition(gravityGun.heldBody);
+            glm::vec3 boxPos((float)bp.GetX(), (float)bp.GetY(), (float)bp.GetZ());
+            glm::vec3 eye = playerPos + glm::vec3(0.0f, 8.0f, 0.0f);
+            glm::vec3 mid = (eye + boxPos) * 0.5f;
+            float   len = glm::length(boxPos - eye);
+            glm::vec3 dir = glm::normalize(boxPos - eye);
+            // 用一个细长 box 表示光束
+            glm::mat4 beam = glm::translate(glm::mat4(1.0f), mid);
+            // 让 box 的 +Z 对齐 dir
+            glm::vec3 up(0,1,0);
+            if (fabsf(glm::dot(up, dir)) > 0.99f) up = glm::vec3(1,0,0);
+            glm::vec3 right = glm::normalize(glm::cross(up, dir));
+            up = glm::cross(dir, right);
+            beam[0] = glm::vec4(right, 0);
+            beam[1] = glm::vec4(up, 0);
+            beam[2] = glm::vec4(dir, 0);
+            beam = beam * glm::scale(glm::mat4(1.0f), glm::vec3(0.6f, 0.6f, len * 0.5f));
+            glm::mat4 beamMvp = projection * view * beam;
+            glUniform1i(uModeLoc, 0);
+            glUniform3f(uColorLoc, 0.3f, 0.8f, 1.0f);  // 青蓝色
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(beamMvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(beam));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        }
+
         // 渲染敌人
         for (auto& enemy : enemies) {
             if (enemy.state == EnemyInfo::DEAD && enemy.deathTimer > 10.0f) continue; // 死后10秒消失
@@ -1490,12 +1705,12 @@ int main(int, char**) {
         // ====================================================================
         // 渲染第一人称武器（战术步枪拼装）
         // ====================================================================
-        glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.01f, 10.0f);
+        glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
         glm::mat4 gunView = glm::mat4(1.0f);
 
         float baseX = 0.25f;
         float baseY = -0.25f;
-        float baseZ = -0.5f;
+        float baseZ = -0.7f;
 
         float recoilOffset = 0.0f;
         float recoilPitch = 0.0f;
