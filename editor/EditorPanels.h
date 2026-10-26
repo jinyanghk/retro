@@ -2,8 +2,8 @@
 #define UI_EDITOR_PANELS_H
 
 #include <string>
-#include "scene/Entity.h"
-#include "scene/Brush.h"
+#include "Entity.h"
+#include "Brush.h"
 
 struct BrushPanelResult {
     bool bRequestNew = false;

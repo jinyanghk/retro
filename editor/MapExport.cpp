@@ -1,7 +1,7 @@
 // MapExport.cpp
-#include "map/MapExport.h"
-#include "scene/SceneGlobals.h"
-#include "ui/EditorPanels.h"   // LogAdd
+#include "MapExport.h"
+#include "SceneGlobals.h"
+#include "EditorPanels.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>

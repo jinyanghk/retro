@@ -13,14 +13,14 @@
 #include "ImGuizmo.h"
 
 #include "math_compat.h"
-#include "scene/SceneGlobals.h"
-#include "scene/Entity.h"
-#include "app/UndoStack.h"
-#include "app/EditorLayout.h"
-#include "editor/GameDatabase.h"
-#include "ui/EditorPanels.h"
-#include "ui/View2D.h"
-#include "map/MapExport.h"
+#include "SceneGlobals.h"
+#include "Entity.h"
+#include "UndoStack.h"
+#include "EditorLayout.h"
+#include "GameDatabase.h"
+#include "EditorPanels.h"
+#include "View2D.h"
+#include "MapExport.h"
 
 #include <cstdio>
 #include <cstring>

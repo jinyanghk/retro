@@ -44,16 +44,16 @@ target_link_libraries(imguizmo PUBLIC imgui)
 
 # ---------- editor ----------
 add_executable(editor
-    editor.cpp
-    scene/SceneGlobals.cpp
-    scene/Brush.cpp
-    scene/Entity.cpp
-    app/UndoStack.cpp
-    app/EditorLayout.cpp
+    editor/main.cpp
+    editor/SceneGlobals.cpp
+    editor/Brush.cpp
+    editor/Entity.cpp
+    editor/UndoStack.cpp
+    editor/EditorLayout.cpp
     editor/GameDatabase.cpp
-    ui/EditorPanels.cpp
-    ui/View2D.cpp
-    map/MapExport.cpp
+    editor/EditorPanels.cpp
+    editor/View2D.cpp
+    editor/MapExport.cpp
 )
 # 让 build 目录自动同步 editor.json 文件
 add_custom_command(TARGET editor POST_BUILD
@@ -74,19 +74,23 @@ target_link_libraries(editor PRIVATE
 )
 
 # ---------- map ----------
-add_executable(map map.cpp)
+add_executable(map 
+    map/main.cpp
+)
 target_link_libraries(map PRIVATE nlohmann_json::nlohmann_json)
 
 # ---------- engine ----------
 add_library(engine SHARED 
-    engine.cpp
+    engine/engine.cpp
 )
 target_link_libraries(engine PRIVATE 
     nlohmann_json::nlohmann_json
 )
 
 # ---------- game ----------
-add_executable(game game.cpp)
+add_executable(game 
+    game/main.cpp
+)
 # 让 build 目录自动同步 sounds
 #add_custom_command(TARGET game POST_BUILD
 #    COMMAND ${CMAKE_COMMAND} -E copy_directory

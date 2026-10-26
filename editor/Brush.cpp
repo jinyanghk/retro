@@ -1,4 +1,4 @@
-#include "scene/Brush.h"
+#include "Brush.h"
 
 #include "math_compat.h"
 

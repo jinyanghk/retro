@@ -1,4 +1,4 @@
-#include "editor/GameDatabase.h"
+#include "GameDatabase.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>

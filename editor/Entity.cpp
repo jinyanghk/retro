@@ -1,5 +1,5 @@
-#include "scene/Entity.h"
-#include "editor/GameDatabase.h"
+#include "Entity.h"
+#include "GameDatabase.h"
 
 #include <cmath>
 

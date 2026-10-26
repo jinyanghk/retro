@@ -4,8 +4,8 @@
 
 #include <string>
 #include <vector>
-#include "scene/Brush.h"
-#include "scene/Entity.h"
+#include "Brush.h"
+#include "Entity.h"
 
 struct EditorSnapshot {
     std::vector<CBrush>  brushes;

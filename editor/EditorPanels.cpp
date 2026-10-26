@@ -1,4 +1,4 @@
-#include "ui/EditorPanels.h"
+#include "EditorPanels.h"
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -13,10 +13,10 @@
 #include "imgui_internal.h"
 #include "ImGuizmo.h"
 
-#include "scene/SceneGlobals.h"
-#include "app/UndoStack.h"
-#include "editor/GameDatabase.h"
-#include "app/EditorLayout.h"
+#include "SceneGlobals.h"
+#include "UndoStack.h"
+#include "GameDatabase.h"
+#include "EditorLayout.h"
 
 // ---------- handlers ----------
 static void (*s_pfnExportMap)() = nullptr;

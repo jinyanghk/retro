@@ -1,4 +1,4 @@
-#include "scene/SceneGlobals.h"
+#include "SceneGlobals.h"
 
 std::vector<CBrush>  g_brushes;
 std::vector<CEntity> g_entities;

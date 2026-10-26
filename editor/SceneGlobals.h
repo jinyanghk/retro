@@ -4,8 +4,8 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include "imgui.h"      // ★ 必须加这一行
-#include "scene/Brush.h"
-#include "scene/Entity.h"
+#include "Brush.h"
+#include "Entity.h"
 #include "ImGuizmo.h"
 
 enum GizmoMode {

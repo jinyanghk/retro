@@ -1,6 +1,6 @@
 // UndoStack.cpp
-#include "app/UndoStack.h"
-#include "scene/SceneGlobals.h"
+#include "UndoStack.h"
+#include "SceneGlobals.h"
 
 UndoStack& UndoStack::Instance() { static UndoStack i; return i; }
 

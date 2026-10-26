@@ -1,13 +1,13 @@
-#include "ui/View2D.h"
+#include "View2D.h"
 
 #include <cmath>
 #include <vector>
 #include <algorithm>
 #include "imgui.h"
-#include "scene/SceneGlobals.h"
-#include "scene/Brush.h"
-#include "scene/Entity.h"
-#include "app/UndoStack.h"
+#include "SceneGlobals.h"
+#include "Brush.h"
+#include "Entity.h"
+#include "UndoStack.h"
 
 // ---------------------------------------------------------------------------
 // 每个 2D 视图的相机状态 + 拖动状态
