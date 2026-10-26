@@ -1,0 +1,7 @@
+#pragma once
+#include <string_view>
+
+namespace Version {
+    constexpr std::string_view GIT_HASH = "@GIT_HASH@";
+    constexpr std::string_view GIT_BRANCH = "@GIT_BRANCH@";
+}

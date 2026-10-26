@@ -21,12 +21,14 @@
 #include "EditorPanels.h"
 #include "View2D.h"
 #include "MapExport.h"
+#include "version.h"
 
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <vector>
 #include <string>
+#include <iostream>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1098,6 +1100,7 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
 // ---------------------------------------------------------------------------
 int main(int, char**)
 {
+    std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << std::endl;
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif

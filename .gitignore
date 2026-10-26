@@ -1,5 +1,9 @@
 build
+vcpkg_installed
 
 *.o
 *.a
 *.so
+*.exe
+*.lib
+*.dll

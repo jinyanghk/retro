@@ -14,6 +14,7 @@
 #include <cmath>
 #include <algorithm>
 #include <thread>
+#include <iostream>
 
 // Jolt 核心头文件
 #include <Jolt/Jolt.h>
@@ -28,6 +29,8 @@
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Body/MotionProperties.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+
+#include "version.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -356,6 +359,7 @@ public:
 // main
 // ============================================================================
 int main(int, char**) {
+    std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << std::endl;
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif

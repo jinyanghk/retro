@@ -5,6 +5,8 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 
+#include "version.h"
+
 using json = nlohmann::json;
 
 struct Vec3 { float x, y, z; };
@@ -15,6 +17,7 @@ static Vec3 GetVec3(const json& je, const char* key, Vec3 fallback) {
 }
 
 int main() {
+    std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << std::endl;
     std::ifstream f("map.json");
     if (!f.is_open()) { std::cerr << "Cannot open map.json\n"; return 1; }
     json data;

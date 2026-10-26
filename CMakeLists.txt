@@ -11,10 +11,32 @@ find_package(Jolt REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(Git REQUIRED)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
 endif()
+
+# ---------- GIT ----------
+# Get the latest abbreviated commit hash
+execute_process(
+    COMMAND ${GIT_EXECUTABLE} log -1 --format=%h
+    OUTPUT_VARIABLE GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+# Get the current branch name
+execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
+    OUTPUT_VARIABLE GIT_BRANCH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+# Configure version.hpp out of the template
+configure_file(
+    ${CMAKE_SOURCE_DIR}/version.hpp.in
+    ${CMAKE_CURRENT_BINARY_DIR}/version.h
+)
 
 # ---------- ImGui ----------
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/../imgui)
@@ -61,7 +83,10 @@ add_custom_command(TARGET editor POST_BUILD
         ${CMAKE_SOURCE_DIR}/misc/halflife2.json
         $<TARGET_FILE_DIR:editor>/editor.json
 )
-target_include_directories(editor PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(editor PRIVATE 
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
 target_link_libraries(editor PRIVATE
     imgui
     imguizmo
@@ -77,11 +102,19 @@ target_link_libraries(editor PRIVATE
 add_executable(map 
     map/main.cpp
 )
+target_include_directories(map PRIVATE 
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
 target_link_libraries(map PRIVATE nlohmann_json::nlohmann_json)
 
 # ---------- engine ----------
 add_library(engine SHARED 
     engine/engine.cpp
+)
+target_include_directories(engine PRIVATE 
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
 target_link_libraries(engine PRIVATE 
     nlohmann_json::nlohmann_json
@@ -90,6 +123,10 @@ target_link_libraries(engine PRIVATE
 # ---------- game ----------
 add_executable(game 
     game/main.cpp
+)
+target_include_directories(game PRIVATE 
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
 # 让 build 目录自动同步 sounds
 #add_custom_command(TARGET game POST_BUILD
