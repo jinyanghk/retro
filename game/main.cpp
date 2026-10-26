@@ -45,6 +45,14 @@ struct CollisionTri {
     glm::vec3 normal;
 };
 
+struct ExplosiveBarrel {
+    JPH::BodyID bodyId;
+    glm::vec3  spawnPos;
+    float      hp = 20.0f;
+    bool       exploded = false;
+};
+
+
 static bool RaycastTriangle(const glm::vec3& orig, const glm::vec3& dir, const CollisionTri& tri, float& t, glm::vec3& outNormal) {
     const float EPSILON = 1e-7f;
     glm::vec3 edge1 = tri.v1 - tri.v0;
@@ -160,6 +168,7 @@ static float TraceBVH(const glm::vec3& start, const glm::vec3& dir, glm::vec3& o
 
 static float TraceDynamicBoxes(JPH::BodyInterface& bi,
                                const std::vector<JPH::BodyID>& ids,
+                               const std::vector<ExplosiveBarrel>& barrels, // 新增
                                JPH::BodyID ignoreBody,
                                const glm::vec3& start, const glm::vec3& dir,
                                float maxDist)
@@ -177,6 +186,21 @@ static float TraceDynamicBoxes(JPH::BodyInterface& bi,
             if (tmin >= 0.0f && tmin < best) { best = tmin; hit = true; }
         }
     }
+
+    // 新增：检测爆炸桶
+    for (auto& b : barrels) {
+        if (b.exploded) continue;
+        if (!ignoreBody.IsInvalid() && b.bodyId == ignoreBody) continue;
+        JPH::RMat44 t = bi.GetWorldTransform(b.bodyId);
+        JPH::AABox aabb = bi.GetShape(b.bodyId)->GetWorldSpaceBounds(t, JPH::Vec3(1,1,1));
+        glm::vec3 bmin((float)aabb.mMin.GetX(), (float)aabb.mMin.GetY(), (float)aabb.mMin.GetZ());
+        glm::vec3 bmax((float)aabb.mMax.GetX(), (float)aabb.mMax.GetY(), (float)aabb.mMax.GetZ());
+        float tmin, tmax;
+        if (RayAABB(start, dir, bmin, bmax, tmin, tmax)) {
+            if (tmin >= 0.0f && tmin < best) { best = tmin; hit = true; }
+        }
+    }
+
     return hit ? best : -1.0f;
 }
 
@@ -193,13 +217,6 @@ struct EnemyInfo {
     float attackTimer = 0.0f;
     enum State { IDLE, CHASE, ATTACK, DEAD } state = CHASE;
     float deathTimer = 0.0f;
-};
-
-struct ExplosiveBarrel {
-    JPH::BodyID bodyId;
-    glm::vec3  spawnPos;
-    float      hp = 20.0f;
-    bool       exploded = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -287,21 +304,29 @@ void ExplodeBarrel(int idx, JPH::BodyInterface& bi,
         }
     }
 
-    // 3. 对敌人扣血
+    // 3. 对敌人扣血（同样使用 1.5 倍半径）
+    const float damageRadius = radius * 1.5f;
     for (auto& e : enemies) {
         if (e.state == EnemyInfo::DEAD) continue;
         float dist = glm::length(e.pos - center);
-        if (dist < radius) {
-            float falloff = 1.0f - (dist / radius);
+        if (dist < damageRadius) {
+            float falloff = 1.0f - (dist / damageRadius);
+            if (falloff < 0.1f) falloff = 0.1f;
             e.hp -= damage * falloff;
             if (e.hp <= 0.0f) e.state = EnemyInfo::DEAD;
         }
     }
 
-    // 4. 对玩家扣血
+    // 4. 对玩家扣血（统一使用爆炸半径 1.5 倍，且近距离保底）
     float playerDist = glm::length(playerPos - center);
-    if (playerDist < radius) {
-        playerHP -= damage * (1.0f - playerDist / radius) * 0.5f;
+    if (playerDist < damageRadius) {
+        // falloff 计算，clamp 到 0.1 保证贴脸至少有 10% 伤害
+        float falloff = 1.0f - (playerDist / damageRadius);
+        if (falloff < 0.1f) falloff = 0.1f;
+
+        // 玩家爆炸伤害系数（可以调，0.5 代表只有 50% 的伤害）
+        playerHP -= damage * falloff * 0.5f;
+        printf("[BARREL] Player hit! dist=%.1f dmg=%.1f\n", playerDist, damage * falloff * 0.5f);
     }
 
     // 5. 连锁引爆周围的爆炸桶
@@ -1102,7 +1127,7 @@ int main(int, char**) {
         glm::vec3 dummyNormal;
         float floorDist = TraceBVH(newPosY, glm::vec3(0.0f, -1.0f, 0.0f), dummyNormal);
         {
-            float dynDown = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+            float dynDown = TraceDynamicBoxes(body_interface, physboxIds, barrels, player_body,
                                               newPosY, glm::vec3(0.0f, -1.0f, 0.0f),
                                               playerHeight);
             if (dynDown >= 0.0f && (floorDist < 0.0f || dynDown < floorDist)) floorDist = dynDown;
@@ -1114,7 +1139,7 @@ int main(int, char**) {
 
         float ceilDist = TraceBVH(newPosY, glm::vec3(0.0f, 1.0f, 0.0f), dummyNormal);
         {
-            float dynUp = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+            float dynUp = TraceDynamicBoxes(body_interface, physboxIds, barrels, player_body,
                                             newPosY, glm::vec3(0.0f, 1.0f, 0.0f),
                                             playerHeight);
             if (dynUp >= 0.0f && (ceilDist < 0.0f || dynUp < ceilDist)) ceilDist = dynUp;
@@ -1130,7 +1155,7 @@ int main(int, char**) {
             glm::vec3 dirX(dx > 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f);
             float distX = TraceBVH(playerPos, dirX, dummyNormal);
             {
-                float dynX = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+                float dynX = TraceDynamicBoxes(body_interface, physboxIds, barrels, player_body,
                                                playerPos, dirX, playerRadius);
                 if (dynX >= 0.0f && (distX < 0.0f || dynX < distX)) distX = dynX;
             }
@@ -1147,7 +1172,7 @@ int main(int, char**) {
             glm::vec3 dirZ(0.0f, 0.0f, dz > 0.0f ? 1.0f : -1.0f);
             float distZ = TraceBVH(playerPos, dirZ, dummyNormal);
             {
-                float dynZ = TraceDynamicBoxes(body_interface, physboxIds, player_body,
+                float dynZ = TraceDynamicBoxes(body_interface, physboxIds, barrels, player_body,
                                                playerPos, dirZ, playerRadius);
                 if (dynZ >= 0.0f && (distZ < 0.0f || dynZ < distZ)) distZ = dynZ;
             }
@@ -1347,6 +1372,49 @@ int main(int, char**) {
                 }
             }
 
+            // 敌人推炸药桶逻辑
+            {
+                glm::vec3 enemyVelH(enemy.vel.x, 0.0f, enemy.vel.z);
+                float enemySpeedH = glm::length(enemyVelH);
+                if (enemySpeedH > 0.01f) {
+                    for (auto& b : barrels) {
+                        if (b.exploded) continue; // 炸掉的桶没有物理实体了
+
+                        JPH::RVec3 barrel_pos = body_interface.GetCenterOfMassPosition(b.bodyId);
+                        glm::vec3 bpos((float)barrel_pos.GetX(), (float)barrel_pos.GetY(), (float)barrel_pos.GetZ());
+
+                        glm::vec3 diff = newPos - bpos;
+                        diff.y = 0.0f;
+                        float horizontalDist = glm::length(diff);
+
+                        // 炸药桶半尺寸为 12，接触范围 = 敌人半径 + 桶半径 + 缓冲
+                        float contactRange = enemy.radius + 12.0f + 6.0f;
+
+                        if (horizontalDist < contactRange) {
+                            glm::vec3 pushDir = glm::normalize(-diff);
+                            float dot = glm::dot(glm::normalize(enemyVelH), pushDir);
+                            
+                            if (dot > 0.1f) {
+                                JPH::Vec3 v = body_interface.GetLinearVelocity(b.bodyId);
+                                glm::vec3 boxVel(v.GetX(), 0.0f, v.GetZ());
+                                float boxSpeedAlongPush = glm::dot(boxVel, pushDir);
+                                
+                                // 敌人推力与推箱子保持一致（也是 50% 速度）
+                                float desiredSpeed = enemySpeedH * dot * 0.5f; 
+                                if (boxSpeedAlongPush < desiredSpeed) {
+                                    float add = desiredSpeed - boxSpeedAlongPush;
+                                    JPH::Vec3 newV(v.GetX() + pushDir.x * add,
+                                                   v.GetY(),
+                                                   v.GetZ() + pushDir.z * add);
+                                    body_interface.SetLinearVelocity(b.bodyId, newV);
+                                    body_interface.ActivateBody(b.bodyId);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             enemy.pos = newPos;
         }
 
@@ -1460,6 +1528,44 @@ int main(int, char**) {
                                            v.GetZ() + pushDir.z * add);
                             body_interface.SetLinearVelocity(physboxIds[i], newV);
                             body_interface.ActivateBody(physboxIds[i]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 推爆炸桶
+        {
+            glm::vec3 playerVelH(playerVel.x, 0.0f, playerVel.z);
+            float playerSpeedH = glm::length(playerVelH);
+            for (auto& b : barrels) {
+                if (b.exploded) continue;  // 炸掉的桶就没物理实体了
+
+                JPH::RVec3 bpos_j = body_interface.GetCenterOfMassPosition(b.bodyId);
+                glm::vec3 bpos((float)bpos_j.GetX(), (float)bpos_j.GetY(), (float)bpos_j.GetZ());
+
+                glm::vec3 diff = playerPos - bpos;
+                diff.y = 0.0f;
+                float horizontalDist = glm::length(diff);
+
+                // 炸药桶的半径约 12，所以用 12 作为半尺寸
+                float contactRange = playerRadius + 12.0f + 6.0f;
+
+                if (horizontalDist < contactRange && playerSpeedH > 0.01f) {
+                    glm::vec3 pushDir = glm::normalize(-diff);
+                    float dot = glm::dot(glm::normalize(playerVelH), pushDir);
+                    if (dot > 0.1f) {
+                        JPH::Vec3 v = body_interface.GetLinearVelocity(b.bodyId);
+                        glm::vec3 boxVel(v.GetX(), 0.0f, v.GetZ());
+                        float boxSpeedAlongPush = glm::dot(boxVel, pushDir);
+                        float desiredSpeed = playerSpeedH * dot * 0.8f;
+                        if (boxSpeedAlongPush < desiredSpeed) {
+                            float add = desiredSpeed - boxSpeedAlongPush;
+                            JPH::Vec3 newV(v.GetX() + pushDir.x * add,
+                                           v.GetY(),
+                                           v.GetZ() + pushDir.z * add);
+                            body_interface.SetLinearVelocity(b.bodyId, newV);
+                            body_interface.ActivateBody(b.bodyId);
                         }
                     }
                 }
