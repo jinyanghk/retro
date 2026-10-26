@@ -1,5 +1,5 @@
 #include "scene/Entity.h"
-#include "fgd/FgdDatabase.h"
+#include "editor/GameDatabase.h"
 
 #include <cmath>
 
@@ -20,9 +20,9 @@ void UpdateEntityBBox(CEntity& ent)
         return;
     }
 
-    // 默认 FGD 逻辑
+    // 默认 GameDatabase 逻辑
     glm::vec3 mins, maxs;
-    if (FgdDatabase::Instance().GetBBox(ent.m_szName, mins, maxs)) {
+    if (GameDatabase::Instance().GetBBox(ent.m_szName, mins, maxs)) {
         ent.m_vecBBoxMins = ent.m_vecPos + mins;
         ent.m_vecBBoxMaxs = ent.m_vecPos + maxs;
     } else {

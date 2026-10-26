@@ -17,7 +17,7 @@
 #include "scene/Entity.h"
 #include "app/UndoStack.h"
 #include "app/EditorLayout.h"
-#include "fgd/FgdDatabase.h"
+#include "editor/GameDatabase.h"
 #include "ui/EditorPanels.h"
 #include "ui/View2D.h"
 #include "map/MapExport.h"
@@ -1134,8 +1134,8 @@ int main(int, char**)
 
     InitGL();
 
-    if (!FgdDatabase::Instance().LoadFromFile("halflife2.json"))
-        LogAdd("[FGD] FAILED to load halflife2.json, entity panel will be empty");
+    if (!GameDatabase::Instance().LoadFromFile("editor.json"))
+        LogAdd("[GameDatabase] FAILED to load editor.json, entity panel will be empty");
 
     BuildDefaultScene();
     SetExportMapHandler(OnExportMap);

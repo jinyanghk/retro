@@ -50,16 +50,16 @@ add_executable(editor
     scene/Entity.cpp
     app/UndoStack.cpp
     app/EditorLayout.cpp
-    fgd/FgdDatabase.cpp
+    editor/GameDatabase.cpp
     ui/EditorPanels.cpp
     ui/View2D.cpp
     map/MapExport.cpp
 )
-# 让 build 目录自动同步 fgd 文件
+# 让 build 目录自动同步 editor.json 文件
 add_custom_command(TARGET editor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/fgd/halflife2.json
-        $<TARGET_FILE_DIR:editor>/halflife2.json
+        ${CMAKE_SOURCE_DIR}/misc/halflife2.json
+        $<TARGET_FILE_DIR:editor>/editor.json
 )
 target_include_directories(editor PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(editor PRIVATE

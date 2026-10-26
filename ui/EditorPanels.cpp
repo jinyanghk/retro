@@ -15,7 +15,7 @@
 
 #include "scene/SceneGlobals.h"
 #include "app/UndoStack.h"
-#include "fgd/FgdDatabase.h"
+#include "editor/GameDatabase.h"
 #include "app/EditorLayout.h"
 
 // ---------- handlers ----------
@@ -188,10 +188,10 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
         if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Entity Rot");
 
         ImGui::Separator();
-        ImGui::Text("FGD Properties:");
+        ImGui::Text("GameDatabase Properties:");
 
-        std::vector<FgdKeyValue> kvs;
-        if (FgdDatabase::Instance().GetKeyValues(e.m_szName, kvs)) {
+        std::vector<GdbKeyValue> kvs;
+        if (GameDatabase::Instance().GetKeyValues(e.m_szName, kvs)) {
             for (const auto& kv : kvs) {
                 ImGui::PushID(kv.name.c_str());
 
@@ -262,7 +262,7 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
                 ImGui::PopID();
             }
         } else {
-            ImGui::TextDisabled("(no FGD data for %s)", e.m_szName.c_str());
+            ImGui::TextDisabled("(no GameDatabase data for %s)", e.m_szName.c_str());
         }
     }
 
@@ -275,8 +275,8 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
 
         ImGui::BeginChild("##EntityPaletteChild", ImVec2(0, 200), true);
         
-        // 读取 FgdDatabase 列表
-        std::vector<std::string> allClasses = FgdDatabase::Instance().GetClassList();
+        // 读取 GameDatabase 列表
+        std::vector<std::string> allClasses = GameDatabase::Instance().GetClassList();
         std::sort(allClasses.begin(), allClasses.end());
 
         std::string filterStr = s_entityFilter;

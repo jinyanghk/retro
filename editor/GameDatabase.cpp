@@ -1,4 +1,4 @@
-#include "fgd/FgdDatabase.h"
+#include "editor/GameDatabase.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -7,7 +7,7 @@
 
 using json = nlohmann::json;
 
-FgdDatabase& FgdDatabase::Instance() { static FgdDatabase i; return i; }
+GameDatabase& GameDatabase::Instance() { static GameDatabase i; return i; }
 
 static glm::vec3 ParseVec3(const std::string& s, const glm::vec3& fallback)
 {
@@ -23,26 +23,26 @@ static glm::vec3 ParseVec3(const std::string& s, const glm::vec3& fallback)
     return glm::vec3(nums[0], nums[1], nums[2]);
 }
 
-void FgdDatabase::Clear() { m_classes.clear(); }
+void GameDatabase::Clear() { m_classes.clear(); }
 
-bool FgdDatabase::LoadFromFile(const std::string& path)
+bool GameDatabase::LoadFromFile(const std::string& path)
 {
     std::ifstream f(path);
     if (!f.is_open()) {
-        printf("[FgdDatabase] cannot open %s\n", path.c_str());
+        printf("[GameDatabase] cannot open %s\n", path.c_str());
         return false;
     }
     json j;
     try { f >> j; } catch (const std::exception& e) {
-        printf("[FgdDatabase] json parse error: %s\n", e.what());
+        printf("[GameDatabase] json parse error: %s\n", e.what());
         return false;
     }
-    if (!j.is_object()) { printf("[FgdDatabase] root not object\n"); return false; }
+    if (!j.is_object()) { printf("[GameDatabase] root not object\n"); return false; }
 
     for (auto it = j.begin(); it != j.end(); ++it) {
         const std::string& classname = it.key();
         const json& v = it.value();
-        FgdClass c;
+        GdbClass c;
         c.kind        = v.value("kind", "PointClass");
         c.description = v.value("description", "");
         c.studio      = v.value("studio", "");
@@ -60,7 +60,7 @@ bool FgdDatabase::LoadFromFile(const std::string& path)
         }
         if (v.contains("keyvalues") && v["keyvalues"].is_array()) {
             for (const auto& kvj : v["keyvalues"]) {
-                FgdKeyValue kv;
+                GdbKeyValue kv;
                 kv.name         = kvj.value("name", "");
                 kv.type         = kvj.value("type", "");
                 kv.description  = kvj.value("desc", "");
@@ -68,7 +68,7 @@ bool FgdDatabase::LoadFromFile(const std::string& path)
                 kv.longDesc     = kvj.value("long", "");
                 if (kvj.contains("choices") && kvj["choices"].is_array()) {
                     for (const auto& ch : kvj["choices"]) {
-                        FgdKeyValue::Choice c2;
+                        GdbKeyValue::Choice c2;
                         c2.value   = ch.value("value", "");
                         c2.caption = ch.value("caption", c2.value);
                         kv.choices.push_back(c2);
@@ -79,32 +79,32 @@ bool FgdDatabase::LoadFromFile(const std::string& path)
         }
         m_classes[classname] = std::move(c);
     }
-    printf("[FgdDatabase] loaded %zu classes from %s\n", m_classes.size(), path.c_str());
+    printf("[GameDatabase] loaded %zu classes from %s\n", m_classes.size(), path.c_str());
     return true;
 }
 
-bool FgdDatabase::HasClass(const std::string& n) const { return m_classes.count(n) > 0; }
+bool GameDatabase::HasClass(const std::string& n) const { return m_classes.count(n) > 0; }
 
-const FgdClass* FgdDatabase::GetClass(const std::string& n) const {
+const GdbClass* GameDatabase::GetClass(const std::string& n) const {
     auto it = m_classes.find(n);
     return it == m_classes.end() ? nullptr : &it->second;
 }
 
-std::vector<std::string> FgdDatabase::GetClassList() const {
+std::vector<std::string> GameDatabase::GetClassList() const {
     std::vector<std::string> out;
     out.reserve(m_classes.size());
     for (auto& kv : m_classes) out.push_back(kv.first);
     return out;
 }
 
-bool FgdDatabase::GetKeyValues(const std::string& n, std::vector<FgdKeyValue>& out) const {
+bool GameDatabase::GetKeyValues(const std::string& n, std::vector<GdbKeyValue>& out) const {
     auto* c = GetClass(n);
     if (!c) return false;
     out = c->keyValues;
     return true;
 }
 
-bool FgdDatabase::GetBBox(const std::string& n, glm::vec3& mins, glm::vec3& maxs) const {
+bool GameDatabase::GetBBox(const std::string& n, glm::vec3& mins, glm::vec3& maxs) const {
     auto* c = GetClass(n);
     if (!c || !c->hasSize) return false;
     mins = c->sizeMins;
@@ -112,7 +112,7 @@ bool FgdDatabase::GetBBox(const std::string& n, glm::vec3& mins, glm::vec3& maxs
     return true;
 }
 
-bool FgdDatabase::GetModelPath(const std::string& n, std::string& outPath) const {
+bool GameDatabase::GetModelPath(const std::string& n, std::string& outPath) const {
     auto* c = GetClass(n);
     if (!c || c->studio.empty()) return false;
     outPath = c->studio;

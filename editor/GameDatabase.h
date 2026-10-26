@@ -1,12 +1,12 @@
-#ifndef FGD_DATABASE_H
-#define FGD_DATABASE_H
+#ifndef GAME_DATABASE_H
+#define GAME_DATABASE_H
 
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
 #include <map>
 
-struct FgdKeyValue {
+struct GdbKeyValue {
     std::string name;
     std::string type;
     std::string description;
@@ -16,7 +16,7 @@ struct FgdKeyValue {
     std::vector<Choice> choices;
 };
 
-struct FgdClass {
+struct GdbClass {
     std::string kind;       // PointClass / SolidClass / BaseClass / NPCClass / ...
     std::string description;
     std::string studio;     // models/editor/playerstart.mdl
@@ -24,27 +24,27 @@ struct FgdClass {
     glm::vec3   sizeMins   = glm::vec3(-8);
     glm::vec3   sizeMaxs   = glm::vec3( 8);
     bool        hasSize    = false;
-    std::vector<FgdKeyValue> keyValues;
+    std::vector<GdbKeyValue> keyValues;
 };
 
-class FgdDatabase {
+class GameDatabase {
 public:
-    static FgdDatabase& Instance();
+    static GameDatabase& Instance();
 
     bool LoadFromFile(const std::string& jsonPath);
     void Clear();
 
     bool HasClass(const std::string& classname) const;
-    const FgdClass* GetClass(const std::string& classname) const;
+    const GdbClass* GetClass(const std::string& classname) const;
     std::vector<std::string> GetClassList() const;
 
-    bool GetKeyValues(const std::string& classname, std::vector<FgdKeyValue>& out) const;
+    bool GetKeyValues(const std::string& classname, std::vector<GdbKeyValue>& out) const;
     bool GetBBox(const std::string& classname, glm::vec3& mins, glm::vec3& maxs) const;
     bool GetModelPath(const std::string& classname, std::string& outPath) const;
 
 private:
-    FgdDatabase() = default;
-    std::map<std::string, FgdClass> m_classes;
+    GameDatabase() = default;
+    std::map<std::string, GdbClass> m_classes;
 };
 
 #endif
