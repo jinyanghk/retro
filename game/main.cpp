@@ -195,6 +195,13 @@ struct EnemyInfo {
     float deathTimer = 0.0f;
 };
 
+struct ExplosiveBarrel {
+    JPH::BodyID bodyId;
+    glm::vec3  spawnPos;
+    float      hp = 20.0f;
+    bool       exploded = false;
+};
+
 // ---------------------------------------------------------------------------
 // 门对玩家的射线阻挡
 // ---------------------------------------------------------------------------
@@ -223,13 +230,107 @@ static float TraceDoors(const std::vector<DoorStateForTrace>& ds,
 }
 
 // ---------------------------------------------------------------------------
+// 爆炸逻辑
+// ---------------------------------------------------------------------------
+void ExplodeBarrel(int idx, JPH::BodyInterface& bi,
+                   std::vector<ExplosiveBarrel>& barrels,
+                   std::vector<JPH::BodyID>& physboxIds,
+                   std::vector<EnemyInfo>& enemies,
+                   glm::vec3 playerPos, float& playerHP,
+                   Mix_Chunk* sndHit) {
+    if (idx < 0 || idx >= (int)barrels.size() || barrels[idx].exploded) return;
+    barrels[idx].exploded = true;
+
+    JPH::RVec3 jpos = bi.GetCenterOfMassPosition(barrels[idx].bodyId);
+    glm::vec3 center((float)jpos.GetX(), (float)jpos.GetY(), (float)jpos.GetZ());
+    const float radius = 250.0f;  // 原来是 180，改大一点
+    const float force  = 6000.0f; // 原来是 2500，改为 6000 才炸得飞
+    const float damage = 120.0f;
+
+    // 1. 摧毁桶本体（使用移除功能，防止后续遍历读到无效 ID）
+    bi.RemoveBody(barrels[idx].bodyId); 
+
+    // 2. 对周围 physbox 施加“爆炸”效果（暴力直接给速度）
+    for (size_t i = 0; i < physboxIds.size(); i++) {
+        JPH::RVec3 bp = bi.GetCenterOfMassPosition(physboxIds[i]);
+        glm::vec3 bpos((float)bp.GetX(), (float)bp.GetY(), (float)bp.GetZ());
+        glm::vec3 diff = bpos - center;
+        float dist = glm::length(diff);
+        
+        if (dist < radius * 1.5f) {
+            float falloff = 1.0f - (dist / (radius * 1.5f));
+            if (falloff < 0.0f) falloff = 0.0f;
+
+            glm::vec3 dir = (dist > 0.01f) ? glm::normalize(diff) : glm::vec3(0, 1, 0);
+            
+            // 【关键修复1】强行唤醒刚体
+            bi.ActivateBody(physboxIds[i]);
+
+            // 【关键修复2】直接设置极大的线速度（无视质量）
+            float speed = 2500.0f * falloff;
+            JPH::Vec3 newVel(
+                dir.x * speed,
+                (dir.y + 0.8f) * speed + 300.0f, // 稍微往上抛一点
+                dir.z * speed
+            );
+            bi.SetLinearVelocity(physboxIds[i], newVel);
+            
+            // 【关键修复3】给一点随机旋转速度，让它飞得更真实
+            float spin = 20.0f * falloff;
+            bi.SetAngularVelocity(physboxIds[i], JPH::Vec3(
+                (rand() % 100 - 50) * spin,
+                (rand() % 100 - 50) * spin,
+                (rand() % 100 - 50) * spin
+            ));
+
+            printf("[BARREL] Pushed box %zu at dist %.1f with direct velocity\n", i, dist);
+        }
+    }
+
+    // 3. 对敌人扣血
+    for (auto& e : enemies) {
+        if (e.state == EnemyInfo::DEAD) continue;
+        float dist = glm::length(e.pos - center);
+        if (dist < radius) {
+            float falloff = 1.0f - (dist / radius);
+            e.hp -= damage * falloff;
+            if (e.hp <= 0.0f) e.state = EnemyInfo::DEAD;
+        }
+    }
+
+    // 4. 对玩家扣血
+    float playerDist = glm::length(playerPos - center);
+    if (playerDist < radius) {
+        playerHP -= damage * (1.0f - playerDist / radius) * 0.5f;
+    }
+
+    // 5. 连锁引爆周围的爆炸桶
+    for (size_t i = 0; i < barrels.size(); i++) {
+        if (i == (size_t)idx || barrels[i].exploded) continue;
+        
+        JPH::RVec3 jpos2 = bi.GetCenterOfMassPosition(barrels[i].bodyId);
+        glm::vec3 bpos2((float)jpos2.GetX(), (float)jpos2.GetY(), (float)jpos2.GetZ());
+        float dist2 = glm::length(bpos2 - center);
+        
+        if (dist2 < radius) {
+            // 递归调用，炸飞它们！
+            ExplodeBarrel(i, bi, barrels, physboxIds, enemies, playerPos, playerHP, sndHit);
+        }
+    }
+
+    if (sndHit) Mix_PlayChannel(-1, sndHit, 0);
+    printf("[BARREL] Exploded at %.1f %.1f %.1f\n", center.x, center.y, center.z);
+}
+
+// ---------------------------------------------------------------------------
 // 武器开火检测
-// type: 0=无, 1=BVH静态, 2=物理箱子, 3=门, 4=敌人
+// type: 0=无, 1=BVH静态, 2=物理箱子, 3=门, 4=敌人, 5=爆炸桶
 // ---------------------------------------------------------------------------
 static float TraceFire(const glm::vec3& start, const glm::vec3& dir,
                        JPH::BodyInterface& bi, const std::vector<JPH::BodyID>& physboxIds,
                        const std::vector<DoorStateForTrace>& doorTrace,
                        const std::vector<EnemyInfo>& enemies,
+                       const std::vector<ExplosiveBarrel>& barrels,
                        glm::vec3& outNormal, int& outHitType, int& outHitIndex)
 {
     float closestDist = 2048.0f;
@@ -295,6 +396,27 @@ static float TraceFire(const glm::vec3& start, const glm::vec3& dir,
             outHitIndex = (int)i;
             glm::vec3 hitPos = start + dir * tmin;
             outNormal = glm::normalize(hitPos - enemies[i].pos);
+        }
+    }
+
+    // 5. 爆炸桶
+    for (size_t i = 0; i < barrels.size(); i++) {
+        if (barrels[i].exploded) continue;
+        
+        // 使用 AABB 测距
+        JPH::RMat44 t = bi.GetWorldTransform(barrels[i].bodyId);
+        JPH::AABox aabb = bi.GetShape(barrels[i].bodyId)->GetWorldSpaceBounds(t, JPH::Vec3(1,1,1));
+        glm::vec3 bmin((float)aabb.mMin.GetX(), (float)aabb.mMin.GetY(), (float)aabb.mMin.GetZ());
+        glm::vec3 bmax((float)aabb.mMax.GetX(), (float)aabb.mMax.GetY(), (float)aabb.mMax.GetZ());
+        
+        float tmin, tmax;
+        if (RayAABB(start, dir, bmin, bmax, tmin, tmax) && tmin >= 0.0f && tmin < closestDist) {
+            closestDist = tmin;
+            outHitType = 5;
+            outHitIndex = (int)i;
+            glm::vec3 hitPos = start + dir * tmin;
+            glm::vec3 barrelCenter = (bmin + bmax) * 0.5f;
+            outNormal = glm::normalize(hitPos - barrelCenter);
         }
     }
 
@@ -469,6 +591,18 @@ int main(int, char**) {
             zombieSpawns.push_back(glm::vec3(zb[i*3+0], zb[i*3+1], zb[i*3+2]));
         }
         printf("Loaded %u zombie spawn points.\n", numZombies);
+    }
+
+    // 读取prop_physics
+    uint32_t numBarrels = 0;
+    std::vector<glm::vec3> barrelSpawns;
+    if (f.read((char*)&numBarrels, 4)) {
+        std::vector<float> bb(numBarrels * 3);
+        f.read((char*)bb.data(), bb.size() * 4);
+        for (uint32_t i = 0; i < numBarrels; i++) {
+            barrelSpawns.push_back(glm::vec3(bb[i*3+0], bb[i*3+1], bb[i*3+2]));
+        }
+        printf("Loaded %u explosive barrels.\n", numBarrels);
     }
 
     f.close();
@@ -797,6 +931,24 @@ int main(int, char**) {
     bool  bGrabPressed  = false;    // 右键按下（本帧）
     bool  bThrowPressed = false;    // 左键按下（本帧，已抓时）
 
+    std::vector<ExplosiveBarrel> barrels;
+    for (auto& sp : barrelSpawns) {
+        JPH::BoxShapeSettings shape(JPH::Vec3(12.0f, 24.0f, 12.0f)); // 桶的半尺寸
+        JPH::BodyCreationSettings bcs(
+            shape.Create().Get(),
+            JPH::RVec3(sp.x, sp.y + 24.0f, sp.z),
+            JPH::Quat::sIdentity(),
+            JPH::EMotionType::Dynamic,
+            Layers::MOVING
+        );
+        bcs.mLinearDamping = 0.3f;
+        bcs.mFriction = 0.8f;
+        ExplosiveBarrel b;
+        b.bodyId = body_interface.CreateAndAddBody(bcs, JPH::EActivation::Activate);
+        b.spawnPos = sp;
+        barrels.push_back(b);
+    }
+
     while (running) {
         Uint32 currentTime = SDL_GetTicks();
         float deltaTime = (currentTime - lastTime) / 1000.0f;
@@ -860,7 +1012,28 @@ int main(int, char**) {
                         d.isOpening = false;
                         d.waitTimer = 0.0f;
                     }
-                    
+
+                    for (auto& b : barrels) {
+                        if (b.exploded) {
+                            // 重新创建 body
+                            JPH::BoxShapeSettings shape(JPH::Vec3(12.0f, 24.0f, 12.0f));
+                            JPH::BodyCreationSettings bcs(shape.Create().Get(),
+                                JPH::RVec3(b.spawnPos.x, b.spawnPos.y + 24.0f, b.spawnPos.z),
+                                JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+                            bcs.mLinearDamping = 0.3f;
+                            bcs.mFriction = 0.8f;
+                            b.bodyId = body_interface.CreateAndAddBody(bcs, JPH::EActivation::Activate);
+                            b.exploded = false;
+                            b.hp = 20.0f;
+                        } else {
+                            // 重置位置
+                            body_interface.SetPositionAndRotation(b.bodyId,
+                                JPH::RVec3(b.spawnPos.x, b.spawnPos.y + 24.0f, b.spawnPos.z),
+                                JPH::Quat::sIdentity(), JPH::EActivation::Activate);
+                            body_interface.SetLinearVelocity(b.bodyId, JPH::Vec3(0,0,0));
+                        }
+                    }                    
+
                     printf("[GAME] Level Restarted!\n");
                 }
                 continue; // 忽略其他事件
@@ -1201,7 +1374,8 @@ int main(int, char**) {
 
             glm::vec3 hitNormal;
             int hitType = 0, hitIndex = -1;
-            float hitDist = TraceFire(eyePos, front, body_interface, physboxIds, doorTrace, enemies, hitNormal, hitType, hitIndex);
+            float hitDist = TraceFire(eyePos, front, body_interface, physboxIds, 
+                doorTrace, enemies, barrels, hitNormal, hitType, hitIndex);
 
             if (hitDist >= 0.0f) {
                 glm::vec3 hitPos = eyePos + front * hitDist;
@@ -1241,6 +1415,10 @@ int main(int, char**) {
                         printf("[WEAPON] Enemy %d is DEAD!\n", hitIndex);
                     }
                 }
+                else if (hitType == 5 && hitIndex >= 0) {
+                    ExplodeBarrel(hitIndex, body_interface, barrels, physboxIds, enemies,
+                                playerPos, playerHP, sndHit);
+                }                
             }
         }
 
@@ -1365,13 +1543,18 @@ int main(int, char**) {
                 auto [eye, front] = ComputeAim();
                 glm::vec3 n; int hitType, hitIdx;
                 float dist = TraceFire(eye, front, body_interface, physboxIds,
-                                    doorTrace, enemies, n, hitType, hitIdx);
-                if (hitType == 2 && hitIdx >= 0 && dist >= 0.0f && dist < 400.0f) {
-                    gravityGun.heldBody = physboxIds[hitIdx];
+                                    doorTrace, enemies, barrels, n, hitType, hitIdx);
+                // 可以抓物理箱子 (2) 或者 爆炸桶 (5)
+                if ((hitType == 2 || hitType == 5) && hitIdx >= 0 && dist >= 0.0f && dist < 400.0f) {
+                    if (hitType == 2) {
+                        gravityGun.heldBody = physboxIds[hitIdx];
+                    } else if (hitType == 5) {
+                        gravityGun.heldBody = barrels[hitIdx].bodyId;
+                    }
                     gravityGun.holding = true;
                     body_interface.ActivateBody(gravityGun.heldBody);
                     if (sndDoor) Mix_PlayChannel(-1, sndDoor, 0);
-                    printf("[GRAV] Grabbed box %d at dist %.1f\n", hitIdx, dist);
+                    printf("[GRAV] Grabbed %s at dist %.1f\n", hitType == 2 ? "box" : "barrel", dist);
                 }
             }
         }
@@ -1611,6 +1794,26 @@ int main(int, char**) {
             glm::mat4 box_mvp = projection * view * box_model;
             glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(box_mvp));
             glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(box_model));
+            glBindVertexArray(box_vao);
+            glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
+        }
+
+        // barrels
+        glUniform1i(uModeLoc, 0);
+        glUniform3f(uColorLoc, 0.8f, 0.15f, 0.1f);  // 爆炸红
+        for (auto& b : barrels) {
+            if (b.exploded) continue;
+            JPH::RMat44 t = body_interface.GetWorldTransform(b.bodyId);
+            JPH::Vec3 pos = t.GetTranslation();
+            JPH::Quat q = t.GetQuaternion();
+            glm::vec3 p((float)pos.GetX(), (float)pos.GetY(), (float)pos.GetZ());
+            glm::quat quat((float)q.GetW(), (float)q.GetX(), (float)q.GetY(), (float)q.GetZ());
+            glm::vec3 half(12.0f, 24.0f, 12.0f);
+            glm::mat4 m = glm::translate(glm::mat4(1.0f), p) * glm::mat4_cast(quat)
+                        * glm::scale(glm::mat4(1.0f), half);
+            glm::mat4 mvp = projection * view * m;
+            glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
+            glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(m));
             glBindVertexArray(box_vao);
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
