@@ -452,6 +452,18 @@ int main(int, char**) {
         printf("Loaded %u doors.\n", numDoors);
     }
 
+    // 读取npc_zombie
+    uint32_t numZombies = 0;
+    std::vector<glm::vec3> zombieSpawns;
+    if(f.read((char *)&numZombies, 4)){
+        std::vector<float> zb(numZombies * 3);
+        f.read((char *)zb.data(), zb.size()*4);
+        for(uint32_t i = 0; i < numZombies; i++){
+            zombieSpawns.push_back(glm::vec3(zb[i*3+0], zb[i*3+1], zb[i*3+2]));
+        }
+        printf("Loaded %u zombie spawn points.\n", numZombies);
+    }
+
     f.close();
 
     // 弹孔数据
@@ -749,8 +761,17 @@ int main(int, char**) {
 
     // ---- 敌人初始化 ----
     std::vector<EnemyInfo> enemies;
-    enemies.push_back({glm::vec3(-1000.0f, 36.0f, 1000.0f)});
-    enemies.push_back({glm::vec3(1000.0f, 36.0f, 1000.0f)});
+    //enemies.push_back({glm::vec3(-1000.0f, 36.0f, 1000.0f)});
+    //enemies.push_back({glm::vec3(1000.0f, 36.0f, 1000.0f)});
+    auto SpawnAllEnemies = [&]() {
+        enemies.clear();
+        for(auto& pos : zombieSpawns) {
+            EnemyInfo e;
+            e.pos = pos;
+            enemies.push_back(e);
+        }
+    };
+    SpawnAllEnemies(); // 第一次生成
 
     float playerHP = 100.0f;
     float playerDamageTimer = 0.0f;
@@ -787,9 +808,10 @@ int main(int, char**) {
                     playerVel = glm::vec3(0);
                     
                     // 重置敌人
-                    enemies.clear();
-                    enemies.push_back({glm::vec3(-200.0f, 36.0f, 200.0f)});
-                    enemies.push_back({glm::vec3(200.0f, 36.0f, 200.0f)});
+                    //enemies.clear();
+                    //enemies.push_back({glm::vec3(-200.0f, 36.0f, 200.0f)});
+                    //enemies.push_back({glm::vec3(200.0f, 36.0f, 200.0f)});
+                    SpawnAllEnemies();
                     
                     // 重置物理箱子和门（可选，如果你想让它们也重置，需要重新 SetPosition）
                     for (size_t i = 0; i < physboxIds.size(); i++) {

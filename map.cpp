@@ -27,6 +27,7 @@ int main() {
     std::vector<float> triggerBounds;   // 6 float / 个
     std::vector<float> physboxBounds;   // 6 float / 个
     std::vector<float> doorBounds;      // 12 float / 个: mins[3], maxs[3], dir[3], dist, speed, wait
+    std::vector<float> zombieSpawns;    // 每个僵尸3个 float (x, y, zs)
 
     auto push_vertex = [&](const Vec3& p, const Vec3& n) -> uint32_t {
         uint32_t id = (uint32_t)(verts.size() / 6);
@@ -103,6 +104,11 @@ int main() {
                           << mx.x << "," << mx.y << "," << mx.z << ")\n";
                 nPhysboxes++;
             }
+            else if (classname == "npc_zombie") {
+                Vec3 p = GetVec3(je, "origin", {0, 36, 0});
+                zombieSpawns.insert(zombieSpawns.end(), {p.x, p.y, p.z});
+                std::cout << "Zombie spawn at (" << p.x << ", " << p.y << ", " << p.z << ")\n";
+            }            
             else if (classname == "func_door") {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -64, -8});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  64,  8});
@@ -168,6 +174,11 @@ int main() {
     uint32_t numDoors = doorBounds.size() / 12;
     out.write((char*)&numDoors, 4);
     out.write((char*)doorBounds.data(), doorBounds.size() * sizeof(float));
+
+    // npc_zombie
+    uint32_t numZombies = zombieSpawns.size() / 3;
+    out.write((char *)&numZombies, 4);
+    out.write((char *)zombieSpawns.data(), zombieSpawns.size() * sizeof(float));
 
     std::cout << "Compiled map.bsp: " << nv << " verts, " << ni << " indices\n";
     std::cout << "Spawn: (" << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << ")\n";
