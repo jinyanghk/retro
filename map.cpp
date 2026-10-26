@@ -149,10 +149,10 @@ int main() {
         }
     }
 
-    // 3. 写 MYSB
-    std::ofstream out("map.bsp", std::ios::binary);
-    if (!out.is_open()) { std::cerr << "Cannot write map.bsp\n"; return 1; }
-    out.write("MYSB", 4);
+    // 3. 写 MBVH
+    std::ofstream out("map.bvh", std::ios::binary);
+    if (!out.is_open()) { std::cerr << "Cannot write map.bvh\n"; return 1; }
+    out.write("MBVH", 4);
     uint32_t nv = (uint32_t)(verts.size() / 6);
     uint32_t ni = (uint32_t)indices.size();
     out.write((char*)&nv, 4);
@@ -180,7 +180,7 @@ int main() {
     out.write((char *)&numZombies, 4);
     out.write((char *)zombieSpawns.data(), zombieSpawns.size() * sizeof(float));
 
-    std::cout << "Compiled map.bsp: " << nv << " verts, " << ni << " indices\n";
+    std::cout << "Compiled map.bvh: " << nv << " verts, " << ni << " indices\n";
     std::cout << "Spawn: (" << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << ")\n";
     std::cout << "Triggers: " << numTriggers
               << "  Physboxes: " << numPhysboxes

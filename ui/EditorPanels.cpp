@@ -440,21 +440,7 @@ void DrawCompileOptionsWindow()
     if (!s_bCompileOpen) return;
     ImGui::SetNextWindowSize(ImVec2(480, 300), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Compile Options", &s_bCompileOpen)) {
-        static char mapName[128] = "mymap";
-        static char outDir[128]  = ".";
-        static bool runVbsp = true, runVvis = true, runVrad = true, copyMaps = true, launch = true;
-        ImGui::InputText("Map Name", mapName, sizeof(mapName));
-        ImGui::InputText("Output Dir", outDir, sizeof(outDir));
-        ImGui::Separator();
-        ImGui::Checkbox("Run VBSP", &runVbsp);
-        ImGui::Checkbox("Run VVIS", &runVvis);
-        ImGui::Checkbox("Run VRAD", &runVrad);
-        ImGui::Checkbox("Copy BSP to maps/", &copyMaps);
-        ImGui::Checkbox("Launch game", &launch);
-        ImGui::Separator();
-        if (ImGui::Button("Compile & Run")) { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
-        ImGui::SameLine();
-        if (ImGui::Button("Close")) s_bCompileOpen = false;
+
     }
     ImGui::End();
 }

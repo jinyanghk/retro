@@ -220,7 +220,7 @@ static float TraceDoors(const std::vector<DoorStateForTrace>& ds,
 
 // ---------------------------------------------------------------------------
 // 武器开火检测
-// type: 0=无, 1=BSP静态, 2=物理箱子, 3=门, 4=敌人
+// type: 0=无, 1=BVH静态, 2=物理箱子, 3=门, 4=敌人
 // ---------------------------------------------------------------------------
 static float TraceFire(const glm::vec3& start, const glm::vec3& dir,
                        JPH::BodyInterface& bi, const std::vector<JPH::BodyID>& physboxIds,
@@ -233,13 +233,13 @@ static float TraceFire(const glm::vec3& start, const glm::vec3& dir,
     outHitIndex = -1;
     outNormal = glm::vec3(0, 1, 0);
 
-    // 1. BSP 静态几何
-    glm::vec3 bspNormal;
-    float distBSP = TraceBVH(start, dir, bspNormal);
-    if (distBSP >= 0.0f && distBSP < closestDist) {
-        closestDist = distBSP;
+    // 1. BVH 静态几何
+    glm::vec3 bvhNormal;
+    float distBVH = TraceBVH(start, dir, bvhNormal);
+    if (distBVH >= 0.0f && distBVH < closestDist) {
+        closestDist = distBVH;
         outHitType = 1;
-        outNormal = bspNormal;
+        outNormal = bvhNormal;
     }
 
     // 2. 物理箱子
@@ -387,13 +387,13 @@ int main(int, char**) {
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    // 加载 BSP
+    // 加载 BVH
     float spawnPos[3] = { 0.0f, 128.0f, -400.0f };
     float spawnAngles[3] = { 0.0f, 0.0f, 0.0f };
-    std::ifstream f("map.bsp", std::ios::binary);
-    if (!f.is_open()) { printf("Cannot open map.bsp\n"); return 1; }
+    std::ifstream f("map.bvh", std::ios::binary);
+    if (!f.is_open()) { printf("Cannot open map.bvh\n"); return 1; }
     char magic[4]; f.read(magic, 4);
-    if (strncmp(magic, "MYSB", 4) != 0) return 1;
+    if (strncmp(magic, "MBVH", 4) != 0) return 1;
     uint32_t nv, ni; f.read((char*)&nv, 4); f.read((char*)&ni, 4);
     std::vector<float> verts(nv * 6); f.read((char*)verts.data(), nv * 6 * 4);
     std::vector<uint32_t> indices(ni); f.read((char*)indices.data(), ni * 4);
@@ -582,7 +582,7 @@ int main(int, char**) {
 
     JPH::BodyInterface& body_interface = physics.GetBodyInterface();
 
-    // BSP 静态 mesh
+    // BVH 静态 mesh
     {
         JPH::VertexList vertices;
         vertices.reserve(nv);
