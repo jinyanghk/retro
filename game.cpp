@@ -735,7 +735,6 @@ int main(int, char**) {
     // 加载音效
     Mix_Chunk* sndShoot = Mix_LoadWAV("sounds/shoot.wav");
     Mix_Chunk* sndHit   = Mix_LoadWAV("sounds/hit.wav");
-    Mix_Chunk* sndPain  = Mix_LoadWAV("sounds/pain.wav");
     Mix_Chunk* sndDoor  = Mix_LoadWAV("sounds/door.wav");
     
     // 如果找不到文件，会返回 nullptr，不会崩溃，只是没声音
@@ -1002,7 +1001,7 @@ int main(int, char**) {
                     playerHP -= 10.0f;
                     playerDamageTimer = 0.2f;
                     enemy.attackTimer = 1.0f; // 1秒咬一口
-                    if (sndPain) Mix_PlayChannel(-1, sndPain, 0); // 播放受伤声
+                    if (sndHit) Mix_PlayChannel(-1, sndHit, 0); // 播放受伤声
                     printf("[AI] Enemy attacked player! HP: %.1f\n", playerHP);
                 }
             } else {
@@ -1580,10 +1579,9 @@ int main(int, char**) {
     ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext(); SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window); 
-    // 在 SDL_Quit() 之前
+
     Mix_FreeChunk(sndShoot);
     Mix_FreeChunk(sndHit);
-    Mix_FreeChunk(sndPain);
     Mix_FreeChunk(sndDoor);
     Mix_CloseAudio();
         
