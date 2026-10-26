@@ -685,9 +685,9 @@ int main(int, char**) {
                 baseColor = mix(color1, color2, checker);
             }
             else if (uMode == 2) {
-                // 枪械材质（黑色，带一点光泽）
-                baseColor = vec3(0.15, 0.15, 0.15);
-                diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5; // 增强高光对比
+                // 枪械材质（深灰色，带一点金属光泽）
+                baseColor = vec3(0.25, 0.25, 0.28); 
+                diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5; 
             }
 
             FragColor = vec4(baseColor * (0.3 + 0.7 * diff), 1.0); 
@@ -1941,20 +1941,29 @@ int main(int, char**) {
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         };
 
-        // 1. 枪管 (细长)
-        DrawGunPart(glm::vec3(0.0f, 0.02f, -0.3f), glm::vec3(0.015f, 0.015f, 0.3f));
-        // 2. 枪身主体 (稍宽)
-        DrawGunPart(glm::vec3(0.0f, 0.0f, -0.05f), glm::vec3(0.03f, 0.04f, 0.15f));
+        // 1. 枪管 (圆柱体，用你之前的 gun_vao 画，更有立体感)
+        glUniform1i(uModeLoc, 2); // 开启枪械材质
+        glm::mat4 barrelModel = glm::translate(gunBase, glm::vec3(0.0f, 0.02f, -0.3f));
+        barrelModel = glm::scale(barrelModel, glm::vec3(0.008f, 0.008f, 0.4f)); // 细长枪管
+        glm::mat4 barrelMvp = gunProj * gunView * barrelModel;
+        glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(barrelMvp));
+        glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(barrelModel));
+        glBindVertexArray(gun_vao); // 这里换成圆柱体网格
+        glDrawElements(GL_TRIANGLES, (GLsizei)gun_idx.size(), GL_UNSIGNED_INT, 0);
+
+        // 恢复 box_vao 供后续部件使用
+        glBindVertexArray(box_vao);
+
+        // 2. 机匣主体 (稍宽)
+        DrawGunPart(glm::vec3(0.0f, 0.0f, -0.05f), glm::vec3(0.035f, 0.05f, 0.25f));
         // 3. 弹匣 (向下弯曲)
         glm::mat4 magModel = glm::translate(gunBase, glm::vec3(0.0f, -0.08f, 0.02f));
-        magModel = glm::rotate(magModel, glm::radians(15.0f), glm::vec3(1, 0, 0)); // 倾斜
+        magModel = glm::rotate(magModel, glm::radians(15.0f), glm::vec3(1, 0, 0)); 
         magModel = glm::scale(magModel, glm::vec3(0.02f, 0.08f, 0.04f));
         glm::mat4 magMvp = gunProj * gunView * magModel;
         glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(magMvp));
         glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(magModel));
-        glBindVertexArray(box_vao);
         glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
-
         // 4. 握把
         glm::mat4 gripModel = glm::translate(gunBase, glm::vec3(0.0f, -0.06f, 0.1f));
         gripModel = glm::rotate(gripModel, glm::radians(-10.0f), glm::vec3(1, 0, 0));
@@ -1962,19 +1971,20 @@ int main(int, char**) {
         glm::mat4 gripMvp = gunProj * gunView * gripModel;
         glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(gripMvp));
         glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(gripModel));
-        glBindVertexArray(box_vao);
         glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
 
-        // 5. 枪口（开火时闪一下红/黄光）
-        if (recoilTimer > 0.05f) { // 只在开火瞬间
+        // 5. 瞄准具 (新增：在枪管上方加个小方块，瞬间从"黑棒"变成"枪")
+        DrawGunPart(glm::vec3(0.0f, 0.05f, -0.3f), glm::vec3(0.005f, 0.015f, 0.02f));
+        
+        // 6. 枪口火焰 (开火时闪一下黄光)
+        if (recoilTimer > 0.05f) { 
             glUniform1i(uModeLoc, 0);
-            glUniform3f(uColorLoc, 1.0f, 0.8f, 0.2f); // 黄光
+            glUniform3f(uColorLoc, 1.0f, 0.8f, 0.2f); 
             glm::mat4 flashModel = glm::translate(gunBase, glm::vec3(0.0f, 0.02f, -0.6f));
-            flashModel = glm::scale(flashModel, glm::vec3(0.03f, 0.03f, 0.03f));
+            flashModel = glm::scale(flashModel, glm::vec3(0.04f, 0.04f, 0.04f));
             glm::mat4 flashMvp = gunProj * gunView * flashModel;
             glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, glm::value_ptr(flashMvp));
             glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, glm::value_ptr(flashModel));
-            glBindVertexArray(box_vao);
             glDrawElements(GL_TRIANGLES, (GLsizei)box_idx.size(), GL_UNSIGNED_INT, 0);
         }
 
