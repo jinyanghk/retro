@@ -1359,7 +1359,7 @@ int main(int, char**) {
         GLint uModeLoc = glGetUniformLocation(program, "uMode");
         GLint uColorLoc = glGetUniformLocation(program, "uColor");
 
-        glm::mat4 projection = glm::perspective(glm::radians(90.0f), (float)scrW / (float)scrH, 0.1f, 5000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(90.0f), (float)scrW / (float)scrH, 0.1f, 10000.0f);
         float pitchRad = glm::radians(camPitch);
         glm::vec3 front;
         front.x = cos(glm::radians(camYaw)) * cos(pitchRad);

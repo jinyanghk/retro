@@ -239,13 +239,13 @@ static void InitGL()
 
     // 网格在 Y-up 下画在 XZ 平面
     std::vector<float> gridVerts;
-    for (float x = -2048; x <= 2048; x += 64) {
-        gridVerts.push_back(x); gridVerts.push_back(0); gridVerts.push_back(-2048);
-        gridVerts.push_back(x); gridVerts.push_back(0); gridVerts.push_back( 2048);
+    for (float x = -4096; x <= 4096; x += 64) {
+        gridVerts.push_back(x); gridVerts.push_back(0); gridVerts.push_back(-4096);
+        gridVerts.push_back(x); gridVerts.push_back(0); gridVerts.push_back( 4096);
     }
-    for (float z = -2048; z <= 2048; z += 64) {
-        gridVerts.push_back(-2048); gridVerts.push_back(0); gridVerts.push_back(z);
-        gridVerts.push_back( 2048); gridVerts.push_back(0); gridVerts.push_back(z);
+    for (float z = -4096; z <= 4096; z += 64) {
+        gridVerts.push_back(-4096); gridVerts.push_back(0); gridVerts.push_back(z);
+        gridVerts.push_back( 4096); gridVerts.push_back(0); gridVerts.push_back(z);
     }
     glBindVertexArray(g_gridVAO);
     glBindBuffer(GL_ARRAY_BUFFER, g_gridVBO);
@@ -283,7 +283,7 @@ static void DrawGrid(const glm::mat4& viewProj)
     GLint loc = glGetUniformLocation(gridProg, "uVP");
     glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(viewProj));
     glBindVertexArray(g_gridVAO);
-    glDrawArrays(GL_LINES, 0, (GLsizei)((2048*2/64 + 1) * 2 * 2));
+    glDrawArrays(GL_LINES, 0, (GLsizei)((4096*2/64 + 1) * 2 * 2));
     glBindVertexArray(0);
 }
 
@@ -861,8 +861,8 @@ static void BuildDefaultScene()
         CEntity light;
         light.m_iType  = ENTITY_LIGHT;
         light.m_szName = "light";
-        light.m_vecPos = glm::vec3(0, 4000, 0);
-        light.m_properties["_light"]    = "2048 4000 2000";
+        light.m_vecPos = glm::vec3(0, 2000, 0);
+        light.m_properties["_light"]    = "2048 2000 2000";
         light.m_properties["_distance"] = "8192";
         UpdateEntityBBox(light);
         g_entities.push_back(light);
@@ -939,7 +939,7 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     int localMouseY = (int)(mousePos.y - viewportPos.y);
 
     glm::mat4 view = g_cam.GetView();
-    glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)vpW/(float)vpH, 1.0f, 5000.0f);
+    glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)vpW/(float)vpH, 1.0f, 10000.0f);
 
     // ★ 强制同步状态
     bool bIsSubEdit = (g_iGizmoMode == GIZMO_FACE || g_iGizmoMode == GIZMO_EDGE || g_iGizmoMode == GIZMO_VERTEX);
