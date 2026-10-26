@@ -7,9 +7,6 @@
 #include <glm/gtc/quaternion.hpp>
 #include <cmath>
 
-// retro 是 Z-up。QAngle = (pitch, yaw, roll)，单位度。
-// Source 约定：pitch 绕 Y，yaw 绕 Z，roll 绕 X。
-// 这里用 glm 组合出 4x4。
 inline glm::mat4 AngleMatrix(const glm::vec3& anglesDeg)
 {
     float p = glm::radians(anglesDeg.x);
@@ -40,26 +37,6 @@ inline glm::vec3 RotatePointAround(const glm::vec3& p,
     glm::vec3 local = p - center;
     glm::vec3 rotated = glm::vec3(R * glm::vec4(local, 0.0f));
     return center + rotated;
-}
-
-// Z-up <-> Y-up 交换（给 ImGuizmo 用）
-inline glm::mat4 ZUpToYUp(const glm::mat4& m)
-{
-    // swap Y and Z 行/列
-    glm::mat4 r = m;
-    for (int i = 0; i < 4; i++) std::swap(r[i][1], r[i][2]);
-    for (int i = 0; i < 4; i++) std::swap(r[1][i], r[2][i]);
-    return r;
-}
-inline glm::vec3 ZUpToYUp(const glm::vec3& v) { return glm::vec3(v.x, v.z, v.y); }
-inline glm::vec3 YUpToZUp(const glm::vec3& v) { return glm::vec3(v.x, v.z, v.y); }
-
-// 相机基向量 → view 矩阵（Z-up）
-inline glm::mat4 LookAtZUp(const glm::vec3& eye,
-                           const glm::vec3& target,
-                           const glm::vec3& up = glm::vec3(0, 0, 1))
-{
-    return glm::lookAt(eye, target, up);
 }
 
 // 屏幕坐标 → NDC
