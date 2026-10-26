@@ -87,6 +87,12 @@ target_link_libraries(engine PRIVATE
 
 # ---------- game ----------
 add_executable(game game.cpp)
+# 让 build 目录自动同步 sounds
+#add_custom_command(TARGET game POST_BUILD
+#    COMMAND ${CMAKE_COMMAND} -E copy_directory
+#        ${CMAKE_SOURCE_DIR}/sounds
+#        $<TARGET_FILE_DIR:game>/sounds
+#)
 target_link_libraries(game PRIVATE
     imgui
     SDL2::SDL2main

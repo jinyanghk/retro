@@ -830,11 +830,11 @@ static void BuildDefaultScene()
     g_brushes.clear();
     g_entities.clear();
 
-    const float HALF_W  = 512.0f;
+    const float HALF_W  = 4096.0f;
     const float WALL_TH = 16.0f;
     const float FLOOR_H = 16.0f;
     const float CEIL_H  = 16.0f;
-    const float ROOM_H  = 256.0f;
+    const float ROOM_H  = 2048.0f;
     const float Y_CENTER = (ROOM_H + CEIL_H - FLOOR_H) * 0.5f;
     const float Y_HALF   = (ROOM_H + CEIL_H + FLOOR_H) * 0.5f;
 
@@ -861,9 +861,9 @@ static void BuildDefaultScene()
         CEntity light;
         light.m_iType  = ENTITY_LIGHT;
         light.m_szName = "light";
-        light.m_vecPos = glm::vec3(0, 240, 0);
-        light.m_properties["_light"]    = "255 240 200";
-        light.m_properties["_distance"] = "1024";
+        light.m_vecPos = glm::vec3(0, 4000, 0);
+        light.m_properties["_light"]    = "2048 4000 2000";
+        light.m_properties["_distance"] = "8192";
         UpdateEntityBBox(light);
         g_entities.push_back(light);
     }

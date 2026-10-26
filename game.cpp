@@ -749,8 +749,8 @@ int main(int, char**) {
 
     // ---- 敌人初始化 ----
     std::vector<EnemyInfo> enemies;
-    enemies.push_back({glm::vec3(-200.0f, 36.0f, 200.0f)});
-    enemies.push_back({glm::vec3(200.0f, 36.0f, 200.0f)});
+    enemies.push_back({glm::vec3(-1000.0f, 36.0f, 1000.0f)});
+    enemies.push_back({glm::vec3(1000.0f, 36.0f, 1000.0f)});
 
     float playerHP = 100.0f;
     float playerDamageTimer = 0.0f;
