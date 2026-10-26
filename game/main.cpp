@@ -877,6 +877,7 @@ int main(int, char**) {
     Mix_Chunk* sndShoot = Mix_LoadWAV("sounds/shoot.wav");
     Mix_Chunk* sndHit   = Mix_LoadWAV("sounds/hit.wav");
     Mix_Chunk* sndDoor  = Mix_LoadWAV("sounds/door.wav");
+    Mix_Chunk* sndExplosion  = Mix_LoadWAV("sounds/explosion.wav");
     
     // 如果找不到文件，会返回 nullptr，不会崩溃，只是没声音
 
@@ -1417,7 +1418,7 @@ int main(int, char**) {
                 }
                 else if (hitType == 5 && hitIndex >= 0) {
                     ExplodeBarrel(hitIndex, body_interface, barrels, physboxIds, enemies,
-                                playerPos, playerHP, sndHit);
+                                playerPos, playerHP, sndExplosion);
                 }                
             }
         }
