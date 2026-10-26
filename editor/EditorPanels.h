@@ -24,6 +24,7 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
 void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelEntity, BrushPanelResult& out);
 void DrawConsolePanel();
 void DrawViewportPanel();
+void DrawScenePanel();
 
 void SetExportMapHandler(void (*pfn)());
 void SetImportMapHandler(void (*pfn)());

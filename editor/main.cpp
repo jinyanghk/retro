@@ -1221,7 +1221,8 @@ int main(int, char**)
         Draw3DView(g_bLeftMouseDown, g_bRightMouseDown, g_bMiddleMouseDown);
         Draw2DViews();
 
-        DrawConsolePanel();
+        //DrawConsolePanel();
+        //DrawScenePanel();
         DrawCompileOptionsWindow();
 
         if (panelRes.bRequestNew) {

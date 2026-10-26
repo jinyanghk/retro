@@ -68,7 +68,7 @@ void Begin()
         // 预热窗口
         const char* allWindows[] = {
             "3D View", "Top View", "Front View", "Side View",
-            "Entity", "Brush", "Console", "Tools"
+            "Entity", "Brush", "Tools"
         };
         for (const char* name : allWindows) {
             ImGui::Begin(name, nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar);
@@ -81,13 +81,14 @@ void Begin()
         ImGuiID dock_right = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Right, 0.25f, nullptr, &dock_main);
         
         // 2. 再切底部（占 20%）
-        ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Down, 0.20f, nullptr, &dock_main);
+        //ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Down, 0.20f, nullptr, &dock_main);
 
         // 右侧和底部的固定窗口
+        //ImGui::DockBuilderDockWindow("Scene",   dock_right);
         ImGui::DockBuilderDockWindow("Entity",  dock_right);
         ImGui::DockBuilderDockWindow("Brush",   dock_right);
-        ImGui::DockBuilderDockWindow("Console", dock_bottom);
-        ImGui::DockBuilderDockWindow("Tools",   dock_bottom);
+        //ImGui::DockBuilderDockWindow("Console", dock_right);
+        ImGui::DockBuilderDockWindow("Tools",   dock_right);
 
         if (s_layoutMode == LAYOUT_DEFAULT)
         {

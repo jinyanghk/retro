@@ -43,11 +43,11 @@ void DrawMenuBar()
     {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open map.json"))  { if (s_pfnImportMap) s_pfnImportMap(); }
-            if (ImGui::MenuItem("Export map.json")) { if (s_pfnExportMap) s_pfnExportMap(); }
+            if (ImGui::MenuItem("Save map.json")) { if (s_pfnExportMap) s_pfnExportMap(); }
             ImGui::Separator();
             if (ImGui::MenuItem("Compile & Run"))   { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
-            if (ImGui::MenuItem("Compile Options...")) OpenCompileOptionsWindow();
-            ImGui::Separator();
+            //if (ImGui::MenuItem("Compile Options...")) OpenCompileOptionsWindow();
+            //ImGui::Separator();
             if (ImGui::MenuItem("Exit")) {}
             ImGui::EndMenu();
         }
@@ -100,7 +100,7 @@ void DrawToolsPanel()
     };
 
     for (int i = 0; i < IM_ARRAYSIZE(items); ++i) {
-        if (i > 0) ImGui::SameLine();
+        //if (i > 0) ImGui::SameLine();
         bool b = (g_iGizmoMode == items[i].mode);
         if (ImGui::RadioButton(items[i].label, b))
             g_iGizmoMode = items[i].mode;
@@ -113,7 +113,7 @@ void DrawToolsPanel()
         g_CurrentGizmoMode = ImGuizmo::WORLD;
 
     ImGui::Checkbox("Use Snap", &g_bUseSnap);
-    ImGui::SameLine();
+    //ImGui::SameLine();
     if (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE)
         ImGui::InputFloat3("Snap", &g_Snap[0]);
     if (g_CurrentGizmoOperation & ImGuizmo::ROTATE)
@@ -415,6 +415,13 @@ void DrawConsolePanel()
         ImGui::TextColored(col, "%s", line.c_str());
     }
     ImGui::EndChild();
+    ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+void DrawScenePanel()
+{
+    if (!ImGui::Begin("Scene")) { ImGui::End(); return; }
     ImGui::End();
 }
 
