@@ -21,7 +21,8 @@ int main() {
 
     // 光照烘焙（当前默认关闭）
     LightBakeOptions bakeOpts;
-    BakeVertexLighting(map, renderMesh, bakeOpts);
+    bakeOpts.enabled = true; 
+    BakeVertexLighting(map, renderMesh, collisionMesh, bakeOpts);
 
     // 打包
     if (!PackLumps(map, renderMesh, collisionMesh,

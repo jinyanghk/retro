@@ -1,9 +1,10 @@
 #pragma once
 #include "Common.h"
-#include "MapFormat.h"   // 🔥 引入共享定义
+#include "MapFormat.h"
+#include <nlohmann/json.hpp>
 
 struct MapData {
-    // 几何
+    // 几何（v3: stride 9 = pos3 + normal3 + color3）
     uint32_t nv = 0, ni = 0;
     std::vector<float> verts;
     std::vector<uint32_t> indices;
@@ -19,7 +20,7 @@ struct MapData {
 
     // Triggers
     std::vector<glm::vec3> triggerMins, triggerMaxs;
-    std::vector<std::string> triggerTargets;  // 🔥 新增
+    std::vector<std::string> triggerTargets;
 
     // Physbox
     std::vector<glm::vec3> physboxMins, physboxMaxs;
@@ -34,13 +35,24 @@ struct MapData {
         float openAmount = 0.0f;
         bool isOpening = false;
         float waitTimer = 0.0f;
-        std::string targetname;  // 🔥 新增
+        std::string targetname;
     };
     std::vector<DoorInfo> doors;
 
     // 敌人与桶
     std::vector<glm::vec3> zombieSpawns;
     std::vector<glm::vec3> barrelSpawns;
+
+    // v3: 实体 KV 透传
+    struct EntityKV {
+        std::string classname;
+        glm::vec3   origin{0};
+        glm::vec3   angles{0};
+        glm::vec3   bboxMins{-32};
+        glm::vec3   bboxMaxs{ 32};
+        nlohmann::json kv = nlohmann::json::object(); // properties + __outputs
+    };
+    std::vector<EntityKV> entities;
 };
 
 bool LoadMap(const char* filename, MapData& outData);

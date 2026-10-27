@@ -6,47 +6,62 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     glBindVertexArray(render.mapVAO);
     glBindBuffer(GL_ARRAY_BUFFER, render.mapVBO); glBufferData(GL_ARRAY_BUFFER, mapData.verts.size() * 4, mapData.verts.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, render.mapEBO); glBufferData(GL_ELEMENT_ARRAY_BUFFER, mapData.indices.size() * 4, mapData.indices.data(), GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(6 * sizeof(float)));
 
     const char* vs_src = R"(
         #version 330 core
         layout(location=0) in vec3 aPos;
         layout(location=1) in vec3 aNormal;
+        layout(location=2) in vec3 aColor;
         uniform mat4 uMVP;
         uniform mat4 uModel;
         out vec3 vNormal;
         out vec3 vWorldPos;
-        void main() { 
-            gl_Position = uMVP * vec4(aPos, 1.0); 
-            vNormal = mat3(uModel) * aNormal; 
-            vWorldPos = vec3(uModel * vec4(aPos, 1.0)); 
+        out vec3 vColor;
+        void main() {
+            gl_Position = uMVP * vec4(aPos, 1.0);
+            vNormal   = mat3(uModel) * aNormal;
+            vWorldPos = vec3(uModel * vec4(aPos, 1.0));
+            vColor    = aColor;
         }
     )";
     const char* fs_src = R"(
         #version 330 core
         in vec3 vNormal;
         in vec3 vWorldPos;
+        in vec3 vColor;
         out vec4 FragColor;
         uniform vec3 uColor;
-        uniform int uMode; 
+        uniform int  uMode;
+        uniform int  uUseVColor;
+
         void main() {
-            vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-            float diff = max(dot(vNormal, lightDir), 0.0);
             vec3 baseColor = uColor;
+
             if (uMode == 1) {
+                // 棋盘格纹理
                 vec3 blend = abs(vNormal); blend /= (blend.x + blend.y + blend.z);
-                vec3 p = vWorldPos * 0.05; 
+                vec3 p = vWorldPos * 0.05;
                 float checkerX = mod(floor(p.y) + floor(p.z), 2.0);
                 float checkerY = mod(floor(p.x) + floor(p.z), 2.0);
                 float checkerZ = mod(floor(p.x) + floor(p.y), 2.0);
                 float checker = checkerX * blend.x + checkerY * blend.y + checkerZ * blend.z;
                 baseColor = mix(vec3(0.6, 0.6, 0.65), vec3(0.4, 0.4, 0.45), checker);
             } else if (uMode == 2) {
-                baseColor = vec3(0.25, 0.25, 0.28); 
-                diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5; 
+                baseColor = vec3(0.25, 0.25, 0.28);
             }
-            FragColor = vec4(baseColor * (0.3 + 0.7 * diff), 1.0); 
+
+            // 👈 如果是地图，直接输出 基础色 * 烘焙的顶点光照
+            if (uUseVColor == 1) {
+                FragColor = vec4(baseColor * vColor, 1.0); 
+            } else {
+                // 如果是箱子、敌人、枪，保留一点点简单的方向光，免得完全没立体感
+                vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
+                float diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5;
+                FragColor = vec4(baseColor * diff, 1.0);
+            }
         }
     )";
     auto compile_shader = [](GLenum type, const char* src) {
@@ -119,6 +134,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
                  int scrW, int scrH) {
     
     glUseProgram(render.program);
+    GLint uUseVColorLoc = glGetUniformLocation(render.program, "uUseVColor");
     GLint uModeLoc = glGetUniformLocation(render.program, "uMode");
     GLint uColorLoc = glGetUniformLocation(render.program, "uColor");
 
@@ -132,10 +148,14 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glEnable(GL_CULL_FACE); glCullFace(GL_BACK);        
     glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
     glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform1i(uUseVColorLoc, 1);
     glUniform1i(uModeLoc, 1);
     glUniform3f(uColorLoc, 0.6f, 0.6f, 0.65f);
     glBindVertexArray(render.mapVAO);
     glDrawElements(GL_TRIANGLES, mapData.ni, GL_UNSIGNED_INT, 0);
+
+    // 立刻关掉，之后所有 box/barrel/door/beam/enemy/bullet/gun 都不受影响
+    glUniform1i(uUseVColorLoc, 0);
 
     glDisable(GL_CULL_FACE);
     

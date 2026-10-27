@@ -2,53 +2,54 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "MapFormat.h"   // common/MapFormat.h，LumpDir / TriggerRecord / DoorRecord
+#include <nlohmann/json.hpp>
+#include "MapFormat.h"
 
-// ---------- 通用小向量 ----------
 struct Vec3 { float x, y, z; };
 
-// ---------- 编译中间产物 ----------
 struct BrushFace {
-    std::vector<Vec3>     verts;     // 面顶点（已三角化前的多边形）
-    std::vector<int>      indices;   // 索引到 verts（3 或 4 个）
-    Vec3                  normal{0,0,1};
+    std::vector<Vec3> verts;
+    std::vector<int>  indices;
+    Vec3              normal{0,0,1};
 };
 
 struct Brush {
-    std::vector<Vec3>     verts;     // 8 个角点
+    std::vector<Vec3>      verts;
     std::vector<BrushFace> faces;
+
+    // 新增：从 vertices 里算出来的包围盒边界
+    Vec3 mins{1e9, 1e9, 1e9};
+    Vec3 maxs{-1e9, -1e9, -1e9};    
 };
 
 struct Entity {
     std::string classname;
-    // 常用字段（已知的）
     Vec3 origin{0,0,0};
     Vec3 angles{0,0,0};
     Vec3 bboxMins{-32,-32,-32};
     Vec3 bboxMaxs{ 32, 32, 32};
-    // 门专用
+
     std::string targetname;
     float angleDeg = 0.f, lip = 128.f, speed = 100.f, wait = 4.f;
-    // Trigger 专用
-    std::string target;                 // 从 outputs[0].target 或 properties.target 解析
-    // TODO(属性透传): 保留未知 properties
-    // std::map<std::string, std::string> properties;
+    std::string target;
+
+    // v3: 全部原始 properties（含未知字段）原样保留
+    nlohmann::json properties = nlohmann::json::object();
+    // v3: outputs 也保留（Graph Editor 导出的 I/O）
+    nlohmann::json outputs    = nlohmann::json::array();
 };
 
 struct MapData {
     std::vector<Brush>  brushes;
     std::vector<Entity> entities;
-
-    // 解析阶段填充的 spawn
     float spawnPos[3]    = {0.f, 32.f, 0.f};
     float spawnAngles[3] = {0.f, 0.f, 0.f};
 };
 
 // ---------- 各模块入口 ----------
 
-// JsonParser.cpp
 bool ParseJson(const char* path, MapData& out);
-// 从实体列表里挑出各类实体，填充对应容器
+
 void CollectEntities(const MapData& map,
                      std::vector<float>& triggerBounds,
                      std::vector<std::string>& triggerTargets,
@@ -58,16 +59,17 @@ void CollectEntities(const MapData& map,
                      std::vector<float>& zombieSpawns,
                      std::vector<float>& barrelSpawns);
 
-// BrushBuilder.cpp
+// v3: renderMesh.verts stride = 9 (pos3+normal3+color3)
+//     collisionMesh.verts stride = 3
 struct MeshBuffers {
-    std::vector<float>    verts;      // 6 float / 顶点 (pos + normal)
+    std::vector<float>    verts;
     std::vector<uint32_t> indices;
 };
+
 void BuildBrushMeshes(const std::vector<Brush>& brushes,
                       MeshBuffers& renderMesh,
                       MeshBuffers& collisionMesh);
 
-// LumpPacker.cpp
 bool PackLumps(const MapData& map,
                const MeshBuffers& renderMesh,
                const MeshBuffers& collisionMesh,
@@ -80,12 +82,13 @@ bool PackLumps(const MapData& map,
                const std::vector<float>& barrelSpawns,
                const char* outPath);
 
-// LightBaker.cpp
 struct LightBakeOptions {
     int   samplesPerLight = 8;
     float ambient         = 0.1f;
-    bool  enabled         = false;   // TODO: 目前默认关闭
+    bool  enabled         = false;
 };
-void BakeVertexLighting(const MapData& map,
-                        MeshBuffers& renderMesh,
+
+void BakeVertexLighting(const MapData& map, 
+                        MeshBuffers& renderMesh, 
+                        const MeshBuffers& collisionMesh, 
                         const LightBakeOptions& opts);

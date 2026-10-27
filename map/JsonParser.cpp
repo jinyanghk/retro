@@ -1,7 +1,7 @@
 #include "MapCompiler.h"
 #include <fstream>
 #include <iostream>
-#include <nlohmann/json.hpp>
+#include <cmath>
 
 using json = nlohmann::json;
 
@@ -13,44 +13,102 @@ static Vec3 GetVec3(const json& je, const char* key, Vec3 fallback) {
 bool ParseJson(const char* path, MapData& out) {
     std::ifstream f(path);
     if (!f.is_open()) { std::cerr << "Cannot open " << path << "\n"; return false; }
-
     json data;
     try { f >> data; } catch (const std::exception& e) {
         std::cerr << "json parse error: " << e.what() << "\n"; return false;
     }
 
-    // 1. brushes
+    // ================= 1. 解析 Brushes =================
     if (data.contains("brushes")) {
+        int brushCount = 0;
         for (const auto& jb : data["brushes"]) {
             Brush b;
-            if (jb.contains("vertices")) {
+            
+            // 情况 A: 如果你的编辑器已经显式存了 8 个顶点
+            if (jb.contains("vertices") && jb["vertices"].size() >= 8) {
                 for (const auto& jv : jb["vertices"])
                     b.verts.push_back({ jv[0].get<float>(), jv[1].get<float>(), jv[2].get<float>() });
+            } 
+            // 情况 B: 使用 position 和 halfSize 自动生成标准的 8 个角
+            else if (jb.contains("position") && jb.contains("halfSize")) {
+                float px = jb["position"][0], py = jb["position"][1], pz = jb["position"][2];
+                float hx = jb["halfSize"][0], hy = jb["halfSize"][1], hz = jb["halfSize"][2];
+
+                // 打印前几个，确认坐标轴和尺寸对不对
+                if (brushCount < 3) {
+                    printf("[Debug] Brush %d: pos(%.1f, %.1f, %.1f), halfSize(%.1f, %.1f, %.1f)\n", 
+                           brushCount, px, py, pz, hx, hy, hz);
+                }
+
+                // 标准的 AABB 8顶点生成 (OpenGL Y-up 标准顺序)
+                b.verts = {
+                    { px - hx, py - hy, pz - hz }, // 0: 左 下 后
+                    { px + hx, py - hy, pz - hz }, // 1: 右 下 后
+                    { px + hx, py + hy, pz - hz }, // 2: 右 上 后
+                    { px - hx, py + hy, pz - hz }, // 3: 左 上 后
+                    { px - hx, py - hy, pz + hz }, // 4: 左 下 前
+                    { px + hx, py - hy, pz + hz }, // 5: 右 下 前
+                    { px + hx, py + hy, pz + hz }, // 6: 右 上 前
+                    { px - hx, py + hy, pz + hz }  // 7: 左 上 前
+                };
             }
-            if (jb.contains("faces")) {
+
+            // 如果是用 position 和 halfSize 生成的，最好直接存：
+            if (jb.contains("position") && jb.contains("halfSize")) {
+                float px = jb["position"][0], py = jb["position"][1], pz = jb["position"][2];
+                float hx = jb["halfSize"][0], hy = jb["halfSize"][1], hz = jb["halfSize"][2];
+                b.mins = { px - hx, py - hy, pz - hz };
+                b.maxs = { px + hx, py + hy, pz + hz };
+            } else if (!b.verts.empty()) {
+                // 如果是显式顶点，自己算
+                for (auto& v : b.verts) {
+                    b.mins.x = std::min(b.mins.x, v.x); b.maxs.x = std::max(b.maxs.x, v.x);
+                    b.mins.y = std::min(b.mins.y, v.y); b.maxs.y = std::max(b.maxs.y, v.y);
+                    b.mins.z = std::min(b.mins.z, v.z); b.maxs.z = std::max(b.maxs.z, v.z);
+                }
+            }
+
+            // 如果成功生成了顶点，再解析面
+            if (!b.verts.empty() && jb.contains("faces")) {
                 for (const auto& jf : jb["faces"]) {
                     BrushFace face;
                     face.normal = jf.contains("normal")
                         ? Vec3{ jf["normal"][0].get<float>(), jf["normal"][1].get<float>(), jf["normal"][2].get<float>() }
                         : Vec3{0,0,1};
-                    if (jf.contains("indices"))
-                        for (const auto& ji : jf["indices"]) face.indices.push_back(ji.get<int>());
+                    
+                    // 直接读取你编辑器提供的 indices
+                    if (jf.contains("indices")) {
+                        for (const auto& ji : jf["indices"]) {
+                            int idx = ji.get<int>();
+                            // 安全校验
+                            if (idx >= 0 && idx < (int)b.verts.size()) {
+                                face.indices.push_back(idx);
+                            }
+                        }
+                    }
                     b.faces.push_back(std::move(face));
                 }
+                out.brushes.push_back(std::move(b));
+                brushCount++;
             }
-            out.brushes.push_back(std::move(b));
         }
+        printf("[JsonParser] Loaded %d brushes.\n", brushCount);
     }
 
-    // 2. entities
+    // ================= 2. 解析 Entities =================
     if (data.contains("entities")) {
         for (const auto& je : data["entities"]) {
             Entity e;
             e.classname = je.value("classname", "");
-            e.origin = GetVec3(je, "origin", {0,0,0});
-            e.angles = GetVec3(je, "angles", {0,0,0});
-            e.bboxMins = GetVec3(je, "bbox_mins", {-32,-32,-32});
-            e.bboxMaxs = GetVec3(je, "bbox_maxs", { 32, 32, 32});
+            e.origin    = GetVec3(je, "origin",    {0,0,0});
+            e.angles    = GetVec3(je, "angles",    {0,0,0});
+            e.bboxMins  = GetVec3(je, "bbox_mins", {-32,-32,-32});
+            e.bboxMaxs  = GetVec3(je, "bbox_maxs", { 32, 32, 32});
+
+            if (je.contains("properties") && je["properties"].is_object())
+                e.properties = je["properties"];
+            if (je.contains("outputs") && je["outputs"].is_array())
+                e.outputs = je["outputs"];
 
             if (e.classname == "info_player_start") {
                 out.spawnPos[0]    = e.origin.x;
@@ -61,31 +119,26 @@ bool ParseJson(const char* path, MapData& out) {
                 out.spawnAngles[2] = e.angles.z;
             }
 
-            // trigger target 解析（兼容 outputs 与旧 properties）
             if (e.classname == "trigger_multiple" || e.classname == "trigger_once") {
-                if (je.contains("outputs") && je["outputs"].is_array() && !je["outputs"].empty())
-                    e.target = je["outputs"][0].value("target", "");
-                else if (je.contains("properties") && je["properties"].contains("target"))
-                    e.target = je["properties"]["target"].get<std::string>();
+                if (e.outputs.is_array() && !e.outputs.empty())
+                    e.target = e.outputs[0].value("target", "");
+                else if (e.properties.contains("target"))
+                    e.target = e.properties["target"].get<std::string>();
             }
 
-            // door 属性
-            if (e.classname == "func_door" && je.contains("properties") && je["properties"].is_object()) {
-                const auto& p = je["properties"];
+            if (e.classname == "func_door" && e.properties.is_object()) {
                 auto readFloat = [&](const char* k, float& dst) {
-                    if (p.contains(k) && p[k].is_string()) {
-                        try { dst = std::stof(p[k].get<std::string>()); } catch (...) {}
+                    if (e.properties.contains(k) && e.properties[k].is_string()) {
+                        try { dst = std::stof(e.properties[k].get<std::string>()); } catch (...) {}
                     }
                 };
                 readFloat("angle", e.angleDeg);
                 readFloat("lip",   e.lip);
                 readFloat("speed", e.speed);
                 readFloat("wait",  e.wait);
-                if (p.contains("targetname"))
-                    e.targetname = p["targetname"].get<std::string>();
+                if (e.properties.contains("targetname"))
+                    e.targetname = e.properties["targetname"].get<std::string>();
             }
-
-            // TODO(属性透传): 把 je["properties"] 全部扫进 e.properties
 
             out.entities.push_back(std::move(e));
         }
@@ -108,7 +161,6 @@ void CollectEntities(const MapData& map,
                 { e.bboxMins.x, e.bboxMins.y, e.bboxMins.z,
                   e.bboxMaxs.x, e.bboxMaxs.y, e.bboxMaxs.z });
             triggerTargets.push_back(e.target);
-            printf("Trigger loaded, target = %s\n", e.target.c_str());
         }
         else if (e.classname == "func_physbox") {
             physboxBounds.insert(physboxBounds.end(),

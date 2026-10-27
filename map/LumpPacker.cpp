@@ -32,13 +32,13 @@ bool PackLumps(const MapData& map,
     std::vector<LumpDir> dirs;
 
     size_t headerStart = outBuffer.size();
-    outBuffer.resize(12 + 8 * sizeof(LumpDir), 0); // 预留 8 个 Lump 目录
+    outBuffer.resize(12 + 9 * sizeof(LumpDir), 0); // v3: 9 lumps
 
-    // ---- LUMP_GEOMETRY ----
+    // ---- LUMP_GEOMETRY (stride 9) ----
     {
         std::vector<char> buf;
         auto PushU32 = [&](uint32_t v){ buf.insert(buf.end(), (char*)&v, (char*)&v + 4); };
-        uint32_t nv = (uint32_t)(renderMesh.verts.size() / 6);
+        uint32_t nv = (uint32_t)(renderMesh.verts.size() / 9);
         uint32_t ni = (uint32_t)renderMesh.indices.size();
         PushU32(nv); PushU32(ni);
         buf.insert(buf.end(), (const char*)renderMesh.verts.data(),
@@ -84,7 +84,8 @@ bool PackLumps(const MapData& map,
         std::vector<char> buf;
         uint32_t count = (uint32_t)records.size();
         buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
-        buf.insert(buf.end(), (char*)records.data(), (char*)records.data() + records.size()*sizeof(TriggerRecord));
+        buf.insert(buf.end(), (char*)records.data(),
+                   (char*)records.data() + records.size()*sizeof(TriggerRecord));
         AppendLumpRaw(outBuffer, dirs, LUMP_TRIGGERS, buf);
     }
 
@@ -116,7 +117,8 @@ bool PackLumps(const MapData& map,
         std::vector<char> buf;
         uint32_t count = (uint32_t)records.size();
         buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
-        buf.insert(buf.end(), (char*)records.data(), (char*)records.data() + records.size()*sizeof(DoorRecord));
+        buf.insert(buf.end(), (char*)records.data(),
+                   (char*)records.data() + records.size()*sizeof(DoorRecord));
         AppendLumpRaw(outBuffer, dirs, LUMP_DOORS, buf);
     }
 
@@ -140,6 +142,34 @@ bool PackLumps(const MapData& map,
         AppendLumpRaw(outBuffer, dirs, LUMP_BARRELS, buf);
     }
 
+    // ---- LUMP_ENTITIES (v3) ----
+    // 布局: u32 count, 然后 count 次 [EntityRecord + kvJson bytes]
+    {
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)map.entities.size();
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+
+        for (const auto& e : map.entities) {
+            EntityRecord r{};
+            strncpy(r.classname, e.classname.c_str(), 63);
+            r.origin[0]=e.origin.x;   r.origin[1]=e.origin.y;   r.origin[2]=e.origin.z;
+            r.angles[0]=e.angles.x;   r.angles[1]=e.angles.y;   r.angles[2]=e.angles.z;
+            r.bboxMins[0]=e.bboxMins.x; r.bboxMins[1]=e.bboxMins.y; r.bboxMins[2]=e.bboxMins.z;
+            r.bboxMaxs[0]=e.bboxMaxs.x; r.bboxMaxs[1]=e.bboxMaxs.y; r.bboxMaxs[2]=e.bboxMaxs.z;
+
+            // 把 properties + outputs 合并成一个 JSON 对象
+            nlohmann::json kv = nlohmann::json::object();
+            if (e.properties.is_object()) kv.update(e.properties);
+            if (e.outputs.is_array() && !e.outputs.empty()) kv["__outputs"] = e.outputs;
+            std::string s = kv.dump();
+            r.kvJsonSize = (uint32_t)s.size();
+
+            buf.insert(buf.end(), (char*)&r, (char*)&r + sizeof(EntityRecord));
+            buf.insert(buf.end(), s.data(), s.data() + s.size());
+        }
+        AppendLumpRaw(outBuffer, dirs, LUMP_ENTITIES, buf);
+    }
+
     // ---- 回填头部 ----
     uint32_t lumpCount = (uint32_t)dirs.size();
     memcpy(&outBuffer[headerStart + 0], "MBVH", 4);
@@ -148,12 +178,12 @@ bool PackLumps(const MapData& map,
     memcpy(&outBuffer[headerStart + 8], &lumpCount, 4);
     memcpy(&outBuffer[headerStart + 12], dirs.data(), lumpCount * sizeof(LumpDir));
 
-    // ---- 写文件 ----
     std::ofstream out(outPath, std::ios::binary);
     if (!out.is_open()) { std::cerr << "Cannot write " << outPath << "\n"; return false; }
     out.write(outBuffer.data(), outBuffer.size());
     out.close();
 
-    printf("Compiled %s: Version=%u, Lumps=%u\n", outPath, version, lumpCount);
+    printf("Compiled %s: Version=%u, Lumps=%u, Entities=%zu\n",
+           outPath, version, lumpCount, map.entities.size());
     return true;
 }
