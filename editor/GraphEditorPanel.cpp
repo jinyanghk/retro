@@ -189,7 +189,7 @@ static bool g_needsRebuild = true;
 void DrawGraphEditorPanel() {
     if (!ImGui::Begin("Graph")) { ImGui::End(); return; }
 
-    if (ImGui::Button("Refresh Graph")) g_needsRebuild = true;
+    if (ImGui::Button("Refresh")) g_needsRebuild = true;
     ImGui::SameLine();
     if (ImGui::Button("Fit All")) g_fit = GraphEditor::Fit_AllNodes;
     ImGui::SameLine();

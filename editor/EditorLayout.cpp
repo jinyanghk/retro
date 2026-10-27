@@ -84,11 +84,10 @@ void Begin()
         //ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Down, 0.20f, nullptr, &dock_main);
 
         // 右侧和底部的固定窗口
-        //ImGui::DockBuilderDockWindow("Scene",   dock_right);
         ImGui::DockBuilderDockWindow("Entity",  dock_right);
         ImGui::DockBuilderDockWindow("Brush",   dock_right);
-        //ImGui::DockBuilderDockWindow("Console", dock_right);
         ImGui::DockBuilderDockWindow("Tools",   dock_right);
+        ImGui::DockBuilderDockWindow("Graph", dock_right);
 
         if (s_layoutMode == LAYOUT_DEFAULT)
         {
@@ -123,6 +122,14 @@ void Begin()
     }
 
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), 0);
+
+    // 🔥 控制初始默认选中的 Tab
+    static bool s_bInitialFocusDone = false;
+    if (!s_bInitialFocusDone) {
+        ImGui::SetWindowFocus("3D View"); // 让 3D 视图默认选中
+        s_bInitialFocusDone = true;
+    }
+    
     ImGui::End();
 }
 
