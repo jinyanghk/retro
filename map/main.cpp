@@ -119,9 +119,18 @@ int main() {
                 triggerBounds.insert(triggerBounds.end(), { mn.x, mn.y, mn.z, mx.x, mx.y, mx.z });
                 
                 std::string tgt = "";
-                if (je.contains("properties") && je["properties"].contains("target"))
+                
+                // 🔥 优先从 outputs 数组里找 target
+                if (je.contains("outputs") && je["outputs"].is_array() && !je["outputs"].empty()) {
+                    tgt = je["outputs"][0].value("target", "");
+                } 
+                // 兼容旧数据
+                else if (je.contains("properties") && je["properties"].contains("target")) {
                     tgt = je["properties"]["target"].get<std::string>();
+                }
+                
                 triggerTargets.push_back(tgt);
+                printf("Trigger loaded, target = %s\n", tgt.c_str()); // 👈 加上这行打印，看看终端有没有输出 door1
             }
             else if (classname == "func_physbox") {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -32, -32});

@@ -59,6 +59,20 @@ bool ExportMapJson(const std::string& path)
         json props = json::object();
         for (const auto& kv : e.m_properties) props[kv.first] = kv.second;
         je["properties"] = props;
+
+        // 🔥 新增：导出 I/O 连接
+        json outs = json::array();
+        for (const auto& out : e.m_outputs) {
+            json jo;
+            jo["output"]  = out.outputName;
+            jo["target"]  = out.targetName;
+            jo["input"]   = out.inputName;
+            jo["param"]   = out.parameter;
+            jo["delay"]   = out.delay;
+            outs.push_back(jo);
+        }
+        je["outputs"] = outs;
+
         entities.push_back(je);
     }
     root["entities"] = entities;
@@ -136,6 +150,20 @@ bool ImportMapJson(const std::string& path)
                 for (auto it = je["properties"].begin(); it != je["properties"].end(); ++it)
                     e.m_properties[it.key()] = it.value().get<std::string>();
             }
+
+            // 🔥 新增：读取 I/O 连接
+            if (je.contains("outputs") && je["outputs"].is_array()) {
+                for (const auto& jo : je["outputs"]) {
+                    EntityOutput out;
+                    out.outputName = jo.value("output", "");
+                    out.targetName = jo.value("target", "");
+                    out.inputName  = jo.value("input", "");
+                    out.parameter  = jo.value("param", "");
+                    out.delay      = jo.value("delay", 0.0f);
+                    e.m_outputs.push_back(out);
+                }
+            }
+                        
             // 如果 bbox 没从 json 里读到，才走 UpdateEntityBBox
             if (!je.contains("bbox_mins")) UpdateEntityBBox(e);
             g_entities.push_back(e);

@@ -11,6 +11,14 @@ enum EntityType {
     ENTITY_LIGHT,
 };
 
+struct EntityOutput {
+    std::string outputName;  // 例如 "OnTrigger"
+    std::string targetName;  // 例如 "door1"
+    std::string inputName;   // 例如 "Open"
+    std::string parameter;   // 参数，默认空
+    float       delay = 0;   // 延迟，默认0
+};
+
 struct CEntity {
     EntityType  m_iType = ENTITY_MODEL;
     std::string m_szName;              // classname，如 "info_player_start" / "light"
@@ -23,6 +31,9 @@ struct CEntity {
     // bbox（由 UpdateEntityBBox 每帧算）
     glm::vec3 m_vecBBoxMins = glm::vec3(-8);
     glm::vec3 m_vecBBoxMaxs = glm::vec3( 8);
+
+    // 🔥 新增：ImGuizmo Node Editor 用于存储 I/O 连接
+    std::vector<EntityOutput> m_outputs;
 
     glm::vec3 GetCenter() const { return (m_vecBBoxMins + m_vecBBoxMaxs) * 0.5f; }
 };

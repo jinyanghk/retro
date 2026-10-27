@@ -237,7 +237,9 @@ int main(int, char**) {
         UpdatePlayer(player, deltaTime, physboxIds, barrels, doorTrace, body_interface, player_body, mapData.physboxMins, mapData.physboxMaxs);
         PlayerPushEntities(player, deltaTime, body_interface, physboxIds, barrels, mapData.physboxMins, mapData.physboxMaxs);
 
+        // ====================================================================
         // 触发器检测
+        // ====================================================================
         if (!levelComplete) {
             glm::vec3 pMin = player.pos - glm::vec3(player.radius, player.height * 0.5f, player.radius);
             glm::vec3 pMax = player.pos + glm::vec3(player.radius, player.height * 0.5f, player.radius);
@@ -246,22 +248,30 @@ int main(int, char**) {
                     pMax.y >= mapData.triggerMins[i].y && pMin.y <= mapData.triggerMaxs[i].y &&
                     pMax.z >= mapData.triggerMins[i].z && pMin.z <= mapData.triggerMaxs[i].z) {
                     
-                    // 🔥 查找 target 对应的门
                     const std::string& tgt = mapData.triggerTargets[i];
-                    if (!tgt.empty()) {
+                    
+                    // 🔥 核心逻辑：判断触发目标是“通关”还是“开门”
+                    if (tgt == "level_end") {
+                        levelComplete = true;
+                        levelCompleteTimer = 0.0f;
+                        if (audio.sndHit) Mix_PlayChannel(-1, audio.sndHit, 0); // 播放通关音效
+                        printf("[GAME] Level Complete Triggered!\n");
+                    }
+                    else if (!tgt.empty()) {
+                        // 查找 target 对应的门
                         for (auto& door : mapData.doors) {
                             if (door.targetname == tgt && door.openAmount < 0.01f && !door.isOpening) {
                                 door.isOpening = true;
                                 door.waitTimer = 0.0f;
                                 if (audio.sndDoor) Mix_PlayChannel(-1, audio.sndDoor, 0);
+                                printf("[GAME] Opened door: %s\n", tgt.c_str());
                             }
                         }
                     } else {
-                        // 没有 target 的 trigger 依然算过关
+                        // 如果什么都没填，兼容旧地图：默认通关（可选）
                         levelComplete = true;
                         levelCompleteTimer = 0.0f;
                     }
-                    break;
                 }
             }
         }
