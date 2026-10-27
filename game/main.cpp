@@ -215,6 +215,7 @@ struct EnemyInfo {
     float height = 60.0f;
     bool isGrounded = false;
     float attackTimer = 0.0f;
+    float stepCooldown = 0.0f; // 👈 新增：防止连续上台阶导致抽搐
     enum State { IDLE, CHASE, ATTACK, DEAD } state = CHASE;
     float deathTimer = 0.0f;
 };
@@ -304,16 +305,27 @@ void ExplodeBarrel(int idx, JPH::BodyInterface& bi,
         }
     }
 
-    // 3. 对敌人扣血（同样使用 1.5 倍半径）
-    const float damageRadius = radius * 1.5f;
+    // 3. 对敌人扣血（更大范围 + 更高伤害保底）
+    const float damageRadius = radius * 2.0f; // 把半径放大到 500
+    const float verticalRadius = 300.0f; // 垂直方向额外容忍
+
     for (auto& e : enemies) {
         if (e.state == EnemyInfo::DEAD) continue;
-        float dist = glm::length(e.pos - center);
-        if (dist < damageRadius) {
-            float falloff = 1.0f - (dist / damageRadius);
-            if (falloff < 0.1f) falloff = 0.1f;
-            e.hp -= damage * falloff;
-            if (e.hp <= 0.0f) e.state = EnemyInfo::DEAD;
+        glm::vec3 diff = e.pos - center;
+        float horizDist = glm::length(glm::vec2(diff.x, diff.z)); // 只算水平
+        float vertDist  = std::abs(diff.y);
+        
+        if (horizDist < damageRadius && vertDist < verticalRadius) {
+            float falloff = 1.0f - (horizDist / damageRadius);
+            if (falloff < 0.2f) falloff = 0.2f;
+            e.hp -= 180.0f * falloff;
+            
+            printf("[BARREL] Damaged enemy! dist=%.1f dmg=%.1f hp_left=%.1f\n", horizDist, 180.0f * falloff, e.hp);
+
+            if (e.hp <= 0.0f) {
+                e.state = EnemyInfo::DEAD;
+                printf("[BARREL] Enemy killed by explosion!\n");
+            }
         }
     }
 
@@ -1234,7 +1246,7 @@ int main(int, char**) {
             if (enemy.state == EnemyInfo::CHASE) {
                 glm::vec3 dir = glm::normalize(glm::vec3(toPlayer.x, 0, toPlayer.z));
                 enemy.vel.x = dir.x * 150.0f; // 敌人速度 150
-                enemy.vel.z = dir.z * 150.0f;
+                enemy.vel.z = dir.z * 150.0f;   
             } else if (enemy.state == EnemyInfo::ATTACK) {
                 enemy.vel.x = 0.0f;
                 enemy.vel.z = 0.0f;
@@ -1252,7 +1264,6 @@ int main(int, char**) {
             }
 
             // 3. 重力与碰撞 (改为 AABB 驱动)
-            enemy.vel.y -= 800.0f * deltaTime;
             glm::vec3 newPos = enemy.pos;
 
             // 辅助函数：检测敌方 AABB 是否撞墙/撞箱子/撞门
@@ -1290,47 +1301,155 @@ int main(int, char**) {
                     }
                 }
 
-                // 3. 测静态地图（用四根射线）
+                // 3. 测静态地图（关键修改：支持台阶）
                 float r = enemy.radius;
+                // 4个方向的射线
                 glm::vec3 dirs[4] = { {r, 0, 0}, {-r, 0, 0}, {0, 0, r}, {0, 0, -r} };
                 for (int i = 0; i < 4; i++) {
                     glm::vec3 dir = glm::normalize(dirs[i]);
-                    float d = TraceBVH(testPos, dir, dummyNormal);
-                    if (d >= 0.0f && d < r) return true;
+                    
+                    // 射线起点稍微抬高一点，避免卡进地面
+                    glm::vec3 rayStart = testPos + glm::vec3(0, -halfH + 8.0f, 0);
+                    float d = TraceBVH(rayStart, dir, dummyNormal);
+
+                    // 如果撞到了前方的墙
+                    if (d >= 0.0f && d < r + 2.0f) {
+                        // 【台阶检测】从碰撞点往上方打射线，看看有没有足够的空间
+                        // 假设台阶高度不超过 18 单位（大概半人高）
+                        glm::vec3 stepStart = rayStart + dir * d;
+                        float headClearance = TraceBVH(stepStart, glm::vec3(0, 1.0f, 0), dummyNormal);
+                        
+                        // 如果天花板距离很远，说明这堵墙的顶部在 18 单位以内，可以跨上去
+                        if (headClearance > 18.0f || headClearance < 0.0f) {
+                            // 如果能跨上去，抬高当前测试位置的高度
+                            testPos.y += 18.0f; 
+                            return false; // 告诉外部：这不算是完整的阻挡
+                        }
+
+                        return true; // 太高了跨不过去，返回阻挡
+                    }
                 }
                 return false;
             };
 
-            // 垂直移动 (Y轴)
+            // 1. 先处理水平移动（X轴和Z轴）
+            // 辅助：检测前方脚下是否有地面（探测距离更远，能感知台阶边缘）
+            // 辅助：检测前方是否有可站立的地面（平地和下台阶都算）
+            // 允许“下台阶”：探测前方 60 单位内有没有地面（不管高度差多少）
+            auto hasGroundAhead = [&](glm::vec3 pos, glm::vec3 dir) -> bool {
+                glm::vec3 frontPos = pos + dir * (enemy.radius + 10.0f);
+                glm::vec3 rayStart = frontPos - glm::vec3(0, enemy.height * 0.5f - 2.0f, 0);
+                float d = TraceBVH(rayStart, glm::vec3(0, -1, 0), dummyNormal);
+                return (d >= 0.0f && d <= 60.0f); // 👈 60 单位容忍下台阶
+            };
+
+            // 判断“前方是否可以下台阶”：
+            // - 当前站地上
+            // - 前方要么地面更低（heightDiff > 10），要么前方完全悬空（打不到地面）
+            auto isGoingDownStep = [&](glm::vec3 pos, glm::vec3 dir) -> bool {
+                glm::vec3 curRay = pos - glm::vec3(0, enemy.height * 0.5f - 2.0f, 0);
+                float curD = TraceBVH(curRay, glm::vec3(0, -1, 0), dummyNormal);
+                if (curD < 0.0f || curD > 5.0f) return false; // 当前必须站在地面上
+                
+                glm::vec3 frontPos = pos + dir * (enemy.radius + 15.0f);
+                glm::vec3 rayStart = frontPos - glm::vec3(0, enemy.height * 0.5f - 2.0f, 0);
+                float frontD = TraceBVH(rayStart, glm::vec3(0, -1, 0), dummyNormal);
+                
+                // 前方悬空（打不到地面）→ 允许下台阶（跳崖）
+                if (frontD < 0.0f) return true;
+                // 前方有地面，但比当前地面低 10 以上 → 允许下台阶
+                if (frontD > 10.0f) return true;
+                // 前方地面和当前一样平 → 不是下台阶
+                return false;
+            };
+
+            // X轴
+            glm::vec3 dirX(enemy.vel.x > 0 ? 1.0f : -1.0f, 0, 0);
+            glm::vec3 testX = newPos + glm::vec3(enemy.vel.x * deltaTime, 0, 0);
+            bool hitX = CheckEnemyAABBCollision(testX);
+            bool downX = isGoingDownStep(newPos, dirX);
+            if ((!hitX && hasGroundAhead(newPos, dirX)) || downX) {
+                newPos.x = testX.x;
+            } else {
+                enemy.vel.x = 0;
+            }
+
+            // Z轴
+            glm::vec3 dirZ(0, 0, enemy.vel.z > 0 ? 1.0f : -1.0f);
+            glm::vec3 testZ = newPos + glm::vec3(0, 0, enemy.vel.z * deltaTime);
+            bool hitZ = CheckEnemyAABBCollision(testZ);
+            if (!hitZ || (hitZ && isGoingDownStep(newPos, dirZ))) {
+                if (hasGroundAhead(newPos, dirZ)) {
+                    newPos.z = testZ.z;
+                }
+            } else {
+                enemy.vel.z = 0;
+            }
+
+            // 2. 再处理垂直移动（Y轴）
+            enemy.vel.y -= 800.0f * deltaTime;
+            if (enemy.vel.y < -1500.0f) enemy.vel.y = -1500.0f;
+
             glm::vec3 testY = newPos + glm::vec3(0, enemy.vel.y * deltaTime, 0);
+
             if (enemy.vel.y < 0) {
-                // 往下掉的时候，检查脚底
-                float floorDist = TraceBVH(testY - glm::vec3(0, enemy.height*0.5f, 0), glm::vec3(0, -1, 0), dummyNormal);
-                if (floorDist >= 0.0f && floorDist <= 5.0f) { // 地面在脚底 5 单位内
+                glm::vec3 rayStart = testY - glm::vec3(0, enemy.height * 0.5f, 0);
+                float maxProbeDist = std::abs(enemy.vel.y * deltaTime) + 50.0f; // 👈 放宽探测距离（原来是 +5）
+                float floorDist = TraceBVH(rayStart, glm::vec3(0, -1, 0), dummyNormal);
+
+                if (floorDist >= 0.0f && floorDist <= maxProbeDist) {
+                    // 命中地面：吸附
                     testY.y -= (floorDist - 1.0f);
                     enemy.vel.y = 0.0f;
                     enemy.isGrounded = true;
                 } else {
+                    // 悬空：允许下落（不吸附）
                     enemy.isGrounded = false;
                 }
             }
             newPos.y = testY.y;
-
-            // 水平移动 (X轴)
-            glm::vec3 testX = newPos + glm::vec3(enemy.vel.x * deltaTime, 0, 0);
-            if (!CheckEnemyAABBCollision(testX)) {
-                newPos.x = testX.x; // 不撞墙就移动
-            } else {
-                enemy.vel.x = 0; // 撞墙了，X轴速度归零
+/*
+            // 🔥 最后一道防线：掉出地图保护
+            if (newPos.y < -500.0f) {
+                printf("[AI] Enemy fell out of map! Respawning near player.\n");
+                newPos = playerPos + glm::vec3((rand() % 100 - 50), 100.0f, (rand() % 100 - 50));
+                enemy.vel = glm::vec3(0.0f);
+            }
+*/
+            // 🔥 最后一道防线：如果敌人 Y 坐标掉出地图外（比如 < -500），直接传送到玩家附近复活
+            if (newPos.y < -500.0f) {
+                printf("[AI] Enemy fell out of map! Respawning near player.\n");
+                glm::vec3 respawnPos = playerPos + glm::vec3((rand() % 100 - 50), 100.0f, (rand() % 100 - 50));
+                newPos = respawnPos;
+                enemy.vel = glm::vec3(0.0f);
             }
 
-            // 水平移动 (Z轴)
-            glm::vec3 testZ = newPos + glm::vec3(0, 0, enemy.vel.z * deltaTime);
-            if (!CheckEnemyAABBCollision(testZ)) {
-                newPos.z = testZ.z; // 不撞墙就移动
-            } else {
-                enemy.vel.z = 0; // 撞墙了，Z轴速度归零
+            // 3. 处理高台/台阶边缘（防穿模 + 上台阶）
+            if (enemy.stepCooldown > 0.0f) enemy.stepCooldown -= deltaTime;
+
+            glm::vec3 moveDir = glm::normalize(glm::vec3(enemy.vel.x, 0, enemy.vel.z));
+            if (glm::length(glm::vec3(enemy.vel.x, 0, enemy.vel.z)) > 0.01f) {
+                // 从脚底向上打一根射线，看看是否有台阶
+                glm::vec3 stepCheckStart = newPos + glm::vec3(0, enemy.height * 0.5f, 0);
+                float frontDist = TraceBVH(stepCheckStart, moveDir, dummyNormal);
+                
+                // 检查台阶是否足够矮（< 20 单位）
+                if (frontDist >= 0.0f && frontDist < enemy.radius + 2.0f) {
+                    glm::vec3 stepPoint = stepCheckStart + moveDir * frontDist;
+                    float clearance = TraceBVH(stepPoint, glm::vec3(0, 1, 0), dummyNormal);
+                    if (clearance < 0.0f || clearance > 20.0f) {
+                        if (enemy.stepCooldown <= 0.0f) {
+                            newPos.y += 18.0f;
+                            // 👇 关键：水平迈一步，把敌人“送进”台阶
+                            newPos.x += moveDir.x * (enemy.radius * 0.8f);
+                            newPos.z += moveDir.z * (enemy.radius * 0.8f);
+                            enemy.stepCooldown = 0.15f;
+                        }
+                    }
+                }
             }
+
+            enemy.pos = newPos;
 
             // 敌人推箱子逻辑
             {
