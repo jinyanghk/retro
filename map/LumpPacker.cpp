@@ -1,0 +1,159 @@
+#include "MapCompiler.h"
+#include <fstream>
+#include <iostream>
+#include <cstring>
+
+static void AppendLumpRaw(std::vector<char>& outBuffer,
+                          std::vector<LumpDir>& dirs,
+                          uint32_t type, const std::vector<char>& raw)
+{
+    LumpDir d;
+    d.type   = type;
+    d.offset = (uint32_t)outBuffer.size();
+    d.size   = (uint32_t)raw.size();
+    outBuffer.insert(outBuffer.end(), raw.begin(), raw.end());
+    while (outBuffer.size() % 4) outBuffer.push_back(0);
+    dirs.push_back(d);
+}
+
+bool PackLumps(const MapData& map,
+               const MeshBuffers& renderMesh,
+               const MeshBuffers& collisionMesh,
+               const std::vector<float>& triggerBounds,
+               const std::vector<std::string>& triggerTargets,
+               const std::vector<float>& physboxBounds,
+               const std::vector<float>& doorBounds,
+               const std::vector<std::string>& doorNames,
+               const std::vector<float>& zombieSpawns,
+               const std::vector<float>& barrelSpawns,
+               const char* outPath)
+{
+    std::vector<char> outBuffer;
+    std::vector<LumpDir> dirs;
+
+    size_t headerStart = outBuffer.size();
+    outBuffer.resize(12 + 8 * sizeof(LumpDir), 0); // 预留 8 个 Lump 目录
+
+    // ---- LUMP_GEOMETRY ----
+    {
+        std::vector<char> buf;
+        auto PushU32 = [&](uint32_t v){ buf.insert(buf.end(), (char*)&v, (char*)&v + 4); };
+        uint32_t nv = (uint32_t)(renderMesh.verts.size() / 6);
+        uint32_t ni = (uint32_t)renderMesh.indices.size();
+        PushU32(nv); PushU32(ni);
+        buf.insert(buf.end(), (const char*)renderMesh.verts.data(),
+                   (const char*)renderMesh.verts.data() + renderMesh.verts.size()*4);
+        buf.insert(buf.end(), (const char*)renderMesh.indices.data(),
+                   (const char*)renderMesh.indices.data() + renderMesh.indices.size()*4);
+        AppendLumpRaw(outBuffer, dirs, LUMP_GEOMETRY, buf);
+    }
+
+    // ---- LUMP_COLLISION ----
+    {
+        std::vector<char> buf;
+        auto PushU32 = [&](uint32_t v){ buf.insert(buf.end(), (char*)&v, (char*)&v + 4); };
+        uint32_t cnv = (uint32_t)(collisionMesh.verts.size() / 3);
+        uint32_t cni = (uint32_t)collisionMesh.indices.size();
+        PushU32(cnv); PushU32(cni);
+        buf.insert(buf.end(), (const char*)collisionMesh.verts.data(),
+                   (const char*)collisionMesh.verts.data() + collisionMesh.verts.size()*4);
+        buf.insert(buf.end(), (const char*)collisionMesh.indices.data(),
+                   (const char*)collisionMesh.indices.data() + collisionMesh.indices.size()*4);
+        AppendLumpRaw(outBuffer, dirs, LUMP_COLLISION, buf);
+    }
+
+    // ---- LUMP_SPAWN ----
+    {
+        std::vector<char> buf;
+        buf.insert(buf.end(), (char*)map.spawnPos,    (char*)map.spawnPos + 12);
+        buf.insert(buf.end(), (char*)map.spawnAngles, (char*)map.spawnAngles + 12);
+        AppendLumpRaw(outBuffer, dirs, LUMP_SPAWN, buf);
+    }
+
+    // ---- LUMP_TRIGGERS ----
+    {
+        std::vector<TriggerRecord> records;
+        for (size_t i = 0; i < triggerBounds.size() / 6; i++) {
+            TriggerRecord r{};
+            r.mins[0]=triggerBounds[i*6+0]; r.mins[1]=triggerBounds[i*6+1]; r.mins[2]=triggerBounds[i*6+2];
+            r.maxs[0]=triggerBounds[i*6+3]; r.maxs[1]=triggerBounds[i*6+4]; r.maxs[2]=triggerBounds[i*6+5];
+            std::string t = (i < triggerTargets.size()) ? triggerTargets[i] : "";
+            strncpy(r.target, t.c_str(), 63);
+            records.push_back(r);
+        }
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)records.size();
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)records.data(), (char*)records.data() + records.size()*sizeof(TriggerRecord));
+        AppendLumpRaw(outBuffer, dirs, LUMP_TRIGGERS, buf);
+    }
+
+    // ---- LUMP_PHYSBOX ----
+    {
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)(physboxBounds.size() / 6);
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)physboxBounds.data(),
+                   (char*)physboxBounds.data() + physboxBounds.size()*4);
+        AppendLumpRaw(outBuffer, dirs, LUMP_PHYSBOX, buf);
+    }
+
+    // ---- LUMP_DOORS ----
+    {
+        std::vector<DoorRecord> records;
+        for (size_t i = 0; i < doorBounds.size() / 12; i++) {
+            DoorRecord r{};
+            r.mins[0]=doorBounds[i*12+0]; r.mins[1]=doorBounds[i*12+1]; r.mins[2]=doorBounds[i*12+2];
+            r.maxs[0]=doorBounds[i*12+3]; r.maxs[1]=doorBounds[i*12+4]; r.maxs[2]=doorBounds[i*12+5];
+            r.dir[0] =doorBounds[i*12+6]; r.dir[1] =doorBounds[i*12+7]; r.dir[2] =doorBounds[i*12+8];
+            r.dist   =doorBounds[i*12+9];
+            r.speed  =doorBounds[i*12+10];
+            r.wait   =doorBounds[i*12+11];
+            std::string n = (i < doorNames.size()) ? doorNames[i] : "";
+            strncpy(r.targetname, n.c_str(), 63);
+            records.push_back(r);
+        }
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)records.size();
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)records.data(), (char*)records.data() + records.size()*sizeof(DoorRecord));
+        AppendLumpRaw(outBuffer, dirs, LUMP_DOORS, buf);
+    }
+
+    // ---- LUMP_ZOMBIES ----
+    {
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)(zombieSpawns.size() / 3);
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)zombieSpawns.data(),
+                   (char*)zombieSpawns.data() + zombieSpawns.size()*4);
+        AppendLumpRaw(outBuffer, dirs, LUMP_ZOMBIES, buf);
+    }
+
+    // ---- LUMP_BARRELS ----
+    {
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)(barrelSpawns.size() / 3);
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)barrelSpawns.data(),
+                   (char*)barrelSpawns.data() + barrelSpawns.size()*4);
+        AppendLumpRaw(outBuffer, dirs, LUMP_BARRELS, buf);
+    }
+
+    // ---- 回填头部 ----
+    uint32_t lumpCount = (uint32_t)dirs.size();
+    memcpy(&outBuffer[headerStart + 0], "MBVH", 4);
+    uint32_t version = MAP_VERSION;
+    memcpy(&outBuffer[headerStart + 4], &version, 4);
+    memcpy(&outBuffer[headerStart + 8], &lumpCount, 4);
+    memcpy(&outBuffer[headerStart + 12], dirs.data(), lumpCount * sizeof(LumpDir));
+
+    // ---- 写文件 ----
+    std::ofstream out(outPath, std::ios::binary);
+    if (!out.is_open()) { std::cerr << "Cannot write " << outPath << "\n"; return false; }
+    out.write(outBuffer.data(), outBuffer.size());
+    out.close();
+
+    printf("Compiled %s: Version=%u, Lumps=%u\n", outPath, version, lumpCount);
+    return true;
+}

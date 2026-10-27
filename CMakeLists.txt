@@ -100,8 +100,12 @@ target_link_libraries(editor PRIVATE
 )
 
 # ---------- map ----------
-add_executable(map 
+add_executable(map
     map/main.cpp
+    map/JsonParser.cpp
+    map/BrushBuilder.cpp
+    map/LumpPacker.cpp
+    map/LightBaker.cpp
 )
 target_include_directories(map PRIVATE 
     ${CMAKE_SOURCE_DIR}
