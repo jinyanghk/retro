@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
-#include <glm/glm.hpp>  // 👈 确保有这句
+#include <glm/glm.hpp>
 #include "MapFormat.h"
 
 struct Vec3 { float x, y, z; };
@@ -17,7 +17,6 @@ struct BrushFace {
 struct Brush {
     std::vector<Vec3>      verts;
     std::vector<BrushFace> faces;
-    // 包围盒（用于你后来的暴力生成和 NavGrid）
     Vec3 mins{1e9f, 1e9f, 1e9f};
     Vec3 maxs{-1e9f, -1e9f, -1e9f};
 };
@@ -53,12 +52,12 @@ struct LightBakeOptions {
     bool  enabled         = false;
 };
 
-// 👈 必须放在 PackLumps 声明之前
 struct NavGrid {
     float minX = 0, minZ = 0;
-    float cellSize = 32.0f;
+    float cellSize = 16.0f;
     uint32_t cols = 0, rows = 0;
     std::vector<uint8_t> walkable;
+    std::vector<float>   heights; // 👈 必须加上这个
 };
 
 // ---------- 各模块入口 ----------
@@ -95,5 +94,5 @@ bool PackLumps(const MapData& map,
                const std::vector<std::string>& doorNames,
                const std::vector<float>& zombieSpawns,
                const std::vector<float>& barrelSpawns,
-               const NavGrid& navGrid,        // 👈 现在认识了
+               const NavGrid& navGrid,
                const char* outPath);

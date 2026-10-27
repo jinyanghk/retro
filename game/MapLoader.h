@@ -58,6 +58,7 @@ struct MapData {
     float navMinX = 0, navMinZ = 0, navCellSize = 32.0f;
     uint32_t navCols = 0, navRows = 0;
     std::vector<uint8_t> navWalkable;    
+    std::vector<float> navHeights; // 👈 加这个
 };
 
 bool LoadMap(const char* filename, MapData& outData);

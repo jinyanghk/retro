@@ -176,6 +176,9 @@ bool LoadMap(const char* filename, MapData& outData) {
         outData.navRows = hdr.rows;
         outData.navWalkable.resize(hdr.cols * hdr.rows);
         f.read((char*)outData.navWalkable.data(), hdr.cols * hdr.rows);
+        // 👈 读高度
+        outData.navHeights.resize(hdr.cols * hdr.rows);
+        f.read((char*)outData.navHeights.data(), hdr.cols * hdr.rows * sizeof(float));        
     }
 
     printf("Loaded map: Version=%u, Lumps=%u, Entities=%zu\n",

@@ -2,7 +2,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
-#include <glm/glm.hpp>  // 👈 加上这个
+#include <glm/glm.hpp>
 
 // Möller–Trumbore 射线-三角形求交
 static bool RayTriangleIntersect(const glm::vec3& orig, const glm::vec3& dir,
@@ -33,56 +33,67 @@ void BuildNavGrid(const MapData& map, const MeshBuffers& collisionMesh, NavGrid&
         minZ = std::min(minZ, b.mins.z); maxZ = std::max(maxZ, b.maxs.z);
     }
 
-    outGrid.cellSize = 32.0f; // 每个格子 32x32
+    // 👈 精度提升为 16
+    outGrid.cellSize = 16.0f; 
     outGrid.minX = std::floor(minX);
     outGrid.minZ = std::floor(minZ);
     outGrid.cols = (uint32_t)std::ceil((maxX - minX) / outGrid.cellSize);
     outGrid.rows = (uint32_t)std::ceil((maxZ - minZ) / outGrid.cellSize);
     outGrid.walkable.resize(outGrid.cols * outGrid.rows, 0);
+    outGrid.heights.resize(outGrid.cols * outGrid.rows, 0.0f);
 
     int walkableCount = 0;
 
-    // 2. 遍历格子
     for (uint32_t r = 0; r < outGrid.rows; r++) {
         for (uint32_t c = 0; c < outGrid.cols; c++) {
-            float x = outGrid.minX + c * outGrid.cellSize + outGrid.cellSize * 0.5f;
-            float z = outGrid.minZ + r * outGrid.cellSize + outGrid.cellSize * 0.5f;
+            float cx = outGrid.minX + c * outGrid.cellSize + outGrid.cellSize * 0.5f;
+            float cz = outGrid.minZ + r * outGrid.cellSize + outGrid.cellSize * 0.5f;
             
-            glm::vec3 rayOrigin(x, 5000.0f, z);
-            glm::vec3 rayDir(0, -1, 0);
-            float closestT = 1e9f;
-            glm::vec3 hitNormal(0, 1, 0);
+            // 👈 采样中心点 + 4个角的偏移，防止边缘漏光
+            float offsets[5][2] = { {0,0}, {-4,-4}, {4,-4}, {-4,4}, {4,4} };
+            int validRays = 0;
+            float highestHitY = -1e9f;
 
-            // 遍历碰撞网格三角形
-            for (size_t i = 0; i < collisionMesh.indices.size(); i += 3) {
-                uint32_t i0 = collisionMesh.indices[i+0];
-                uint32_t i1 = collisionMesh.indices[i+1];
-                uint32_t i2 = collisionMesh.indices[i+2];
-                
-                // 读取出三角形顶点
-                glm::vec3 v0(collisionMesh.verts[i0*3+0], collisionMesh.verts[i0*3+1], collisionMesh.verts[i0*3+2]);
-                glm::vec3 v1(collisionMesh.verts[i1*3+0], collisionMesh.verts[i1*3+1], collisionMesh.verts[i1*3+2]);
-                glm::vec3 v2(collisionMesh.verts[i2*3+0], collisionMesh.verts[i2*3+1], collisionMesh.verts[i2*3+2]);
+            for (int k = 0; k < 5; k++) {
+                glm::vec3 rayOrigin(cx + offsets[k][0], 5000.0f, cz + offsets[k][1]);
+                glm::vec3 rayDir(0, -1, 0);
+                float closestT = 1e9f;
+                glm::vec3 hitNormal(0, 1, 0);
 
-                float t;
-                if (RayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2, t)) {
-                    if (t < closestT) {
-                        closestT = t;
-                        hitNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                for (size_t i = 0; i < collisionMesh.indices.size(); i += 3) {
+                    uint32_t i0 = collisionMesh.indices[i+0];
+                    uint32_t i1 = collisionMesh.indices[i+1];
+                    uint32_t i2 = collisionMesh.indices[i+2];
+                    
+                    glm::vec3 v0(collisionMesh.verts[i0*3+0], collisionMesh.verts[i0*3+1], collisionMesh.verts[i0*3+2]);
+                    glm::vec3 v1(collisionMesh.verts[i1*3+0], collisionMesh.verts[i1*3+1], collisionMesh.verts[i1*3+2]);
+                    glm::vec3 v2(collisionMesh.verts[i2*3+0], collisionMesh.verts[i2*3+1], collisionMesh.verts[i2*3+2]);
+
+                    float t;
+                    if (RayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2, t)) {
+                        if (t < closestT) {
+                            closestT = t;
+                            hitNormal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                        }
                     }
+                }
+
+                if (closestT < 1e8f && std::abs(hitNormal.y) > 0.5f) {
+                    float hitY = rayOrigin.y - closestT;
+                    if (hitY > highestHitY) highestHitY = hitY;
+                    validRays++;
                 }
             }
 
-            // 命中检查：坡度需小于 45 度 (normal.y > 0.7)
-            if (closestT < 1e8f && std::abs(hitNormal.y) > 0.7f) {
-                float hitY = rayOrigin.y - closestT;
-                if (hitY > -500.0f) { // 过滤掉无底洞
-                    outGrid.walkable[r * outGrid.cols + c] = 1;
-                    walkableCount++;
-                }
+            // 只要有至少 2 条射线打中地面，就认为这格可走
+            if (validRays >= 2 && highestHitY > -500.0f) {
+                int idx = r * outGrid.cols + c;
+                outGrid.walkable[idx] = 1;
+                outGrid.heights[idx] = highestHitY;
+                walkableCount++;
             }
         }
     }
     std::cout << "[NavGrid] Generated " << outGrid.cols << "x" << outGrid.rows 
-              << " grid, walkable cells: " << walkableCount << "\n";
+              << " grid (cellSize=16), walkable cells: " << walkableCount << "\n";
 }

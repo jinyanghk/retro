@@ -182,6 +182,8 @@ bool PackLumps(const MapData& map,
         hdr.rows = navGrid.rows;
         buf.insert(buf.end(), (char*)&hdr, (char*)&hdr + sizeof(NavGridHeader));
         buf.insert(buf.end(), navGrid.walkable.begin(), navGrid.walkable.end());
+        // 👈 别忘了这行
+        buf.insert(buf.end(), (char*)navGrid.heights.data(), (char*)navGrid.heights.data() + navGrid.heights.size() * 4);        
         AppendLumpRaw(outBuffer, dirs, LUMP_NAVGRID, buf);
     }
 
