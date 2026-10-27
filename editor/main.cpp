@@ -21,7 +21,7 @@
 #include "EditorPanels.h"
 #include "GraphEditorPanel.h"
 #include "View2D.h"
-#include "MapExport.h"
+#include "MapIO.h"
 #include "version.h"
 
 #include <cstdio>

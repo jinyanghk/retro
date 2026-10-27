@@ -1,5 +1,5 @@
-// MapExport.cpp
-#include "MapExport.h"
+// MapIO.cpp
+#include "MapIO.h"
 #include "SceneGlobals.h"
 #include "EditorPanels.h"
 

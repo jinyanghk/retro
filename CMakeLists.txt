@@ -76,7 +76,7 @@ add_executable(editor
     editor/GameDatabase.cpp
     editor/EditorPanels.cpp
     editor/View2D.cpp
-    editor/MapExport.cpp
+    editor/MapIO.cpp
 )
 # 让 build 目录自动同步 editor.json 文件
 add_custom_command(TARGET editor POST_BUILD
