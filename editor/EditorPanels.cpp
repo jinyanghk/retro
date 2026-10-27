@@ -190,44 +190,6 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
         ImGui::Separator();
         ImGui::Text("GameDatabase Properties:");
 
-        // 在 CEntity& e = ... 之后
-        ImGui::Separator();
-        ImGui::Text("Outputs (I/O Connections):");
-        
-        static int s_newOutputIndex = 0;
-        // 添加按钮
-        if (ImGui::Button("Add Output")) {
-            EntityOutput newOut;
-            newOut.outputName = "OnTrigger";
-            newOut.targetName = "";
-            newOut.inputName = "Open";
-            e.m_outputs.push_back(newOut);
-        }
-        
-        for (size_t i = 0; i < e.m_outputs.size(); i++) {
-            ImGui::PushID((int)i);
-            ImGui::Separator();
-            
-            char outName[64]; strcpy(outName, e.m_outputs[i].outputName.c_str());
-            if (ImGui::InputText("Output", outName, sizeof(outName)))
-                e.m_outputs[i].outputName = outName;
-                
-            char targetName[64]; strcpy(targetName, e.m_outputs[i].targetName.c_str());
-            if (ImGui::InputText("Target", targetName, sizeof(targetName)))
-                e.m_outputs[i].targetName = targetName;
-                
-            char inName[64]; strcpy(inName, e.m_outputs[i].inputName.c_str());
-            if (ImGui::InputText("Input", inName, sizeof(inName)))
-                e.m_outputs[i].inputName = inName;
-                
-            if (ImGui::Button("Remove")) {
-                e.m_outputs.erase(e.m_outputs.begin() + i);
-                ImGui::PopID();
-                break;
-            }
-            ImGui::PopID();
-        }
-
         std::vector<GdbKeyValue> kvs;
         if (GameDatabase::Instance().GetKeyValues(e.m_szName, kvs)) {
             for (const auto& kv : kvs) {

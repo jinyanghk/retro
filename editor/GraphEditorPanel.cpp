@@ -194,8 +194,8 @@ void DrawGraphEditorPanel() {
     if (ImGui::Button("Fit All")) g_fit = GraphEditor::Fit_AllNodes;
     ImGui::SameLine();
     if (ImGui::Button("Fit Selected")) g_fit = GraphEditor::Fit_SelectedNodes;
-    ImGui::SameLine();
-    ImGui::TextDisabled("(Drag right dot to left dot)");
+    //ImGui::SameLine();
+    //ImGui::TextDisabled("(Drag right dot to left dot)");
 
     if (g_needsRebuild) {
         g_graph.Rebuild();
