@@ -164,6 +164,20 @@ bool LoadMap(const char* filename, MapData& outData) {
         }
     }
 
+    // 10) NAVGRID
+    if (auto d = FindLump(LUMP_NAVGRID)) {
+        f.seekg(d->offset);
+        NavGridHeader hdr;
+        f.read((char*)&hdr, sizeof(NavGridHeader));
+        outData.navMinX = hdr.minX;
+        outData.navMinZ = hdr.minZ;
+        outData.navCellSize = hdr.cellSize;
+        outData.navCols = hdr.cols;
+        outData.navRows = hdr.rows;
+        outData.navWalkable.resize(hdr.cols * hdr.rows);
+        f.read((char*)outData.navWalkable.data(), hdr.cols * hdr.rows);
+    }
+
     printf("Loaded map: Version=%u, Lumps=%u, Entities=%zu\n",
            version, lumpCount, outData.entities.size());
     return true;

@@ -8,6 +8,7 @@
 #include "Audio.h"
 #include "Enemy.h"
 #include "Render.h"
+#include "AStar.h"
 
 int main(int, char**) {
     std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << std::endl;
@@ -276,7 +277,10 @@ int main(int, char**) {
             }
         }
 
-        UpdateEnemies(enemies, player, deltaTime, body_interface, physboxIds, barrels, doorTrace, mapData.physboxMins, mapData.physboxMaxs, audio.sndHit);
+        UpdateEnemies(enemies, player, deltaTime, body_interface, mapData, 
+                physboxIds, barrels, doorTrace, 
+                mapData.physboxMins, mapData.physboxMaxs, 
+                audio.sndHit);
         // 🔥 关键修复：强制将敌人的逻辑坐标同步给 Jolt 物理引擎，防止脱节导致穿模！
         for (auto& e : enemies) {
             if (e.state != EnemyInfo::DEAD) {
@@ -355,6 +359,14 @@ int main(int, char**) {
         ImGui::Text("Pos: %.1f, %.1f, %.1f", player.pos.x, player.pos.y, player.pos.z);
         ImGui::Text("Grounded: %s", player.isGrounded ? "YES" : "NO");
         ImGui::Text("Enemies: %zu", enemies.size());
+        // 可选：在 Debug 窗口里显示寻路网格状态
+        if (ImGui::CollapsingHeader("NavGrid")) {
+            ImGui::Text("Cols: %u, Rows: %u", mapData.navCols, mapData.navRows);
+            ImGui::Text("Walkable cells: ");
+            size_t count = 0;
+            for (auto b : mapData.navWalkable) if (b) count++;
+            ImGui::SameLine(); ImGui::Text("%zu", count);
+        }        
         ImGui::End();
 
         int scrW, scrH; SDL_GetWindowSize(window, &scrW, &scrH);

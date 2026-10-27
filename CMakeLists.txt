@@ -106,6 +106,7 @@ add_executable(map
     map/BrushBuilder.cpp
     map/LumpPacker.cpp
     map/LightBaker.cpp
+    map/NavGridBuilder.cpp
 )
 target_include_directories(map PRIVATE 
     ${CMAKE_SOURCE_DIR}
@@ -138,6 +139,7 @@ add_executable(game
     game/Audio.cpp
     game/Enemy.cpp
     game/Render.cpp
+    game/AStar.cpp
 )
 target_include_directories(game PRIVATE 
     ${CMAKE_SOURCE_DIR}

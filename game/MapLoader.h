@@ -53,6 +53,11 @@ struct MapData {
         nlohmann::json kv = nlohmann::json::object(); // properties + __outputs
     };
     std::vector<EntityKV> entities;
+
+    // NavGrid
+    float navMinX = 0, navMinZ = 0, navCellSize = 32.0f;
+    uint32_t navCols = 0, navRows = 0;
+    std::vector<uint8_t> navWalkable;    
 };
 
 bool LoadMap(const char* filename, MapData& outData);

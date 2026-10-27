@@ -26,13 +26,14 @@ bool PackLumps(const MapData& map,
                const std::vector<std::string>& doorNames,
                const std::vector<float>& zombieSpawns,
                const std::vector<float>& barrelSpawns,
+               const NavGrid& navGrid,
                const char* outPath)
 {
     std::vector<char> outBuffer;
     std::vector<LumpDir> dirs;
 
     size_t headerStart = outBuffer.size();
-    outBuffer.resize(12 + 9 * sizeof(LumpDir), 0); // v3: 9 lumps
+    outBuffer.resize(12 + 10 * sizeof(LumpDir), 0); // v4
 
     // ---- LUMP_GEOMETRY (stride 9) ----
     {
@@ -168,6 +169,20 @@ bool PackLumps(const MapData& map,
             buf.insert(buf.end(), s.data(), s.data() + s.size());
         }
         AppendLumpRaw(outBuffer, dirs, LUMP_ENTITIES, buf);
+    }
+
+    // ---- LUMP_NAVGRID ----
+    if (navGrid.cols > 0 && navGrid.rows > 0) {
+        std::vector<char> buf;
+        NavGridHeader hdr;
+        hdr.minX = navGrid.minX;
+        hdr.minZ = navGrid.minZ;
+        hdr.cellSize = navGrid.cellSize;
+        hdr.cols = navGrid.cols;
+        hdr.rows = navGrid.rows;
+        buf.insert(buf.end(), (char*)&hdr, (char*)&hdr + sizeof(NavGridHeader));
+        buf.insert(buf.end(), navGrid.walkable.begin(), navGrid.walkable.end());
+        AppendLumpRaw(outBuffer, dirs, LUMP_NAVGRID, buf);
     }
 
     // ---- 回填头部 ----

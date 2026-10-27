@@ -24,12 +24,16 @@ int main() {
     bakeOpts.enabled = true; 
     BakeVertexLighting(map, renderMesh, collisionMesh, bakeOpts);
 
+    // 👈 生成网格
+    NavGrid navGrid;
+    BuildNavGrid(map, collisionMesh, navGrid);
+
     // 打包
     if (!PackLumps(map, renderMesh, collisionMesh,
                    triggerBounds, triggerTargets,
                    physboxBounds, doorBounds, doorNames,
                    zombieSpawns, barrelSpawns,
-                   "map.bvh"))
+                   navGrid, "map.bvh"))
         return 1;
 
     return 0;

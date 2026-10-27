@@ -66,6 +66,10 @@ struct EnemyInfo {
     enum State { IDLE, CHASE, ATTACK, DEAD } state = CHASE;
     float deathTimer = 0.0f;
     JPH::BodyID bodyId;
+    // 👈 新增：A* 寻路缓存
+    std::vector<glm::vec3> path;
+    int pathIndex = 0;
+    float pathTimer = 0.0f; // 重新计算路径的冷却时间    
 };
 
 struct DoorStateForTrace {

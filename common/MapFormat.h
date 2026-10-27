@@ -4,7 +4,7 @@
 #include <string>
 
 static constexpr uint32_t MAP_MAGIC   = 0x4856424D; // "MBVH"
-static constexpr uint32_t MAP_VERSION = 3;          // v3: +LUMP_ENTITIES, GEOMETRY stride 9
+static constexpr uint32_t MAP_VERSION = 4; // v4: +LUMP_NAVGRID
 
 enum LumpType : uint32_t {
     LUMP_GEOMETRY   = 1,
@@ -15,7 +15,8 @@ enum LumpType : uint32_t {
     LUMP_DOORS      = 6,
     LUMP_ZOMBIES    = 7,
     LUMP_BARRELS    = 8,
-    LUMP_ENTITIES   = 9,   // NEW
+    LUMP_ENTITIES   = 9,
+    LUMP_NAVGRID    = 10,
 };
 
 #pragma pack(push, 1)
@@ -61,6 +62,14 @@ struct EntityRecord {
 
 // v3: GEOMETRY 顶点 stride = 9 float (pos3 + normal3 + color3)
 // 读取: u32 nv, u32 ni, float verts[nv*9], u32 indices[ni]
+
+struct NavGridHeader {
+    float minX, minZ;       // 网格左下角原点
+    float cellSize;         // 每个格子的大小 (比如 32.0f)
+    uint32_t cols, rows;    // 网格列数和行数
+    // 紧跟 cols * rows 个 uint8_t，0为不可走，1为可走
+};
+
 #pragma pack(pop)
 
 inline std::string LumpString(const char* arr, size_t maxLen) {

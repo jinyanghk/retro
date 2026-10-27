@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
+#include <glm/glm.hpp>  // 👈 确保有这句
 #include "MapFormat.h"
 
 struct Vec3 { float x, y, z; };
@@ -16,10 +17,9 @@ struct BrushFace {
 struct Brush {
     std::vector<Vec3>      verts;
     std::vector<BrushFace> faces;
-
-    // 新增：从 vertices 里算出来的包围盒边界
-    Vec3 mins{1e9, 1e9, 1e9};
-    Vec3 maxs{-1e9, -1e9, -1e9};    
+    // 包围盒（用于你后来的暴力生成和 NavGrid）
+    Vec3 mins{1e9f, 1e9f, 1e9f};
+    Vec3 maxs{-1e9f, -1e9f, -1e9f};
 };
 
 struct Entity {
@@ -28,14 +28,10 @@ struct Entity {
     Vec3 angles{0,0,0};
     Vec3 bboxMins{-32,-32,-32};
     Vec3 bboxMaxs{ 32, 32, 32};
-
     std::string targetname;
     float angleDeg = 0.f, lip = 128.f, speed = 100.f, wait = 4.f;
     std::string target;
-
-    // v3: 全部原始 properties（含未知字段）原样保留
     nlohmann::json properties = nlohmann::json::object();
-    // v3: outputs 也保留（Graph Editor 导出的 I/O）
     nlohmann::json outputs    = nlohmann::json::array();
 };
 
@@ -44,6 +40,25 @@ struct MapData {
     std::vector<Entity> entities;
     float spawnPos[3]    = {0.f, 32.f, 0.f};
     float spawnAngles[3] = {0.f, 0.f, 0.f};
+};
+
+struct MeshBuffers {
+    std::vector<float>    verts;
+    std::vector<uint32_t> indices;
+};
+
+struct LightBakeOptions {
+    int   samplesPerLight = 8;
+    float ambient         = 0.1f;
+    bool  enabled         = false;
+};
+
+// 👈 必须放在 PackLumps 声明之前
+struct NavGrid {
+    float minX = 0, minZ = 0;
+    float cellSize = 32.0f;
+    uint32_t cols = 0, rows = 0;
+    std::vector<uint8_t> walkable;
 };
 
 // ---------- 各模块入口 ----------
@@ -59,16 +74,16 @@ void CollectEntities(const MapData& map,
                      std::vector<float>& zombieSpawns,
                      std::vector<float>& barrelSpawns);
 
-// v3: renderMesh.verts stride = 9 (pos3+normal3+color3)
-//     collisionMesh.verts stride = 3
-struct MeshBuffers {
-    std::vector<float>    verts;
-    std::vector<uint32_t> indices;
-};
-
 void BuildBrushMeshes(const std::vector<Brush>& brushes,
                       MeshBuffers& renderMesh,
                       MeshBuffers& collisionMesh);
+
+void BakeVertexLighting(const MapData& map,
+                        MeshBuffers& renderMesh,
+                        const MeshBuffers& collisionMesh,
+                        const LightBakeOptions& opts);
+
+void BuildNavGrid(const MapData& map, const MeshBuffers& collisionMesh, NavGrid& outGrid);
 
 bool PackLumps(const MapData& map,
                const MeshBuffers& renderMesh,
@@ -80,15 +95,5 @@ bool PackLumps(const MapData& map,
                const std::vector<std::string>& doorNames,
                const std::vector<float>& zombieSpawns,
                const std::vector<float>& barrelSpawns,
+               const NavGrid& navGrid,        // 👈 现在认识了
                const char* outPath);
-
-struct LightBakeOptions {
-    int   samplesPerLight = 8;
-    float ambient         = 0.1f;
-    bool  enabled         = false;
-};
-
-void BakeVertexLighting(const MapData& map, 
-                        MeshBuffers& renderMesh, 
-                        const MeshBuffers& collisionMesh, 
-                        const LightBakeOptions& opts);
