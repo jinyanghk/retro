@@ -123,6 +123,15 @@ target_link_libraries(engine PRIVATE
 # ---------- game ----------
 add_executable(game 
     game/main.cpp
+    game/BVH.cpp
+    game/Trace.cpp
+    game/MapLoader.cpp
+    game/Physics.cpp
+    game/Player.cpp
+    game/Weapon.cpp
+    game/Audio.cpp
+    game/Enemy.cpp
+    game/Render.cpp
 )
 target_include_directories(game PRIVATE 
     ${CMAKE_SOURCE_DIR}
