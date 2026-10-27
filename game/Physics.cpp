@@ -102,7 +102,8 @@ void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_
     JPH::VertexList vertices;
     vertices.reserve(nv);
     for (uint32_t i = 0; i < nv; i++) {
-        vertices.push_back(JPH::Float3(verts[i*6+0], verts[i*6+1], verts[i*6+2]));
+        // 🔥 注意：这里改为 i*3，因为我们传入的只有位置，没有法线
+        vertices.push_back(JPH::Float3(verts[i*3+0], verts[i*3+1], verts[i*3+2]));
     }
     JPH::IndexedTriangleList triangles;
     triangles.reserve(ni / 3);
@@ -183,4 +184,17 @@ JPH::BodyID CreateBarrelBody(float x, float y, float z) {
 
 void MoveKinematicBody(JPH::BodyID id, float x, float y, float z) {
     g_physics->GetBodyInterface().SetPositionAndRotation(id, JPH::RVec3(x, y, z), JPH::Quat::sIdentity(), JPH::EActivation::Activate);
+}
+
+JPH::BodyID CreateEnemyBody(float x, float y, float z) {
+    // 敌人的逻辑半径 20，高度 60，所以半高是 30，半宽是 20
+    JPH::BoxShapeSettings shape(JPH::Vec3(20.0f, 30.0f, 20.0f));
+    JPH::BodyCreationSettings settings(
+        shape.Create().Get(),
+        JPH::RVec3(x, y, z),
+        JPH::Quat::sIdentity(),
+        JPH::EMotionType::Kinematic,
+        Layers::MOVING
+    );
+    return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
 }

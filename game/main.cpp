@@ -44,13 +44,16 @@ int main(int, char**) {
 
     std::vector<BulletHole> bulletHoles;
     std::vector<CollisionTri> collisionTris;
-    for (size_t i = 0; i + 2 < mapData.indices.size(); i += 3) {
-        uint32_t i0 = mapData.indices[i], i1 = mapData.indices[i+1], i2 = mapData.indices[i+2];
-        if (i0 >= mapData.nv || i1 >= mapData.nv || i2 >= mapData.nv) continue;
-        glm::vec3 v0(mapData.verts[i0*6], mapData.verts[i0*6+1], mapData.verts[i0*6+2]);
-        glm::vec3 v1(mapData.verts[i1*6], mapData.verts[i1*6+1], mapData.verts[i1*6+2]);
-        glm::vec3 v2(mapData.verts[i2*6], mapData.verts[i2*6+1], mapData.verts[i2*6+2]);
-        glm::vec3 n(mapData.verts[i0*6+3], mapData.verts[i0*6+4], mapData.verts[i0*6+5]);
+    // 🔥 改用 collisionIndices 和 collisionVerts 来构建 BVH
+    for (size_t i = 0; i + 2 < mapData.collisionIndices.size(); i += 3) {
+        uint32_t i0 = mapData.collisionIndices[i], i1 = mapData.collisionIndices[i+1], i2 = mapData.collisionIndices[i+2];
+        if (i0 >= mapData.cnv || i1 >= mapData.cnv || i2 >= mapData.cnv) continue;
+        glm::vec3 v0(mapData.collisionVerts[i0*3], mapData.collisionVerts[i0*3+1], mapData.collisionVerts[i0*3+2]);
+        glm::vec3 v1(mapData.collisionVerts[i1*3], mapData.collisionVerts[i1*3+1], mapData.collisionVerts[i1*3+2]);
+        glm::vec3 v2(mapData.collisionVerts[i2*3], mapData.collisionVerts[i2*3+1], mapData.collisionVerts[i2*3+2]);
+        
+        // 用三角形算一个大致法线
+        glm::vec3 n = glm::normalize(glm::cross(v1 - v0, v2 - v0));
         collisionTris.push_back({v0, v1, v2, n});
     }
     g_sortedTris = collisionTris;
@@ -62,7 +65,7 @@ int main(int, char**) {
 
     InitPhysics();
     JPH::BodyInterface& body_interface = GetBodyInterface();
-    CreateStaticMesh(mapData.verts, mapData.indices, mapData.nv, mapData.ni);
+    CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices, mapData.cnv, mapData.cni);
 
     JPH::BodyID player_body = CreatePlayerBody(mapData.spawnPos[0], mapData.spawnPos[1] + 36.0f, mapData.spawnPos[2]);
 
@@ -98,7 +101,17 @@ int main(int, char**) {
         enemies.clear();
         for(auto& pos : mapData.zombieSpawns) {
             EnemyInfo e;
-            e.pos = pos;
+            glm::vec3 spawnPos = pos;
+            
+            glm::vec3 dummyNormal;
+            // 向下探测
+            float floorDist = TraceBVH(glm::vec3(spawnPos.x, spawnPos.y + 20.0f, spawnPos.z), glm::vec3(0, -1, 0), dummyNormal);
+            if (floorDist >= 0.0f && floorDist < 500.0f) {
+                spawnPos.y = spawnPos.y + 20.0f - floorDist + e.height * 0.5f;
+            }
+            
+            e.pos = spawnPos;
+            e.bodyId = CreateEnemyBody(spawnPos.x, spawnPos.y, spawnPos.z); 
             enemies.push_back(e);
         }
     };
@@ -241,6 +254,17 @@ int main(int, char**) {
         }
 
         UpdateEnemies(enemies, player, deltaTime, body_interface, physboxIds, barrels, doorTrace, mapData.physboxMins, mapData.physboxMaxs, audio.sndHit);
+        // 🔥 关键修复：强制将敌人的逻辑坐标同步给 Jolt 物理引擎，防止脱节导致穿模！
+        for (auto& e : enemies) {
+            if (e.state != EnemyInfo::DEAD) {
+                body_interface.SetPositionAndRotation(
+                    e.bodyId, // 如果 EnemyInfo 里没有存 bodyId，请看下方说明
+                    JPH::RVec3(e.pos.x, e.pos.y, e.pos.z),
+                    JPH::Quat::sIdentity(),
+                    JPH::EActivation::Activate
+                );
+            }
+        }
 
         if (player.damageTimer > 0.0f) player.damageTimer -= deltaTime;
         if (player.hp <= 0.0f) {

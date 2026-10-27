@@ -89,5 +89,27 @@ bool LoadMap(const char* filename, MapData& outData) {
         printf("Loaded %u explosive barrels.\n", numBarrels);
     }
 
+    // 🔥 读取追加的碰撞网格
+    if (f.read((char*)&outData.cnv, 4)) {
+        f.read((char*)&outData.cni, 4);
+        outData.collisionVerts.resize(outData.cnv * 3);
+        f.read((char*)outData.collisionVerts.data(), outData.cnv * 3 * sizeof(float));
+        outData.collisionIndices.resize(outData.cni);
+        f.read((char*)outData.collisionIndices.data(), outData.cni * sizeof(uint32_t));
+        printf("Loaded collision mesh: %u verts, %u indices.\n", outData.cnv, outData.cni);
+    } else {
+        // 兜底：如果读取失败，说明是旧地图，直接用渲染网格代替碰撞网格
+        printf("[WARN] Old map format, using render mesh for collision.\n");
+        outData.cnv = outData.nv;
+        outData.cni = outData.ni;
+        outData.collisionVerts.resize(outData.nv * 3);
+        for (uint32_t i = 0; i < outData.nv; i++) {
+            outData.collisionVerts[i*3+0] = outData.verts[i*6+0];
+            outData.collisionVerts[i*3+1] = outData.verts[i*6+1];
+            outData.collisionVerts[i*3+2] = outData.verts[i*6+2];
+        }
+        outData.collisionIndices = outData.indices;
+    }
+
     return true;
 }

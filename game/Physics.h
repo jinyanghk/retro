@@ -30,3 +30,6 @@ JPH::BodyID CreateBarrelBody(float x, float y, float z);
 
 // 移动 Kinematic 刚体
 void MoveKinematicBody(JPH::BodyID id, float x, float y, float z);
+
+// 创建敌人的 Kinematic 刚体
+JPH::BodyID CreateEnemyBody(float x, float y, float z);

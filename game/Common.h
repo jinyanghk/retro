@@ -65,6 +65,7 @@ struct EnemyInfo {
     float stepCooldown = 0.0f;
     enum State { IDLE, CHASE, ATTACK, DEAD } state = CHASE;
     float deathTimer = 0.0f;
+    JPH::BodyID bodyId;
 };
 
 struct DoorStateForTrace {

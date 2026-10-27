@@ -25,13 +25,19 @@ int main() {
         std::cerr << "json parse error: " << e.what() << "\n"; return 1;
     }
 
+    // 渲染用的顶点
     std::vector<float>    verts;
     std::vector<uint32_t> indices;
+    
+    // 🔥 新增：纯碰撞用的顶点（仅包含位置数据，用于 TraceBVH 和 Jolt）
+    std::vector<float>    collisionVerts;
+    std::vector<uint32_t> collisionIndices;
+
     std::vector<float> triggerBounds;   // 6 float / 个
     std::vector<float> physboxBounds;   // 6 float / 个
-    std::vector<float> doorBounds;      // 12 float / 个: mins[3], maxs[3], dir[3], dist, speed, wait
-    std::vector<float> zombieSpawns;    // 每个僵尸3个 float (x, y, zs)
-    std::vector<float> barrelSpawns;    // 3个 float (x, y, zs)
+    std::vector<float> doorBounds;      // 12 float / 个
+    std::vector<float> zombieSpawns;    
+    std::vector<float> barrelSpawns;    
 
     auto push_vertex = [&](const Vec3& p, const Vec3& n) -> uint32_t {
         uint32_t id = (uint32_t)(verts.size() / 6);
@@ -42,7 +48,7 @@ int main() {
         return Vec3{ j[0].get<float>(), j[1].get<float>(), j[2].get<float>() };
     };
 
-    // 1. Brush 渲染几何
+    // 1. Brush 渲染几何 + 碰撞几何
     if (data.contains("brushes")) {
         for (const auto& jb : data["brushes"]) {
             if (!jb.contains("vertices") || !jb.contains("faces")) continue;
@@ -64,6 +70,7 @@ int main() {
                     i2 < 0 || i2 >= (int)bverts.size() ||
                     i3 < 0 || i3 >= (int)bverts.size()) continue;
 
+                // 写入渲染顶点
                 uint32_t v0 = push_vertex(bverts[i0], n);
                 uint32_t v1 = push_vertex(bverts[i1], n);
                 uint32_t v2 = push_vertex(bverts[i2], n);
@@ -71,6 +78,19 @@ int main() {
 
                 indices.push_back(v0); indices.push_back(v1); indices.push_back(v2);
                 indices.push_back(v0); indices.push_back(v2); indices.push_back(v3);
+
+                // 🔥 写入碰撞顶点（只用 x,y,z）
+                uint32_t cv0 = (uint32_t)(collisionVerts.size() / 3);
+                collisionVerts.insert(collisionVerts.end(), {bverts[i0].x, bverts[i0].y, bverts[i0].z});
+                uint32_t cv1 = (uint32_t)(collisionVerts.size() / 3);
+                collisionVerts.insert(collisionVerts.end(), {bverts[i1].x, bverts[i1].y, bverts[i1].z});
+                uint32_t cv2 = (uint32_t)(collisionVerts.size() / 3);
+                collisionVerts.insert(collisionVerts.end(), {bverts[i2].x, bverts[i2].y, bverts[i2].z});
+                uint32_t cv3 = (uint32_t)(collisionVerts.size() / 3);
+                collisionVerts.insert(collisionVerts.end(), {bverts[i3].x, bverts[i3].y, bverts[i3].z});
+
+                collisionIndices.push_back(cv0); collisionIndices.push_back(cv1); collisionIndices.push_back(cv2);
+                collisionIndices.push_back(cv0); collisionIndices.push_back(cv2); collisionIndices.push_back(cv3);
             }
         }
     }
@@ -94,35 +114,26 @@ int main() {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -32, -32});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  32,  32});
                 triggerBounds.insert(triggerBounds.end(), { mn.x, mn.y, mn.z, mx.x, mx.y, mx.z });
-                std::cout << "Trigger [" << classname << "] AABB: ("
-                          << mn.x << "," << mn.y << "," << mn.z << ") - ("
-                          << mx.x << "," << mx.y << "," << mx.z << ")\n";
                 nTriggers++;
             }
             else if (classname == "func_physbox") {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -32, -32});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  32,  32});
                 physboxBounds.insert(physboxBounds.end(), { mn.x, mn.y, mn.z, mx.x, mx.y, mx.z });
-                std::cout << "Physbox AABB: ("
-                          << mn.x << "," << mn.y << "," << mn.z << ") - ("
-                          << mx.x << "," << mx.y << "," << mx.z << ")\n";
                 nPhysboxes++;
             }
             else if (classname == "npc_zombie") {
                 Vec3 p = GetVec3(je, "origin", {0, 36, 0});
                 zombieSpawns.insert(zombieSpawns.end(), {p.x, p.y, p.z});
-                std::cout << "Zombie spawn at (" << p.x << ", " << p.y << ", " << p.z << ")\n";
             } 
             else if (classname == "prop_physics") {
                 Vec3 p = GetVec3(je, "origin", {0, 32, 0});
                 barrelSpawns.insert(barrelSpawns.end(), {p.x, p.y, p.z});
-                std::cout << "barrel spawn at (" << p.x << ", " << p.y << ", " << p.z << ")\n";
             }                       
             else if (classname == "func_door") {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -64, -8});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  64,  8});
 
-                // 打开方向：angle KV，0=+X, 90=+Z (Y-up 下水平面)
                 float angleDeg = 0.0f;
                 float openDist = 128.0f;
                 float speed    = 100.0f;
@@ -149,10 +160,6 @@ int main() {
                     dirX, dirY, dirZ,
                     openDist, speed, waitTime
                 });
-                std::cout << "Door AABB: (" << mn.x << "," << mn.y << "," << mn.z
-                          << ") - (" << mx.x << "," << mx.y << "," << mx.z
-                          << ") dir=(" << dirX << "," << dirY << "," << dirZ
-                          << ") dist=" << openDist << "\n";
                 nDoors++;
             }
         }
@@ -162,7 +169,7 @@ int main() {
     std::ofstream out("map.bvh", std::ios::binary);
     if (!out.is_open()) { std::cerr << "Cannot write map.bvh\n"; return 1; }
     out.write("MBVH", 4);
-    // brush
+    // brush 渲染网格
     uint32_t nv = (uint32_t)(verts.size() / 6);
     uint32_t ni = (uint32_t)indices.size();
     out.write((char*)&nv, 4);
@@ -199,10 +206,16 @@ int main() {
     out.write((char*)&numBarrels, 4);
     out.write((char*)barrelSpawns.data(), barrelSpawns.size() * sizeof(float));
 
+    // 🔥 追加：碰撞网格数据（引擎读取这部分来建 BVH 和 Jolt 物理体）
+    uint32_t cnv = (uint32_t)(collisionVerts.size() / 3);
+    uint32_t cni = (uint32_t)collisionIndices.size();
+    out.write((char*)&cnv, 4);
+    out.write((char*)&cni, 4);
+    out.write((char*)collisionVerts.data(), collisionVerts.size() * sizeof(float));
+    out.write((char*)collisionIndices.data(), collisionIndices.size() * sizeof(uint32_t));
+
     std::cout << "Compiled map.bvh: " << nv << " verts, " << ni << " indices\n";
-    std::cout << "Spawn: (" << spawnPos[0] << ", " << spawnPos[1] << ", " << spawnPos[2] << ")\n";
-    std::cout << "Triggers: " << numTriggers
-              << "  Physboxes: " << numPhysboxes
-              << "  Doors: " << numDoors << "\n";
+    std::cout << "Collision Mesh: " << cnv << " verts, " << cni << " indices\n";
+    std::cout << "Triggers: " << numTriggers << " Physboxes: " << numPhysboxes << " Doors: " << numDoors << "\n";
     return 0;
 }
