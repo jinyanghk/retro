@@ -2,4 +2,4 @@
 #include "Entity.h"
 #include <vector>
 
-void DrawNodeEditorTab();
+void DrawGraphEditorPanel();

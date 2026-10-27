@@ -19,6 +19,7 @@
 #include "EditorLayout.h"
 #include "GameDatabase.h"
 #include "EditorPanels.h"
+#include "GraphEditorPanel.h"
 #include "View2D.h"
 #include "MapExport.h"
 #include "version.h"
@@ -1220,7 +1221,7 @@ int main(int, char**)
         BrushPanelResult panelRes;
         DrawEntityPanel(g_entities.data(), (int)g_entities.size(), &g_iSelectedEntity, &g_iSelectedBrush, panelRes);
         DrawBrushPanel(g_brushes.data(), (int)g_brushes.size(), &g_iSelectedBrush, &g_iSelectedEntity, panelRes);
-        
+        DrawGraphEditorPanel();
         Draw3DView(g_bLeftMouseDown, g_bRightMouseDown, g_bMiddleMouseDown);
         Draw2DViews();
 

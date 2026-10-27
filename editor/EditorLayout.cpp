@@ -68,7 +68,7 @@ void Begin()
         // 预热窗口
         const char* allWindows[] = {
             "3D View", "Top View", "Front View", "Side View",
-            "Entity", "Brush", "Tools", "Node Editor"
+            "Entity", "Brush", "Tools", "Graph"
         };
         for (const char* name : allWindows) {
             ImGui::Begin(name, nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar);
@@ -97,7 +97,7 @@ void Begin()
             ImGui::DockBuilderDockWindow("Top View",   dock_main);
             ImGui::DockBuilderDockWindow("Front View", dock_main);
             ImGui::DockBuilderDockWindow("Side View",  dock_main);
-            ImGui::DockBuilderDockWindow("Node Editor", dock_main);
+            ImGui::DockBuilderDockWindow("Graph", dock_main);
         }
         else if (s_layoutMode == LAYOUT_QUAD)
         {

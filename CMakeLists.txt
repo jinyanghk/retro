@@ -59,7 +59,7 @@ add_library(imguizmo STATIC
     ${IMGUIZMO_DIR}/ImCurveEdit.cpp
     ${IMGUIZMO_DIR}/ImGradient.cpp
     ${IMGUIZMO_DIR}/ImSequencer.cpp
-    ${IMGUIZMO_DIR}ImVectorEditor.cpp
+    ${IMGUIZMO_DIR}/ImVectorEditor.cpp
 )
 target_include_directories(imguizmo PUBLIC ${IMGUIZMO_DIR} ${IMGUI_DIR})
 target_link_libraries(imguizmo PUBLIC imgui)
@@ -72,6 +72,7 @@ add_executable(editor
     editor/Entity.cpp
     editor/UndoStack.cpp
     editor/EditorLayout.cpp
+    editor/GraphEditorPanel.cpp
     editor/GameDatabase.cpp
     editor/EditorPanels.cpp
     editor/View2D.cpp
