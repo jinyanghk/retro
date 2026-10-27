@@ -245,9 +245,22 @@ int main(int, char**) {
                 if (pMax.x >= mapData.triggerMins[i].x && pMin.x <= mapData.triggerMaxs[i].x &&
                     pMax.y >= mapData.triggerMins[i].y && pMin.y <= mapData.triggerMaxs[i].y &&
                     pMax.z >= mapData.triggerMins[i].z && pMin.z <= mapData.triggerMaxs[i].z) {
-                    levelComplete = true;
-                    levelCompleteTimer = 0.0f;
-                    if (audio.sndHit) Mix_PlayChannel(-1, audio.sndHit, 0);
+                    
+                    // 🔥 查找 target 对应的门
+                    const std::string& tgt = mapData.triggerTargets[i];
+                    if (!tgt.empty()) {
+                        for (auto& door : mapData.doors) {
+                            if (door.targetname == tgt && door.openAmount < 0.01f && !door.isOpening) {
+                                door.isOpening = true;
+                                door.waitTimer = 0.0f;
+                                if (audio.sndDoor) Mix_PlayChannel(-1, audio.sndDoor, 0);
+                            }
+                        }
+                    } else {
+                        // 没有 target 的 trigger 依然算过关
+                        levelComplete = true;
+                        levelCompleteTimer = 0.0f;
+                    }
                     break;
                 }
             }

@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cstring>
 
 #include "version.h"
+#include "MapFormat.h" // 🔥 引入共享格式
 
 using json = nlohmann::json;
 
@@ -29,7 +31,7 @@ int main() {
     std::vector<float>    verts;
     std::vector<uint32_t> indices;
     
-    // 🔥 新增：纯碰撞用的顶点（仅包含位置数据，用于 TraceBVH 和 Jolt）
+    // 纯碰撞用的顶点
     std::vector<float>    collisionVerts;
     std::vector<uint32_t> collisionIndices;
 
@@ -38,6 +40,9 @@ int main() {
     std::vector<float> doorBounds;      // 12 float / 个
     std::vector<float> zombieSpawns;    
     std::vector<float> barrelSpawns;    
+
+    std::vector<std::string> triggerTargets; // 🔥 收集 Trigger 的 target
+    std::vector<std::string> doorNames;      // 🔥 收集 Door 的 targetname
 
     auto push_vertex = [&](const Vec3& p, const Vec3& n) -> uint32_t {
         uint32_t id = (uint32_t)(verts.size() / 6);
@@ -70,16 +75,15 @@ int main() {
                     i2 < 0 || i2 >= (int)bverts.size() ||
                     i3 < 0 || i3 >= (int)bverts.size()) continue;
 
-                // 写入渲染顶点
+                // 渲染
                 uint32_t v0 = push_vertex(bverts[i0], n);
                 uint32_t v1 = push_vertex(bverts[i1], n);
                 uint32_t v2 = push_vertex(bverts[i2], n);
                 uint32_t v3 = push_vertex(bverts[i3], n);
-
                 indices.push_back(v0); indices.push_back(v1); indices.push_back(v2);
                 indices.push_back(v0); indices.push_back(v2); indices.push_back(v3);
 
-                // 🔥 写入碰撞顶点（只用 x,y,z）
+                // 碰撞
                 uint32_t cv0 = (uint32_t)(collisionVerts.size() / 3);
                 collisionVerts.insert(collisionVerts.end(), {bverts[i0].x, bverts[i0].y, bverts[i0].z});
                 uint32_t cv1 = (uint32_t)(collisionVerts.size() / 3);
@@ -98,7 +102,6 @@ int main() {
     // 2. 解析实体
     float spawnPos[3] = { 0.0f, 32.0f, 0.0f };
     float spawnAngles[3] = { 0.0f, 0.0f, 0.0f };
-    int nTriggers = 0, nPhysboxes = 0, nDoors = 0;
 
     if (data.contains("entities")) {
         for (const auto& je : data["entities"]) {
@@ -114,13 +117,16 @@ int main() {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -32, -32});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  32,  32});
                 triggerBounds.insert(triggerBounds.end(), { mn.x, mn.y, mn.z, mx.x, mx.y, mx.z });
-                nTriggers++;
+                
+                std::string tgt = "";
+                if (je.contains("properties") && je["properties"].contains("target"))
+                    tgt = je["properties"]["target"].get<std::string>();
+                triggerTargets.push_back(tgt);
             }
             else if (classname == "func_physbox") {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -32, -32});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  32,  32});
                 physboxBounds.insert(physboxBounds.end(), { mn.x, mn.y, mn.z, mx.x, mx.y, mx.z });
-                nPhysboxes++;
             }
             else if (classname == "npc_zombie") {
                 Vec3 p = GetVec3(je, "origin", {0, 36, 0});
@@ -134,10 +140,7 @@ int main() {
                 Vec3 mn = GetVec3(je, "bbox_mins", {-32, -64, -8});
                 Vec3 mx = GetVec3(je, "bbox_maxs", { 32,  64,  8});
 
-                float angleDeg = 0.0f;
-                float openDist = 128.0f;
-                float speed    = 100.0f;
-                float waitTime = 4.0f;
+                float angleDeg = 0.0f, openDist = 128.0f, speed = 100.0f, waitTime = 4.0f;
                 if (je.contains("properties") && je["properties"].is_object()) {
                     auto& p = je["properties"];
                     auto readFloat = [&](const char* k, float& dst) {
@@ -151,71 +154,153 @@ int main() {
                     readFloat("wait",  waitTime);
                 }
                 float rad = angleDeg * 3.14159265f / 180.0f;
-                float dirX = std::cos(rad);
-                float dirY = 0.0f;
-                float dirZ = std::sin(rad);
+                float dirX = std::cos(rad), dirY = 0.0f, dirZ = std::sin(rad);
 
                 doorBounds.insert(doorBounds.end(), {
                     mn.x, mn.y, mn.z, mx.x, mx.y, mx.z,
-                    dirX, dirY, dirZ,
-                    openDist, speed, waitTime
+                    dirX, dirY, dirZ, openDist, speed, waitTime
                 });
-                nDoors++;
+
+                std::string name = "";
+                if (je.contains("properties") && je["properties"].contains("targetname"))
+                    name = je["properties"]["targetname"].get<std::string>();
+                doorNames.push_back(name);
             }
         }
     }
 
-    // 3. 写 MBVH
+    // 3. 组装 Lump 内存块
+    std::vector<char> outBuffer;
+    std::vector<LumpDir> dirs;
+
+    auto AppendLumpRaw = [&](uint32_t type, const std::vector<char>& raw) {
+        LumpDir d;
+        d.type   = type;
+        d.offset = (uint32_t)outBuffer.size();
+        d.size   = (uint32_t)raw.size();
+        outBuffer.insert(outBuffer.end(), raw.begin(), raw.end());
+        while (outBuffer.size() % 4) outBuffer.push_back(0); // 4字节对齐
+        dirs.push_back(d);
+    };
+
+    // 预分配头部空间 (Magic 4 + Ver 4 + Count 4 + Dirs)
+    // 我们先记录当前位置，最后回填
+    size_t headerStart = outBuffer.size();
+    outBuffer.resize(12 + 8 * sizeof(LumpDir), 0); // 假设最多 8 个 Lump
+
+    // LUMP_GEOMETRY
+    {
+        std::vector<char> buf;
+        auto PushU32 = [&](uint32_t v){ buf.insert(buf.end(), (char*)&v, (char*)&v + 4); };
+        auto PushFloatArr = [&](const std::vector<float>& arr){ buf.insert(buf.end(), (const char*)arr.data(), (const char*)arr.data() + arr.size()*4); };
+        auto PushU32Arr = [&](const std::vector<uint32_t>& arr){ buf.insert(buf.end(), (const char*)arr.data(), (const char*)arr.data() + arr.size()*4); };
+        uint32_t nv = (uint32_t)(verts.size() / 6);
+        uint32_t ni = (uint32_t)indices.size();
+        PushU32(nv); PushU32(ni); PushFloatArr(verts); PushU32Arr(indices);
+        AppendLumpRaw(LUMP_GEOMETRY, buf);
+    }
+
+    // LUMP_COLLISION
+    {
+        std::vector<char> buf;
+        auto PushU32 = [&](uint32_t v){ buf.insert(buf.end(), (char*)&v, (char*)&v + 4); };
+        auto PushFloatArr = [&](const std::vector<float>& arr){ buf.insert(buf.end(), (const char*)arr.data(), (const char*)arr.data() + arr.size()*4); };
+        auto PushU32Arr = [&](const std::vector<uint32_t>& arr){ buf.insert(buf.end(), (const char*)arr.data(), (const char*)arr.data() + arr.size()*4); };
+        uint32_t cnv = (uint32_t)(collisionVerts.size() / 3);
+        uint32_t cni = (uint32_t)collisionIndices.size();
+        PushU32(cnv); PushU32(cni); PushFloatArr(collisionVerts); PushU32Arr(collisionIndices);
+        AppendLumpRaw(LUMP_COLLISION, buf);
+    }
+
+    // LUMP_SPAWN
+    {
+        std::vector<char> buf;
+        buf.insert(buf.end(), (char*)spawnPos, (char*)spawnPos + 12);
+        buf.insert(buf.end(), (char*)spawnAngles, (char*)spawnAngles + 12);
+        AppendLumpRaw(LUMP_SPAWN, buf);
+    }
+
+    // LUMP_TRIGGERS
+    {
+        std::vector<TriggerRecord> records;
+        for (size_t i = 0; i < triggerBounds.size() / 6; i++) {
+            TriggerRecord r{};
+            r.mins[0] = triggerBounds[i*6+0]; r.mins[1] = triggerBounds[i*6+1]; r.mins[2] = triggerBounds[i*6+2];
+            r.maxs[0] = triggerBounds[i*6+3]; r.maxs[1] = triggerBounds[i*6+4]; r.maxs[2] = triggerBounds[i*6+5];
+            std::string t = (i < triggerTargets.size()) ? triggerTargets[i] : "";
+            strncpy(r.target, t.c_str(), 63);
+            records.push_back(r);
+        }
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)records.size();
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)records.data(), (char*)records.data() + records.size() * sizeof(TriggerRecord));
+        AppendLumpRaw(LUMP_TRIGGERS, buf);
+    }
+
+    // LUMP_PHYSBOX
+    {
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)(physboxBounds.size() / 6);
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)physboxBounds.data(), (char*)physboxBounds.data() + physboxBounds.size() * 4);
+        AppendLumpRaw(LUMP_PHYSBOX, buf);
+    }
+
+    // LUMP_DOORS
+    {
+        std::vector<DoorRecord> records;
+        for (size_t i = 0; i < doorBounds.size() / 12; i++) {
+            DoorRecord r{};
+            r.mins[0] = doorBounds[i*12+0]; r.mins[1] = doorBounds[i*12+1]; r.mins[2] = doorBounds[i*12+2];
+            r.maxs[0] = doorBounds[i*12+3]; r.maxs[1] = doorBounds[i*12+4]; r.maxs[2] = doorBounds[i*12+5];
+            r.dir[0]  = doorBounds[i*12+6]; r.dir[1]  = doorBounds[i*12+7]; r.dir[2]  = doorBounds[i*12+8];
+            r.dist    = doorBounds[i*12+9];
+            r.speed   = doorBounds[i*12+10];
+            r.wait    = doorBounds[i*12+11];
+            std::string n = (i < doorNames.size()) ? doorNames[i] : "";
+            strncpy(r.targetname, n.c_str(), 63);
+            records.push_back(r);
+        }
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)records.size();
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)records.data(), (char*)records.data() + records.size() * sizeof(DoorRecord));
+        AppendLumpRaw(LUMP_DOORS, buf);
+    }
+
+    // LUMP_ZOMBIES
+    {
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)(zombieSpawns.size() / 3);
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)zombieSpawns.data(), (char*)zombieSpawns.data() + zombieSpawns.size() * 4);
+        AppendLumpRaw(LUMP_ZOMBIES, buf);
+    }
+
+    // LUMP_BARRELS
+    {
+        std::vector<char> buf;
+        uint32_t count = (uint32_t)(barrelSpawns.size() / 3);
+        buf.insert(buf.end(), (char*)&count, (char*)&count + 4);
+        buf.insert(buf.end(), (char*)barrelSpawns.data(), (char*)barrelSpawns.data() + barrelSpawns.size() * 4);
+        AppendLumpRaw(LUMP_BARRELS, buf);
+    }
+
+    // 回填头部
+    uint32_t lumpCount = (uint32_t)dirs.size();
+    memcpy(&outBuffer[headerStart + 0], "MBVH", 4);
+    uint32_t version = MAP_VERSION;
+    memcpy(&outBuffer[headerStart + 4], &version, 4);
+    memcpy(&outBuffer[headerStart + 8], &lumpCount, 4);
+    memcpy(&outBuffer[headerStart + 12], dirs.data(), lumpCount * sizeof(LumpDir));
+
+    // 写到文件
     std::ofstream out("map.bvh", std::ios::binary);
     if (!out.is_open()) { std::cerr << "Cannot write map.bvh\n"; return 1; }
-    out.write("MBVH", 4);
-    // brush 渲染网格
-    uint32_t nv = (uint32_t)(verts.size() / 6);
-    uint32_t ni = (uint32_t)indices.size();
-    out.write((char*)&nv, 4);
-    out.write((char*)&ni, 4);
-    out.write((char*)verts.data(), verts.size() * sizeof(float));
-    out.write((char*)indices.data(), indices.size() * sizeof(uint32_t));
+    out.write(outBuffer.data(), outBuffer.size());
+    out.close();
 
-    // entity info_player_start
-    out.write((char*)spawnPos, sizeof(spawnPos));
-    out.write((char*)spawnAngles, sizeof(spawnAngles));
-
-    // triggerBounds
-    uint32_t numTriggers = triggerBounds.size() / 6;
-    out.write((char*)&numTriggers, 4);
-    out.write((char*)triggerBounds.data(), triggerBounds.size() * sizeof(float));
-
-    // physboxBounds
-    uint32_t numPhysboxes = physboxBounds.size() / 6;
-    out.write((char*)&numPhysboxes, 4);
-    out.write((char*)physboxBounds.data(), physboxBounds.size() * sizeof(float));
-
-    // doorBounds
-    uint32_t numDoors = doorBounds.size() / 12;
-    out.write((char*)&numDoors, 4);
-    out.write((char*)doorBounds.data(), doorBounds.size() * sizeof(float));
-
-    // npc_zombie
-    uint32_t numZombies = zombieSpawns.size() / 3;
-    out.write((char *)&numZombies, 4);
-    out.write((char *)zombieSpawns.data(), zombieSpawns.size() * sizeof(float));
-
-    // prop_physics
-    uint32_t numBarrels = barrelSpawns.size() / 3;
-    out.write((char*)&numBarrels, 4);
-    out.write((char*)barrelSpawns.data(), barrelSpawns.size() * sizeof(float));
-
-    // 🔥 追加：碰撞网格数据（引擎读取这部分来建 BVH 和 Jolt 物理体）
-    uint32_t cnv = (uint32_t)(collisionVerts.size() / 3);
-    uint32_t cni = (uint32_t)collisionIndices.size();
-    out.write((char*)&cnv, 4);
-    out.write((char*)&cni, 4);
-    out.write((char*)collisionVerts.data(), collisionVerts.size() * sizeof(float));
-    out.write((char*)collisionIndices.data(), collisionIndices.size() * sizeof(uint32_t));
-
-    std::cout << "Compiled map.bvh: " << nv << " verts, " << ni << " indices\n";
-    std::cout << "Collision Mesh: " << cnv << " verts, " << cni << " indices\n";
-    std::cout << "Triggers: " << numTriggers << " Physboxes: " << numPhysboxes << " Doors: " << numDoors << "\n";
+    printf("Compiled map.bvh: Version=%u, Lumps=%u\n", version, lumpCount);
     return 0;
 }

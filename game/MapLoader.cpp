@@ -1,107 +1,55 @@
 #include "MapLoader.h"
+#include <cstring>
 
 bool LoadMap(const char* filename, MapData& outData) {
     std::ifstream f(filename, std::ios::binary);
-    if (!f.is_open()) {
-        printf("Cannot open %s\n", filename);
-        return false;
-    }
+    if (!f.is_open()) { printf("Cannot open %s\n", filename); return false; }
 
     char magic[4]; f.read(magic, 4);
-    if (strncmp(magic, "MBVH", 4) != 0) {
-        printf("Invalid map format\n");
-        return false;
+    if (strncmp(magic, "MBVH", 4) != 0) { printf("Invalid map format\n"); return false; }
+
+    uint32_t version = 0, lumpCount = 0;
+    f.read((char*)&version, 4);
+    f.read((char*)&lumpCount, 4);
+
+    std::vector<LumpDir> dirs(lumpCount);
+    f.read((char*)dirs.data(), lumpCount * sizeof(LumpDir));
+
+    auto FindLump = [&](uint32_t type) -> const LumpDir* {
+        for (auto& d : dirs) if (d.type == type) return &d;
+        return nullptr;
+    };
+
+    // 1) SPAWN
+    if (auto d = FindLump(LUMP_SPAWN)) {
+        f.seekg(d->offset);
+        f.read((char*)outData.spawnPos, 12);
+        f.read((char*)outData.spawnAngles, 12);
     }
 
-    // 读取地图 brush
-    f.read((char*)&outData.nv, 4); 
-    f.read((char*)&outData.ni, 4);
-    outData.verts.resize(outData.nv * 6); 
-    f.read((char*)outData.verts.data(), outData.nv * 6 * 4);
-    outData.indices.resize(outData.ni); 
-    f.read((char*)outData.indices.data(), outData.ni * 4);
-
-    // 出生点
-    if (f.read((char*)outData.spawnPos, sizeof(outData.spawnPos))) {
-        f.read((char*)outData.spawnAngles, sizeof(outData.spawnAngles));
+    // 2) GEOMETRY
+    if (auto d = FindLump(LUMP_GEOMETRY)) {
+        f.seekg(d->offset);
+        f.read((char*)&outData.nv, 4);
+        f.read((char*)&outData.ni, 4);
+        outData.verts.resize(outData.nv * 6);
+        outData.indices.resize(outData.ni);
+        f.read((char*)outData.verts.data(), outData.nv * 6 * 4);
+        f.read((char*)outData.indices.data(), outData.ni * 4);
     }
 
-    // Trigger
-    uint32_t numTriggers = 0;
-    if (f.read((char*)&numTriggers, 4)) {
-        std::vector<float> tb(numTriggers * 6);
-        f.read((char*)tb.data(), tb.size() * 4);
-        for (uint32_t i = 0; i < numTriggers; i++) {
-            outData.triggerMins.push_back(glm::vec3(tb[i*6+0], tb[i*6+1], tb[i*6+2]));
-            outData.triggerMaxs.push_back(glm::vec3(tb[i*6+3], tb[i*6+4], tb[i*6+5]));
-        }
-    }
-
-    // Physbox
-    uint32_t numPhysboxes = 0;
-    if (f.read((char*)&numPhysboxes, 4)) {
-        std::vector<float> pb(numPhysboxes * 6);
-        f.read((char*)pb.data(), pb.size() * 4);
-        for (uint32_t i = 0; i < numPhysboxes; i++) {
-            outData.physboxMins.push_back(glm::vec3(pb[i*6+0], pb[i*6+1], pb[i*6+2]));
-            outData.physboxMaxs.push_back(glm::vec3(pb[i*6+3], pb[i*6+4], pb[i*6+5]));
-        }
-        printf("Loaded %u physbox zones.\n", numPhysboxes);
-    }
-
-    // Doors
-    uint32_t numDoors = 0;
-    if (f.read((char*)&numDoors, 4)) {
-        std::vector<float> db(numDoors * 12);
-        f.read((char*)db.data(), db.size() * 4);
-        for (uint32_t i = 0; i < numDoors; i++) {
-            DoorInfo d;
-            d.mins     = glm::vec3(db[i*12+0], db[i*12+1], db[i*12+2]);
-            d.maxs     = glm::vec3(db[i*12+3], db[i*12+4], db[i*12+5]);
-            d.openDir  = glm::vec3(db[i*12+6], db[i*12+7], db[i*12+8]);
-            d.openDist = db[i*12+9];
-            d.speed    = db[i*12+10];
-            d.waitTime = db[i*12+11];
-            outData.doors.push_back(d);
-        }
-        printf("Loaded %u doors.\n", numDoors);
-    }
-
-    // Zombie Spawns
-    uint32_t numZombies = 0;
-    if (f.read((char*)&numZombies, 4)) {
-        std::vector<float> zb(numZombies * 3);
-        f.read((char*)zb.data(), zb.size() * 4);
-        for (uint32_t i = 0; i < numZombies; i++) {
-            outData.zombieSpawns.push_back(glm::vec3(zb[i*3+0], zb[i*3+1], zb[i*3+2]));
-        }
-        printf("Loaded %u zombie spawn points.\n", numZombies);
-    }
-
-    // Barrels
-    uint32_t numBarrels = 0;
-    if (f.read((char*)&numBarrels, 4)) {
-        std::vector<float> bb(numBarrels * 3);
-        f.read((char*)bb.data(), bb.size() * 4);
-        for (uint32_t i = 0; i < numBarrels; i++) {
-            outData.barrelSpawns.push_back(glm::vec3(bb[i*3+0], bb[i*3+1], bb[i*3+2]));
-        }
-        printf("Loaded %u explosive barrels.\n", numBarrels);
-    }
-
-    // 🔥 读取追加的碰撞网格
-    if (f.read((char*)&outData.cnv, 4)) {
+    // 3) COLLISION
+    if (auto d = FindLump(LUMP_COLLISION)) {
+        f.seekg(d->offset);
+        f.read((char*)&outData.cnv, 4);
         f.read((char*)&outData.cni, 4);
         outData.collisionVerts.resize(outData.cnv * 3);
-        f.read((char*)outData.collisionVerts.data(), outData.cnv * 3 * sizeof(float));
         outData.collisionIndices.resize(outData.cni);
-        f.read((char*)outData.collisionIndices.data(), outData.cni * sizeof(uint32_t));
-        printf("Loaded collision mesh: %u verts, %u indices.\n", outData.cnv, outData.cni);
+        f.read((char*)outData.collisionVerts.data(), outData.cnv * 3 * 4);
+        f.read((char*)outData.collisionIndices.data(), outData.cni * 4);
     } else {
-        // 兜底：如果读取失败，说明是旧地图，直接用渲染网格代替碰撞网格
-        printf("[WARN] Old map format, using render mesh for collision.\n");
-        outData.cnv = outData.nv;
-        outData.cni = outData.ni;
+        // 兜底
+        outData.cnv = outData.nv; outData.cni = outData.ni;
         outData.collisionVerts.resize(outData.nv * 3);
         for (uint32_t i = 0; i < outData.nv; i++) {
             outData.collisionVerts[i*3+0] = outData.verts[i*6+0];
@@ -111,5 +59,70 @@ bool LoadMap(const char* filename, MapData& outData) {
         outData.collisionIndices = outData.indices;
     }
 
+    // 4) TRIGGERS
+    if (auto d = FindLump(LUMP_TRIGGERS)) {
+        f.seekg(d->offset);
+        uint32_t count = 0; f.read((char*)&count, 4);
+        std::vector<TriggerRecord> recs(count);
+        f.read((char*)recs.data(), count * sizeof(TriggerRecord));
+        for (auto& r : recs) {
+            outData.triggerMins.push_back(glm::vec3(r.mins[0], r.mins[1], r.mins[2]));
+            outData.triggerMaxs.push_back(glm::vec3(r.maxs[0], r.maxs[1], r.maxs[2]));
+            outData.triggerTargets.push_back(LumpString(r.target, 64));
+        }
+    }
+
+    // 5) PHYSBOX
+    if (auto d = FindLump(LUMP_PHYSBOX)) {
+        f.seekg(d->offset);
+        uint32_t count = 0; f.read((char*)&count, 4);
+        std::vector<float> buf(count * 6);
+        f.read((char*)buf.data(), count * 6 * 4);
+        for (uint32_t i = 0; i < count; i++) {
+            outData.physboxMins.push_back(glm::vec3(buf[i*6+0], buf[i*6+1], buf[i*6+2]));
+            outData.physboxMaxs.push_back(glm::vec3(buf[i*6+3], buf[i*6+4], buf[i*6+5]));
+        }
+    }
+
+    // 6) DOORS
+    if (auto d = FindLump(LUMP_DOORS)) {
+        f.seekg(d->offset);
+        uint32_t count = 0; f.read((char*)&count, 4);
+        std::vector<DoorRecord> recs(count);
+        f.read((char*)recs.data(), count * sizeof(DoorRecord));
+        for (auto& r : recs) {
+            MapData::DoorInfo di;
+            di.mins     = glm::vec3(r.mins[0], r.mins[1], r.mins[2]);
+            di.maxs     = glm::vec3(r.maxs[0], r.maxs[1], r.maxs[2]);
+            di.openDir  = glm::vec3(r.dir[0],  r.dir[1],  r.dir[2]);
+            di.openDist = r.dist;
+            di.speed    = r.speed;
+            di.waitTime = r.wait;
+            di.targetname = LumpString(r.targetname, 64);
+            outData.doors.push_back(di);
+        }
+    }
+
+    // 7) ZOMBIES
+    if (auto d = FindLump(LUMP_ZOMBIES)) {
+        f.seekg(d->offset);
+        uint32_t count = 0; f.read((char*)&count, 4);
+        std::vector<float> buf(count * 3);
+        f.read((char*)buf.data(), count * 3 * 4);
+        for (uint32_t i = 0; i < count; i++)
+            outData.zombieSpawns.push_back(glm::vec3(buf[i*3+0], buf[i*3+1], buf[i*3+2]));
+    }
+
+    // 8) BARRELS
+    if (auto d = FindLump(LUMP_BARRELS)) {
+        f.seekg(d->offset);
+        uint32_t count = 0; f.read((char*)&count, 4);
+        std::vector<float> buf(count * 3);
+        f.read((char*)buf.data(), count * 3 * 4);
+        for (uint32_t i = 0; i < count; i++)
+            outData.barrelSpawns.push_back(glm::vec3(buf[i*3+0], buf[i*3+1], buf[i*3+2]));
+    }
+
+    printf("Loaded map: Version=%u, Lumps=%u\n", version, lumpCount);
     return true;
 }

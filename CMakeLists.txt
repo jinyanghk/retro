@@ -104,6 +104,7 @@ add_executable(map
 )
 target_include_directories(map PRIVATE 
     ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 target_link_libraries(map PRIVATE nlohmann_json::nlohmann_json)
@@ -135,6 +136,7 @@ add_executable(game
 )
 target_include_directories(game PRIVATE 
     ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 # 让 build 目录自动同步 sounds
