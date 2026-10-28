@@ -31,7 +31,8 @@ struct Entity {
     float angleDeg = 0.f, lip = 128.f, speed = 100.f, wait = 4.f;
     std::string target;
     nlohmann::json properties = nlohmann::json::object();
-    nlohmann::json outputs    = nlohmann::json::array();
+    nlohmann::json customs = nlohmann::json::object();
+    nlohmann::json connections    = nlohmann::json::array();
 };
 
 struct MapData {

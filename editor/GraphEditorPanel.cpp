@@ -65,7 +65,7 @@ public:
         // 连线：遍历 inputs
         for (int i = 0; i < (int)mNodes.size(); ++i) {
             auto& inputEnt = g_entities[mNodes[i].entityIndex];
-            for (auto& out : inputEnt.m_outputs) {
+            for (auto& out : inputEnt.m_connections) {
                 for (int j = 0; j < (int)mNodes.size(); ++j) {
                     if (i == j) continue;
                     auto& targetEnt = g_entities[mNodes[j].entityIndex];
@@ -77,7 +77,7 @@ public:
                         link.mInputSlotIndex = 0;
                         link.mOutputSlotIndex = 0;
                         mLinks.push_back(link);
-                        mLinkMap[{i, j}] = (int)(&out - &inputEnt.m_outputs[0]);
+                        mLinkMap[{i, j}] = (int)(&out - &inputEnt.m_connections[0]);
                         break;
                     }
                 }
@@ -122,11 +122,11 @@ public:
             outputEnt.m_properties["targetname"] = targetName;
         }
 
-        EntityOutput newOut;
-        newOut.outputName = "OnTrigger";
-        newOut.targetName = targetName;
-        newOut.inputName = "Open";
-        inputEnt.m_outputs.push_back(newOut);
+        EntityConnection newConn;
+        newConn.connectionName = "OnTrigger";
+        newConn.targetName = targetName;
+        newConn.inputName = "Open";
+        inputEnt.m_connections.push_back(newConn);
 
         GraphEditor::Link newLink;
         newLink.mInputNodeIndex = inputNodeIndex;
@@ -134,7 +134,7 @@ public:
         newLink.mInputSlotIndex = inputSlotIndex;
         newLink.mOutputSlotIndex = outputSlotIndex;
         mLinks.push_back(newLink);
-        mLinkMap[{inputNodeIndex, outputNodeIndex}] = (int)inputEnt.m_outputs.size() - 1;
+        mLinkMap[{inputNodeIndex, outputNodeIndex}] = (int)inputEnt.m_connections.size() - 1;
     }
 
     void DelLink(GraphEditor::LinkIndex linkIndex) override {
@@ -143,8 +143,8 @@ public:
         if (mLinkMap.count({link.mInputNodeIndex, link.mOutputNodeIndex})) {
             int outIndex = mLinkMap[{link.mInputNodeIndex, link.mOutputNodeIndex}];
             auto& inputEnt = g_entities[mNodes[link.mInputNodeIndex].entityIndex];
-            if (outIndex >= 0 && outIndex < inputEnt.m_outputs.size()) {
-                inputEnt.m_outputs.erase(inputEnt.m_outputs.begin() + outIndex);
+            if (outIndex >= 0 && outIndex < inputEnt.m_connections.size()) {
+                inputEnt.m_connections.erase(inputEnt.m_connections.begin() + outIndex);
             }
             mLinkMap.erase({link.mInputNodeIndex, link.mOutputNodeIndex});
         }

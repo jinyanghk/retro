@@ -50,7 +50,7 @@ struct MapData {
         glm::vec3   angles{0};
         glm::vec3   bboxMins{-32};
         glm::vec3   bboxMaxs{ 32};
-        nlohmann::json kv = nlohmann::json::object(); // properties + __outputs
+        nlohmann::json kv = nlohmann::json::object(); // properties + __connections + __customs
     };
     std::vector<EntityKV> entities;
 

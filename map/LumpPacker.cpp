@@ -158,10 +158,11 @@ bool PackLumps(const MapData& map,
             r.bboxMins[0]=e.bboxMins.x; r.bboxMins[1]=e.bboxMins.y; r.bboxMins[2]=e.bboxMins.z;
             r.bboxMaxs[0]=e.bboxMaxs.x; r.bboxMaxs[1]=e.bboxMaxs.y; r.bboxMaxs[2]=e.bboxMaxs.z;
 
-            // 把 properties + outputs 合并成一个 JSON 对象
+            // 把 properties + customs + connections 合并成一个 JSON 对象
             nlohmann::json kv = nlohmann::json::object();
             if (e.properties.is_object()) kv.update(e.properties);
-            if (e.outputs.is_array() && !e.outputs.empty()) kv["__outputs"] = e.outputs;
+            if (e.customs.is_object() && !e.customs.empty()) kv["customs"] = e.customs;
+            if (e.connections.is_array() && !e.connections.empty()) kv["connections"] = e.connections;
             std::string s = kv.dump();
             r.kvJsonSize = (uint32_t)s.size();
 

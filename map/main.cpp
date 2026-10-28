@@ -1,10 +1,19 @@
 #include "MapCompiler.h"
 #include <iostream>
+#include <cstring>
 #include "version.h"
 
-int main() {
+int main(int argc, char** argv) {
     std::cout << "branch: " << Version::GIT_BRANCH
               << ", commit: " << Version::GIT_HASH << std::endl;
+
+    // 👈 解析命令行参数：默认不生成 NavGrid
+    bool genNavGrid = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--nav") == 0 || std::strcmp(argv[i], "-n") == 0) {
+            genNavGrid = true;
+        }
+    }
 
     MapData map;
     if (!ParseJson("map.json", map)) return 1;
@@ -19,16 +28,18 @@ int main() {
     MeshBuffers renderMesh, collisionMesh;
     BuildBrushMeshes(map.brushes, renderMesh, collisionMesh);
 
-    // 光照烘焙（当前默认关闭）
+    // 光照烘焙
     LightBakeOptions bakeOpts;
-    bakeOpts.enabled = true; 
+    bakeOpts.enabled = true;
     BakeVertexLighting(map, renderMesh, collisionMesh, bakeOpts);
 
-    // 👈 生成网格
+    // 👈 条件生成导航网格
     NavGrid navGrid;
-    BuildNavGrid(map, collisionMesh, navGrid);
+    if (genNavGrid) {
+        BuildNavGrid(map, collisionMesh, navGrid);
+    }
 
-    // 打包
+    // 打包（依然传入 navGrid，没生成的话 cols=0，PackLumps 里会自动跳过）
     if (!PackLumps(map, renderMesh, collisionMesh,
                    triggerBounds, triggerTargets,
                    physboxBounds, doorBounds, doorNames,

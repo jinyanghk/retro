@@ -86,40 +86,41 @@ void DrawToolsPanel()
 {
     if (!ImGui::Begin("Tools")) { ImGui::End(); return; }
 
-    ImGui::Text("Gizmo:");
+    if (ImGui::CollapsingHeader("Gizmo:", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        struct GizmoItem { const char* label; GizmoMode mode; };
+        GizmoItem items[] = {
+            { "None",      GIZMO_NONE },
+            { "Translate", GIZMO_TRANSLATE },
+            { "Rotate",    GIZMO_ROTATE },
+            { "Scale",     GIZMO_SCALE },
+            { "Face",      GIZMO_FACE },
+            { "Edge",      GIZMO_EDGE },
+            { "Vertex",    GIZMO_VERTEX },
+        };
 
-    struct GizmoItem { const char* label; GizmoMode mode; };
-    GizmoItem items[] = {
-        { "None",      GIZMO_NONE },
-        { "Translate", GIZMO_TRANSLATE },
-        { "Rotate",    GIZMO_ROTATE },
-        { "Scale",     GIZMO_SCALE },
-        { "Face",      GIZMO_FACE },
-        { "Edge",      GIZMO_EDGE },
-        { "Vertex",    GIZMO_VERTEX },
-    };
+        for (int i = 0; i < IM_ARRAYSIZE(items); ++i) {
+            //if (i > 0) ImGui::SameLine();
+            bool b = (g_iGizmoMode == items[i].mode);
+            if (ImGui::RadioButton(items[i].label, b))
+                g_iGizmoMode = items[i].mode;
+        }
 
-    for (int i = 0; i < IM_ARRAYSIZE(items); ++i) {
-        //if (i > 0) ImGui::SameLine();
-        bool b = (g_iGizmoMode == items[i].mode);
-        if (ImGui::RadioButton(items[i].label, b))
-            g_iGizmoMode = items[i].mode;
+        if (ImGui::RadioButton("Local", g_CurrentGizmoMode == ImGuizmo::LOCAL))
+            g_CurrentGizmoMode = ImGuizmo::LOCAL;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("World", g_CurrentGizmoMode == ImGuizmo::WORLD))
+            g_CurrentGizmoMode = ImGuizmo::WORLD;
+
+        ImGui::Checkbox("Use Snap", &g_bUseSnap);
+        //ImGui::SameLine();
+        if (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE)
+            ImGui::InputFloat3("Snap", &g_Snap[0]);
+        if (g_CurrentGizmoOperation & ImGuizmo::ROTATE)
+            ImGui::InputFloat("Angle Snap", &g_Snap[0]);
+        if (g_CurrentGizmoOperation & ImGuizmo::SCALE)
+            ImGui::InputFloat("Scale Snap", &g_Snap[0]);
     }
-
-    if (ImGui::RadioButton("Local", g_CurrentGizmoMode == ImGuizmo::LOCAL))
-        g_CurrentGizmoMode = ImGuizmo::LOCAL;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("World", g_CurrentGizmoMode == ImGuizmo::WORLD))
-        g_CurrentGizmoMode = ImGuizmo::WORLD;
-
-    ImGui::Checkbox("Use Snap", &g_bUseSnap);
-    //ImGui::SameLine();
-    if (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE)
-        ImGui::InputFloat3("Snap", &g_Snap[0]);
-    if (g_CurrentGizmoOperation & ImGuizmo::ROTATE)
-        ImGui::InputFloat("Angle Snap", &g_Snap[0]);
-    if (g_CurrentGizmoOperation & ImGuizmo::SCALE)
-        ImGui::InputFloat("Scale Snap", &g_Snap[0]);
 
     ImGui::End();
 }
@@ -188,7 +189,7 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
         if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Entity Rot");
 
         ImGui::Separator();
-        ImGui::Text("GameDatabase Properties:");
+        ImGui::Text("Properties:");
 
         std::vector<GdbKeyValue> kvs;
         if (GameDatabase::Instance().GetKeyValues(e.m_szName, kvs)) {
@@ -263,6 +264,62 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
             }
         } else {
             ImGui::TextDisabled("(no GameDatabase data for %s)", e.m_szName.c_str());
+        }
+
+        // =========================================================
+        // 👈 完全隔离的 Custom Properties
+        // =========================================================
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Custom Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+            
+            std::string keyToDelete;
+            for (auto& pair : e.m_customProperties) {  // 👈 遍历 m_customProperties
+                ImGui::PushID(pair.first.c_str());
+                
+                ImGui::Text("%s", pair.first.c_str());
+                ImGui::SameLine(140.0f);
+                ImGui::SetNextItemWidth(-60.0f); 
+                
+                std::string val = pair.second;
+                if (InputTextString("##val", val)) {
+                    if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Custom KV Value");
+                    pair.second = val;
+                }
+                
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Del")) {
+                    keyToDelete = pair.first;
+                }
+                ImGui::PopID();
+            }
+            
+            if (!keyToDelete.empty()) {
+                UndoStack::Instance().PushSnapshot("Delete Custom KV");
+                e.m_customProperties.erase(keyToDelete); // 👈 从 m_customProperties 删
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextDisabled("Add New Property:");
+
+            static char s_newKey[64] = "";
+            static char s_newValue[256] = "";
+            
+            ImGui::SetNextItemWidth(130.0f);
+            ImGui::InputTextWithHint("##NewKey", "Key", s_newKey, sizeof(s_newKey));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-60.0f);
+            ImGui::InputTextWithHint("##NewValue", "Value", s_newValue, sizeof(s_newValue));
+            ImGui::SameLine();
+            
+            if (ImGui::Button("Add", ImVec2(50, 0))) {
+                if (strlen(s_newKey) > 0) {
+                    UndoStack::Instance().PushSnapshot("Add Custom KV");
+                    e.m_customProperties[s_newKey] = s_newValue; // 👈 存入 m_customProperties
+                    s_newKey[0] = '\0';
+                    s_newValue[0] = '\0';
+                }
+            }
         }
     }
 

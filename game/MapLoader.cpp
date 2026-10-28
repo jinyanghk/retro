@@ -155,13 +155,14 @@ bool LoadMap(const char* filename, MapData& outData) {
             }
             outData.entities.push_back(std::move(e));
         }
-
+/*
         // 验证打印（跑通后可删）
         for (auto& e : outData.entities) {
-            if (e.kv.contains("my_custom_data"))
-                printf("Entity %s has my_custom_data=%s\n",
-                       e.classname.c_str(), e.kv["my_custom_data"].dump().c_str());
+            if (e.kv.contains("customs")&&!e.kv["customs"].empty())
+                printf("Entity %s has customs=%s\n",
+                       e.classname.c_str(), e.kv["customs"].dump().c_str());
         }
+*/                    
     }
 
     // 10) NAVGRID

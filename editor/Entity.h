@@ -11,8 +11,8 @@ enum EntityType {
     ENTITY_LIGHT,
 };
 
-struct EntityOutput {
-    std::string outputName;  // 例如 "OnTrigger"
+struct EntityConnection {
+    std::string connectionName;  // 例如 "OnTrigger"
     std::string targetName;  // 例如 "door1"
     std::string inputName;   // 例如 "Open"
     std::string parameter;   // 参数，默认空
@@ -28,12 +28,15 @@ struct CEntity {
     // GameDatabase keyvalues（字符串存储）
     std::map<std::string, std::string> m_properties;
 
+    // 🔥 新增：完全自由的自定义属性，不受 GameDatabase 约束
+    std::map<std::string, std::string> m_customProperties;
+
     // bbox（由 UpdateEntityBBox 每帧算）
     glm::vec3 m_vecBBoxMins = glm::vec3(-8);
     glm::vec3 m_vecBBoxMaxs = glm::vec3( 8);
 
-    // 🔥 新增：ImGuizmo Node Editor 用于存储 I/O 连接
-    std::vector<EntityOutput> m_outputs;
+    // 🔥 新增：ImGuizmo Graph Editor 用于存储 I/O 连接
+    std::vector<EntityConnection> m_connections;
 
     glm::vec3 GetCenter() const { return (m_vecBBoxMins + m_vecBBoxMaxs) * 0.5f; }
 };

@@ -56,22 +56,30 @@ bool ExportMapJson(const std::string& path)
         je["bbox_mins"]  = Vec3ToJson(e.m_vecBBoxMins);   // ★ 新增
         je["bbox_maxs"]  = Vec3ToJson(e.m_vecBBoxMaxs);   // ★ 新增
 
+        // 1. 先写标准属性
         json props = json::object();
         for (const auto& kv : e.m_properties) props[kv.first] = kv.second;
         je["properties"] = props;
 
-        // 🔥 新增：导出 I/O 连接
-        json outs = json::array();
-        for (const auto& out : e.m_outputs) {
-            json jo;
-            jo["output"]  = out.outputName;
-            jo["target"]  = out.targetName;
-            jo["input"]   = out.inputName;
-            jo["param"]   = out.parameter;
-            jo["delay"]   = out.delay;
-            outs.push_back(jo);
+        // 2. 再写自定义属性
+        json customs = json::object();
+        for (const auto& kv : e.m_customProperties) {
+            customs[kv.first] = kv.second;
         }
-        je["outputs"] = outs;
+        je["customs"] = customs;
+
+        // 🔥 新增：导出 I/O 连接
+        json connections = json::array();
+        for (const auto& conn : e.m_connections) {
+            json jo;
+            jo["name"]  = conn.connectionName;
+            jo["target"]  = conn.targetName;
+            jo["input"]   = conn.inputName;
+            jo["param"]   = conn.parameter;
+            jo["delay"]   = conn.delay;
+            connections.push_back(jo);
+        }
+        je["connections"] = connections;
 
         entities.push_back(je);
     }
@@ -151,16 +159,21 @@ bool ImportMapJson(const std::string& path)
                     e.m_properties[it.key()] = it.value().get<std::string>();
             }
 
+            if (je.contains("customs") && je["customs"].is_object()) {
+                for (auto it = je["customs"].begin(); it != je["customs"].end(); ++it)
+                    e.m_customProperties[it.key()] = it.value().get<std::string>();
+            }
+
             // 🔥 新增：读取 I/O 连接
-            if (je.contains("outputs") && je["outputs"].is_array()) {
-                for (const auto& jo : je["outputs"]) {
-                    EntityOutput out;
-                    out.outputName = jo.value("output", "");
-                    out.targetName = jo.value("target", "");
-                    out.inputName  = jo.value("input", "");
-                    out.parameter  = jo.value("param", "");
-                    out.delay      = jo.value("delay", 0.0f);
-                    e.m_outputs.push_back(out);
+            if (je.contains("connections") && je["connections"].is_array()) {
+                for (const auto& jo : je["connections"]) {
+                    EntityConnection conn;
+                    conn.connectionName = jo.value("name", "");
+                    conn.targetName = jo.value("target", "");
+                    conn.inputName  = jo.value("input", "");
+                    conn.parameter  = jo.value("param", "");
+                    conn.delay      = jo.value("delay", 0.0f);
+                    e.m_connections.push_back(conn);
                 }
             }
                         

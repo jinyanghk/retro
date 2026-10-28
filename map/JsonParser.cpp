@@ -107,8 +107,10 @@ bool ParseJson(const char* path, MapData& out) {
 
             if (je.contains("properties") && je["properties"].is_object())
                 e.properties = je["properties"];
-            if (je.contains("outputs") && je["outputs"].is_array())
-                e.outputs = je["outputs"];
+            if (je.contains("customs") && je["customs"].is_object())
+                e.customs = je["customs"];                
+            if (je.contains("connections") && je["connections"].is_array())
+                e.connections = je["connections"];
 
             if (e.classname == "info_player_start") {
                 out.spawnPos[0]    = e.origin.x;
@@ -120,8 +122,8 @@ bool ParseJson(const char* path, MapData& out) {
             }
 
             if (e.classname == "trigger_multiple" || e.classname == "trigger_once") {
-                if (e.outputs.is_array() && !e.outputs.empty())
-                    e.target = e.outputs[0].value("target", "");
+                if (e.connections.is_array() && !e.connections.empty())
+                    e.target = e.connections[0].value("target", "");
                 else if (e.properties.contains("target"))
                     e.target = e.properties["target"].get<std::string>();
             }
