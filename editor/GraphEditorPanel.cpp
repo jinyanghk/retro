@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
+#include <algorithm>
 
 // 适配最新版 ImGuizmo 的 GraphEditor::Delegate
 class EditorGraph : public GraphEditor::Delegate {
@@ -22,7 +24,9 @@ public:
     std::vector<GraphEditor::Link> mLinks;
     std::map<std::pair<int, int>, int> mLinkMap;
 
-    // 只能有一种模板
+    // 🔥 全局配置：是否隐藏未连线的实体
+    bool m_bHideUnconnected = true;
+
     const GraphEditor::Template mTemplates[1] = {
         {
             IM_COL32(160, 160, 180, 255), // header
@@ -42,30 +46,71 @@ public:
         mLinks.clear();
         mLinkMap.clear();
 
+        // 🔥 1. 收集所有被引用的 targetname
+        std::set<std::string> referencedTargets;
+        for (const auto& e : g_entities) {
+            for (const auto& conn : e.m_connections) {
+                if (!conn.targetName.empty()) {
+                    referencedTargets.insert(conn.targetName);
+                }
+            }
+        }
+
+        // 🔥 2. 定义哪些实体是“逻辑实体”（即使没连线也强制显示）
+        auto IsLogicEntity = [](const std::string& classname) {
+            // 只要名字里带 trigger / door / button / logic / relay 的，都算逻辑实体
+            return classname.find("trigger") != std::string::npos ||
+                   classname.find("door") != std::string::npos ||
+                   classname.find("button") != std::string::npos ||
+                   classname.find("logic") != std::string::npos ||
+                   classname.find("relay") != std::string::npos;
+        };
+
         int nodeId = 0;
+        // 临时存储 实体在 g_entities 里的真实索引，映射到连续节点 ID
+        std::vector<int> validEntityIndices;
+
         for (int i = 0; i < (int)g_entities.size(); ++i) {
             auto& e = g_entities[i];
             if (e.m_szName.empty() || e.m_szName == "worldspawn") continue;
 
+            // 获取 targetname
+            std::string tname = "";
+            auto it = e.m_properties.find("targetname");
+            if (it != e.m_properties.end()) tname = it->second;
+
+            bool hasOutgoing = !e.m_connections.empty();
+            bool hasIncoming = !tname.empty() && referencedTargets.count(tname) > 0;
+            bool isLogic = IsLogicEntity(e.m_szName);
+
+            // 🔥 过滤规则：如果开启了隐藏，且既没出也没进，且不是逻辑实体，则跳过
+            if (m_bHideUnconnected) {
+                if (!hasOutgoing && !hasIncoming && !isLogic) {
+                    continue;
+                }
+            }
+
             MyNode n;
             n.name = e.m_szName;
-            // 如果 entity 有 targetname，显示在名字里
-            auto it = e.m_properties.find("targetname");
-            if (it != e.m_properties.end() && !it->second.empty()) {
-                n.name += "\n[" + it->second + "]";
+            if (!tname.empty()) {
+                n.name += "\n[" + tname + "]";
             }
+            // 排版：简单的网格排列
             n.x = 100 + (nodeId % 4) * 250;
             n.y = 100 + (nodeId / 4) * 150;
             n.selected = false;
             n.entityIndex = i;
+            
             mNodes.push_back(n);
+            validEntityIndices.push_back(i);
             nodeId++;
         }
 
-        // 连线：遍历 inputs
+        // 3. 连线
         for (int i = 0; i < (int)mNodes.size(); ++i) {
             auto& inputEnt = g_entities[mNodes[i].entityIndex];
-            for (auto& out : inputEnt.m_connections) {
+            for (size_t cIdx = 0; cIdx < inputEnt.m_connections.size(); ++cIdx) {
+                auto& out = inputEnt.m_connections[cIdx];
                 for (int j = 0; j < (int)mNodes.size(); ++j) {
                     if (i == j) continue;
                     auto& targetEnt = g_entities[mNodes[j].entityIndex];
@@ -77,7 +122,7 @@ public:
                         link.mInputSlotIndex = 0;
                         link.mOutputSlotIndex = 0;
                         mLinks.push_back(link);
-                        mLinkMap[{i, j}] = (int)(&out - &inputEnt.m_connections[0]);
+                        mLinkMap[{i, j}] = (int)cIdx;
                         break;
                     }
                 }
@@ -120,6 +165,7 @@ public:
         } else {
             targetName = "entity_" + std::to_string(outputNodeIndex);
             outputEnt.m_properties["targetname"] = targetName;
+            // 注意：这里如果你有 UndoStack，记得在这里 PushSnapshot
         }
 
         EntityConnection newConn;
@@ -151,8 +197,7 @@ public:
         mLinks.erase(mLinks.begin() + linkIndex);
     }
 
-    void RightClick(GraphEditor::NodeIndex nodeIndex, GraphEditor::SlotIndex slotIndexInput, GraphEditor::SlotIndex slotIndexOutput) override {
-    }
+    void RightClick(GraphEditor::NodeIndex nodeIndex, GraphEditor::SlotIndex slotIndexInput, GraphEditor::SlotIndex outputSlotIndex) override {}
 
     void CustomDraw(ImDrawList* drawList, ImRect rectangle, GraphEditor::NodeIndex nodeIndex) override {
         // 官方示例里会在这里用 drawList 绘制节点内的文字
@@ -189,22 +234,26 @@ static bool g_needsRebuild = true;
 void DrawGraphEditorPanel() {
     if (!ImGui::Begin("Graph")) { ImGui::End(); return; }
 
+    // 🔥 UI 控制区
     if (ImGui::Button("Refresh")) g_needsRebuild = true;
     ImGui::SameLine();
     if (ImGui::Button("Fit All")) g_fit = GraphEditor::Fit_AllNodes;
     ImGui::SameLine();
     if (ImGui::Button("Fit Selected")) g_fit = GraphEditor::Fit_SelectedNodes;
-    //ImGui::SameLine();
-    //ImGui::TextDisabled("(Drag right dot to left dot)");
+    
+    // 🔥 开关：切换是否显示未连接的实体
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Hide Unconnected", &g_graph.m_bHideUnconnected)) {
+        g_needsRebuild = true; // 状态改变时立即重建图
+    }
 
+    ImGui::BeginChild("##GraphCanvas", ImVec2(0, 0), true);
+    
     if (g_needsRebuild) {
         g_graph.Rebuild();
         g_needsRebuild = false;
     }
 
-    ImGui::BeginChild("##GraphCanvas", ImVec2(0, 0), true);
-    
-    // 根据官方示例，需要传入 delegate, options, viewState, show, &fit
     GraphEditor::Show(g_graph, g_options, g_viewState, true, &g_fit);
     g_fit = GraphEditor::Fit_None;
 
