@@ -283,17 +283,6 @@ int main(int, char**) {
                 physboxIds, barrels, doorTrace, 
                 mapData.physboxMins, mapData.physboxMaxs, 
                 audio.sndHit);
-        // 🔥 关键修复：强制将敌人的逻辑坐标同步给 Jolt 物理引擎，防止脱节导致穿模！
-        for (auto& e : enemies) {
-            if (e.state != EnemyInfo::DEAD) {
-                body_interface.SetPositionAndRotation(
-                    e.bodyId, // 如果 EnemyInfo 里没有存 bodyId，请看下方说明
-                    JPH::RVec3(e.pos.x, e.pos.y, e.pos.z),
-                    JPH::Quat::sIdentity(),
-                    JPH::EActivation::Activate
-                );
-            }
-        }
 
         if (player.damageTimer > 0.0f) player.damageTimer -= deltaTime;
         if (player.hp <= 0.0f) {

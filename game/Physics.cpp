@@ -193,8 +193,21 @@ JPH::BodyID CreateEnemyBody(float x, float y, float z) {
         shape.Create().Get(),
         JPH::RVec3(x, y, z),
         JPH::Quat::sIdentity(),
-        JPH::EMotionType::Kinematic,
+        JPH::EMotionType::Dynamic,  // 👈 改为 Dynamic！
         Layers::MOVING
     );
+    
+    // 🔥 关键设置：
+    settings.mFriction = 0.0f;             // 无摩擦，防止贴墙卡顿
+    settings.mAllowSleeping = false;       // 永不休眠
+    settings.mLinearDamping = 0.0f;        // 无线性阻尼，速度完全由我们控制
+    settings.mAngularDamping = 1.0f;       // 高角阻尼，防止它被撞得乱转
+    settings.mGravityFactor = 1.0f;        // 受重力影响（确保贴地）
+    
+    // 锁定旋转（防止像个不倒翁一样被撞倒）
+    settings.mAllowedDOFs = JPH::EAllowedDOFs::TranslationX | 
+                            JPH::EAllowedDOFs::TranslationY | 
+                            JPH::EAllowedDOFs::TranslationZ;
+                            
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
 }
