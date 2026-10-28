@@ -1101,7 +1101,9 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
 // ---------------------------------------------------------------------------
 int main(int, char**)
 {
-    std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << std::endl;
+    std::cout << "branch: " << Version::GIT_BRANCH 
+                << ", commit: " << Version::GIT_HASH << ", " 
+                << Version::CMAKE_BUILD_TYPE << std::endl;
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif

@@ -4,15 +4,20 @@
 #include "version.h"
 
 int main(int argc, char** argv) {
-    std::cout << "branch: " << Version::GIT_BRANCH
-              << ", commit: " << Version::GIT_HASH << std::endl;
+    std::cout << "branch: " << Version::GIT_BRANCH 
+                << ", commit: " << Version::GIT_HASH << ", " 
+                << Version::CMAKE_BUILD_TYPE << std::endl;
 
-    // 👈 解析命令行参数：默认不生成 NavGrid
+     // 👈 解析命令行参数：默认关闭光照烘焙和 NavGrid
     bool genNavGrid = false;
+    bool doLightBake = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--nav") == 0 || std::strcmp(argv[i], "-n") == 0) {
             genNavGrid = true;
         }
+        if (std::strcmp(argv[i], "--bake") == 0 || std::strcmp(argv[i], "-b") == 0) {
+            doLightBake = true;
+        }        
     }
 
     MapData map;
@@ -28,15 +33,21 @@ int main(int argc, char** argv) {
     MeshBuffers renderMesh, collisionMesh;
     BuildBrushMeshes(map.brushes, renderMesh, collisionMesh);
 
-    // 光照烘焙
-    LightBakeOptions bakeOpts;
-    bakeOpts.enabled = true;
-    BakeVertexLighting(map, renderMesh, collisionMesh, bakeOpts);
+    // 👈 条件执行光照烘焙
+    if (doLightBake) {
+        LightBakeOptions bakeOpts;
+        bakeOpts.enabled = true;
+        BakeVertexLighting(map, renderMesh, collisionMesh, bakeOpts);
+    } else {
+        std::cout << "[LightBaker] Skipped (use --bake to enable)\n";
+    }
 
     // 👈 条件生成导航网格
     NavGrid navGrid;
     if (genNavGrid) {
         BuildNavGrid(map, collisionMesh, navGrid);
+    } else {
+        std::cout << "[NavGrid] Skipped (use --nav to enable)\n";
     }
 
     // 打包（依然传入 navGrid，没生成的话 cols=0，PackLumps 里会自动跳过）

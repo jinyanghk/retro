@@ -34,7 +34,7 @@ execute_process(
 
 # Configure version.hpp out of the template
 configure_file(
-    ${CMAKE_SOURCE_DIR}/version.hpp.in
+    ${CMAKE_SOURCE_DIR}/common/version.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
 
