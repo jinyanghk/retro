@@ -59,6 +59,13 @@ struct MapData {
     uint32_t navCols = 0, navRows = 0;
     std::vector<uint8_t> navWalkable;    
     std::vector<float> navHeights; // 👈 加这个
+
+    // 👈 新增：导航节点图
+    struct NodeData {
+        glm::vec3 pos;
+        std::vector<uint32_t> links;
+    };
+    std::vector<NodeData> navNodes;    
 };
 
 bool LoadMap(const char* filename, MapData& outData);

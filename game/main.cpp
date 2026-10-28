@@ -360,15 +360,22 @@ int main(int, char**) {
         ImGui::Text("Pos: %.1f, %.1f, %.1f", player.pos.x, player.pos.y, player.pos.z);
         ImGui::Text("Grounded: %s", player.isGrounded ? "YES" : "NO");
         ImGui::Text("Enemies: %zu", enemies.size());
-        // 可选：在 Debug 窗口里显示寻路网格状态
-        if (ImGui::CollapsingHeader("NavGrid")) {
-            ImGui::Text("Cols: %u, Rows: %u", mapData.navCols, mapData.navRows);
-            ImGui::Text("Walkable cells: ");
-            size_t count = 0;
-            for (auto b : mapData.navWalkable) if (b) count++;
-            ImGui::SameLine(); ImGui::Text("%zu", count);
-        }        
-        ImGui::End();
+        
+        // 👈 把你的 AI Debug 代码放在这里！
+        if (ImGui::CollapsingHeader("AI Debug", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (!enemies.empty()) {
+                auto& e = enemies[0];
+                ImGui::Text("Enemy Pos: %.1f, %.1f, %.1f", e.pos.x, e.pos.y, e.pos.z);
+                ImGui::Text("Path Nodes: %zu", e.path.size());
+                ImGui::Text("Path Index: %d", e.pathIndex);
+                if (e.pathIndex >= 0 && e.pathIndex < e.path.size()) {
+                    ImGui::Text("Target Node: %.1f, %.1f, %.1f", 
+                        e.path[e.pathIndex].x, e.path[e.pathIndex].y, e.path[e.pathIndex].z);
+                }
+            }
+        }
+
+        ImGui::End(); // 👈 确保 End 在这后面
 
         int scrW, scrH; SDL_GetWindowSize(window, &scrW, &scrH);
         ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -415,7 +422,7 @@ int main(int, char**) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         RenderFrame(render, player, weapon, gravityGun, body_interface, mapData, physboxIds, barrels, doorBodies, enemies, bulletHoles, scrW, scrH);
-        
+
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }

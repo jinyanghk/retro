@@ -4,7 +4,7 @@
 #include <string>
 
 static constexpr uint32_t MAP_MAGIC   = 0x4856424D; // "MBVH"
-static constexpr uint32_t MAP_VERSION = 4; // v4: +LUMP_NAVGRID
+static constexpr uint32_t MAP_VERSION = 5; // v4: +LUMP_NODEGRAPH
 
 enum LumpType : uint32_t {
     LUMP_GEOMETRY   = 1,
@@ -17,6 +17,7 @@ enum LumpType : uint32_t {
     LUMP_BARRELS    = 8,
     LUMP_ENTITIES   = 9,
     LUMP_NAVGRID    = 10,
+    LUMP_NODEGRAPH  = 11, // v5: 导航节点图
 };
 
 #pragma pack(push, 1)
@@ -68,6 +69,13 @@ struct NavGridHeader {
     float cellSize;         // 每个格子的大小 (比如 32.0f)
     uint32_t cols, rows;    // 网格列数和行数
     // 紧跟 cols * rows 个 uint8_t，0为不可走，1为可走
+};
+
+// 在底部加结构体定义：
+struct NodeRecord {
+    float pos[3];
+    uint32_t firstLink;  // 在 linkIndices 里的起始索引
+    uint32_t numLinks;   // 连接数量
 };
 
 #pragma pack(pop)

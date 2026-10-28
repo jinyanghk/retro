@@ -181,6 +181,29 @@ bool LoadMap(const char* filename, MapData& outData) {
         outData.navHeights.resize(hdr.cols * hdr.rows);
         f.read((char*)outData.navHeights.data(), hdr.cols * hdr.rows * sizeof(float));        
     }
+   
+    // 11) NODEGRAPH
+    if (auto d = FindLump(LUMP_NODEGRAPH)) {
+        f.seekg(d->offset);
+        uint32_t nodeCount, linkCount;
+        f.read((char*)&nodeCount, 4);
+        f.read((char*)&linkCount, 4);
+        
+        std::vector<NodeRecord> nodeRecs(nodeCount);
+        f.read((char*)nodeRecs.data(), nodeCount * sizeof(NodeRecord));
+        
+        std::vector<uint32_t> nodeLinks(linkCount);
+        f.read((char*)nodeLinks.data(), linkCount * 4);
+
+        outData.navNodes.resize(nodeCount);
+        for (uint32_t i = 0; i < nodeCount; ++i) {
+            outData.navNodes[i].pos = glm::vec3(nodeRecs[i].pos[0], nodeRecs[i].pos[1], nodeRecs[i].pos[2]);
+            for (uint32_t l = 0; l < nodeRecs[i].numLinks; ++l) {
+                outData.navNodes[i].links.push_back(nodeLinks[nodeRecs[i].firstLink + l]);
+            }
+        }
+        printf("[MapLoader] Loaded %u navigation nodes, %u links.\n", nodeCount, linkCount);
+    }
 
     printf("Loaded map: Version=%u, Lumps=%u, Entities=%zu\n",
            version, lumpCount, outData.entities.size());

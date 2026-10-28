@@ -38,27 +38,45 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
 
         // 2. 执行状态 (寻路与目标)
         if (enemy.state == EnemyInfo::CHASE) {
+            // 1. 寻路冷却
             enemy.pathTimer -= dt;
             if (enemy.pathTimer <= 0.0f) {
                 enemy.path = FindPath(mapData, enemy.pos, player.pos);
-                enemy.pathIndex = 0;
-                enemy.pathTimer = 0.5f + ((rand() % 100) / 1000.0f); // 0.5s ~ 0.6s 随机抖动
+                
+                // 👈 核心修复：只有在路径发生明显变化时，才重置 pathIndex
+                // 如果路径没变或者只变了一点点，就保留当前的 pathIndex，防止左右横跳
+                if (enemy.path.empty()) {
+                    enemy.pathIndex = 0;
+                } else if (enemy.pathIndex >= (int)enemy.path.size()) {
+                    enemy.pathIndex = 0;
+                }
+                
+                enemy.pathTimer = 0.5f; 
             }
 
             glm::vec3 moveTarget = player.pos;
-            if (!enemy.path.empty() && enemy.pathIndex < enemy.path.size()) {
+            
+            if (!enemy.path.empty() && enemy.pathIndex >= 0 && enemy.pathIndex < (int)enemy.path.size()) {
                 moveTarget = enemy.path[enemy.pathIndex];
                 
+                // 2. 节点推进
+                // 👈 核心修复：把 64.0f 缩小到 24.0f。如果 64 意味着还没走到就切换，
+                // 那它在两个节点中间来回走，就会永远切不过去。
                 glm::vec2 enemy2D(enemy.pos.x, enemy.pos.z);
                 glm::vec2 target2D(moveTarget.x, moveTarget.z);
-                if (glm::length(target2D - enemy2D) < 16.0f) {
+                if (glm::length(target2D - enemy2D) < 24.0f) {
                     enemy.pathIndex++;
+                }
+                
+                if (enemy.pathIndex >= (int)enemy.path.size()) {
+                    moveTarget = player.pos; // 所有节点都走完了，直接冲玩家
                 }
             }
 
+            // 3. 计算速度
             glm::vec3 moveDir = moveTarget - enemy.pos;
             moveDir.y = 0.0f;
-            if (glm::length(moveDir) > 0.01f) {
+            if (glm::length(moveDir) > 0.1f) {
                 moveDir = glm::normalize(moveDir);
                 enemy.vel.x = moveDir.x * 150.0f;
                 enemy.vel.z = moveDir.z * 150.0f;

@@ -50,13 +50,20 @@ int main(int argc, char** argv) {
         std::cout << "[NavGrid] Skipped (use --nav to enable)\n";
     }
 
-    // 打包（依然传入 navGrid，没生成的话 cols=0，PackLumps 里会自动跳过）
+    // 👈 生成节点图
+    std::vector<NodeRecord> nodeRecs;
+    std::vector<uint32_t> nodeLinks;
+    BuildNodeGraph(map, collisionMesh, nodeRecs, nodeLinks);
+    printf("[Main] NodeRecs size before PackLumps: %zu, Links: %zu\n", nodeRecs.size(), nodeLinks.size()); // 👈 加这句
+    
+    // 👈 打包时传入 nodeRecs 和 nodeLinks
     if (!PackLumps(map, renderMesh, collisionMesh,
                    triggerBounds, triggerTargets,
                    physboxBounds, doorBounds, doorNames,
                    zombieSpawns, barrelSpawns,
-                   navGrid, "map.bvh"))
+                   navGrid, 
+                   nodeRecs, nodeLinks, // 👈 新增
+                   "map.bvh"))
         return 1;
-
     return 0;
 }

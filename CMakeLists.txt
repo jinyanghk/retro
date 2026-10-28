@@ -107,6 +107,7 @@ add_executable(map
     map/LumpPacker.cpp
     map/LightBaker.cpp
     map/NavGridBuilder.cpp
+    map/NodeGraphBuilder.cpp
 )
 target_include_directories(map PRIVATE 
     ${CMAKE_SOURCE_DIR}

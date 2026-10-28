@@ -1,116 +1,96 @@
 #include "AStar.h"
 #include <queue>
-#include <cmath>
+#include <unordered_map>
 #include <algorithm>
 
-static glm::ivec2 WorldToGrid(const MapData& map, const glm::vec3& pos) {
-    int cx = std::floor((pos.x - map.navMinX) / map.navCellSize);
-    int cy = std::floor((pos.z - map.navMinZ) / map.navCellSize);
-    return glm::ivec2(cx, cy);
-}
-
-static glm::vec3 GridToWorld(const MapData& map, int cx, int cy) {
-    float x = map.navMinX + cx * map.navCellSize + map.navCellSize * 0.5f;
-    float z = map.navMinZ + cy * map.navCellSize + map.navCellSize * 0.5f;
-    int idx = cy * map.navCols + cx;
-    float y = (idx >= 0 && idx < (int)map.navHeights.size()) ? map.navHeights[idx] : 0.0f;
-    return glm::vec3(x, y, z); 
-}
-
-struct Node {
-    int x, y;
-    float g, h;
-    float f() const { return g + h; }
-    bool operator>(const Node& other) const { return f() > other.f(); }
+struct AStarNode {
+    uint32_t index;
+    float gScore;
+    float fScore;
+    bool operator>(const AStarNode& other) const { return fScore > other.fScore; }
 };
+
+// 寻找离当前位置最近的导航节点
+static int GetClosestNode(const MapData& map, const glm::vec3& pos) {
+    int best = -1;
+    float bestDist = 1e9f;
+    for (size_t i = 0; i < map.navNodes.size(); ++i) {
+        float d = glm::distance(pos, map.navNodes[i].pos);
+        if (d < bestDist) { bestDist = d; best = (int)i; }
+    }
+    return best;
+}
 
 std::vector<glm::vec3> FindPath(const MapData& map, const glm::vec3& startPos, const glm::vec3& endPos) {
     std::vector<glm::vec3> path;
-    if (map.navWalkable.empty()) return path;
-
-    glm::ivec2 start = WorldToGrid(map, startPos);
-    glm::ivec2 end = WorldToGrid(map, endPos);
-
-    auto isValid = [&](int x, int y) {
-        return x >= 0 && x < (int)map.navCols && y >= 0 && y < (int)map.navRows;
-    };
-
-    if (!isValid(start.x, start.y) || !isValid(end.x, end.y)) return path;
     
-    // 终点不可走时，找最近的可走格
-    if (map.navWalkable[end.y * map.navCols + end.x] == 0) {
-        float minDist = 1e9f;
-        int bestX = end.x, bestY = end.y;
-        for (int dy = -3; dy <= 3; ++dy) {
-            for (int dx = -3; dx <= 3; ++dx) {
-                int nx = end.x + dx, ny = end.y + dy;
-                if (isValid(nx, ny) && map.navWalkable[ny * map.navCols + nx]) {
-                    float d = (float)(dx*dx + dy*dy);
-                    if (d < minDist) { minDist = d; bestX = nx; bestY = ny; }
-                }
-            }
-        }
-        end = glm::ivec2(bestX, bestY);
+    // 如果地图里没有节点图，直接直线冲向目标
+    if (map.navNodes.empty()) {
+        path.push_back(endPos);
+        return path;
     }
 
-    int W = map.navCols;
-    std::priority_queue<Node, std::vector<Node>, std::greater<Node>> openList;
-    std::vector<float> gScore(W * map.navRows, 1e9f);
-    std::vector<int> cameFrom(W * map.navRows, -1);
-    std::vector<bool> closed(W * map.navRows, false);
+    int startNode = GetClosestNode(map, startPos);
+    int endNode = GetClosestNode(map, endPos);
 
-    auto heuristic = [](int x1, int y1, int x2, int y2) {
-        return std::abs(x1 - x2) + std::abs(y1 - y2);
-    };
+    if (startNode == -1 || endNode == -1) {
+        path.push_back(endPos);
+        return path;
+    }
 
-    int startIdx = start.y * W + start.x;
-    int endIdx = end.y * W + end.x;
+    // 如果起点和终点是同一个节点，或者距离太近，直接走过去
+    if (startNode == endNode) {
+        path.push_back(endPos);
+        return path;
+    }
 
-    gScore[startIdx] = 0.0f;
-    openList.push({start.x, start.y, 0.0f, (float)heuristic(start.x, start.y, end.x, end.y)});
+    std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
+    std::unordered_map<uint32_t, float> gScore;
+    std::unordered_map<uint32_t, int> cameFrom;
+    std::vector<bool> closedSet(map.navNodes.size(), false);
 
-    int dx[] = {1, -1, 0, 0, 1, 1, -1, -1};
-    int dy[] = {0, 0, 1, -1, 1, -1, 1, -1};
+    // 初始化代价表
+    for (size_t i = 0; i < map.navNodes.size(); ++i) gScore[i] = 1e9f;
 
-    while (!openList.empty()) {
-        Node current = openList.top();
-        openList.pop();
+    gScore[startNode] = 0.0f;
+    openSet.push({ (uint32_t)startNode, 0.0f, glm::distance(map.navNodes[startNode].pos, endPos) });
 
-        int idx = current.y * W + current.x;
-        if (closed[idx]) continue;
-        closed[idx] = true;
+    while (!openSet.empty()) {
+        uint32_t current = openSet.top().index;
+        openSet.pop();
 
-        if (idx == endIdx) {
-            int curr = endIdx;
-            while (curr != startIdx && curr != -1) {
-                int cx = curr % W;
-                int cy = curr / W;
-                path.push_back(GridToWorld(map, cx, cy));
+        // 找到终点节点，重建路径
+        if (current == (uint32_t)endNode) {
+            uint32_t curr = current;
+            while (curr != (uint32_t)startNode) {
+                path.push_back(map.navNodes[curr].pos);
                 curr = cameFrom[curr];
             }
+            path.push_back(map.navNodes[startNode].pos);
             std::reverse(path.begin(), path.end());
+            path.push_back(endPos); // 最后加上玩家的真实位置
             return path;
         }
 
-        for (int i = 0; i < 8; i++) {
-            int nx = current.x + dx[i];
-            int ny = current.y + dy[i];
+        if (closedSet[current]) continue;
+        closedSet[current] = true;
 
-            if (!isValid(nx, ny) || map.navWalkable[ny * W + nx] == 0) continue;
+        for (uint32_t neighbor : map.navNodes[current].links) {
+            if (closedSet[neighbor]) continue;
 
-            if (i >= 4 && (map.navWalkable[current.y * W + nx] == 0 || 
-                           map.navWalkable[ny * W + current.x] == 0)) continue;
+            float dist = glm::distance(map.navNodes[current].pos, map.navNodes[neighbor].pos);
+            float tentativeG = gScore[current] + dist;
 
-            int nIdx = ny * W + nx;
-            float tentativeG = gScore[idx] + (i >= 4 ? 1.414f : 1.0f);
-
-            if (tentativeG < gScore[nIdx]) {
-                cameFrom[nIdx] = idx;
-                gScore[nIdx] = tentativeG;
-                float h = (float)heuristic(nx, ny, end.x, end.y);
-                openList.push({nx, ny, tentativeG, h});
+            if (tentativeG < gScore[neighbor]) {
+                cameFrom[neighbor] = current;
+                gScore[neighbor] = tentativeG;
+                float f = tentativeG + glm::distance(map.navNodes[neighbor].pos, endPos);
+                openSet.push({ neighbor, tentativeG, f });
             }
         }
     }
+
+    // 如果没找到路径（图断了），回退到直接冲锋
+    path.push_back(endPos);
     return path;
 }

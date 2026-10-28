@@ -28,7 +28,7 @@ static bool RayTriangleIntersect(const glm::vec3& orig, const glm::vec3& dir,
 }
 
 // 检测两点之间是否被碰撞网格遮挡
-static bool IsOccluded(const glm::vec3& start, const glm::vec3& end, const MeshBuffers& collisionMesh) {
+bool IsOccluded(const glm::vec3& start, const glm::vec3& end, const MeshBuffers& collisionMesh) {
     glm::vec3 dir = end - start;
     float maxDist = glm::length(dir);
     if (maxDist < RAY_EPSILON) return false;

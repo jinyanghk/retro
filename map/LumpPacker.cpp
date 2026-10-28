@@ -7,6 +7,7 @@ static void AppendLumpRaw(std::vector<char>& outBuffer,
                           std::vector<LumpDir>& dirs,
                           uint32_t type, const std::vector<char>& raw)
 {
+    printf("[Packer] Appending lump type: %u, size: %zu\n", type, raw.size()); // 👈 加上这行！
     LumpDir d;
     d.type   = type;
     d.offset = (uint32_t)outBuffer.size();
@@ -27,13 +28,15 @@ bool PackLumps(const MapData& map,
                const std::vector<float>& zombieSpawns,
                const std::vector<float>& barrelSpawns,
                const NavGrid& navGrid,
+               const std::vector<NodeRecord>& nodeRecs, 
+               const std::vector<uint32_t>& nodeLinks,                
                const char* outPath)
 {
     std::vector<char> outBuffer;
     std::vector<LumpDir> dirs;
 
     size_t headerStart = outBuffer.size();
-    outBuffer.resize(12 + 10 * sizeof(LumpDir), 0); // v4
+    outBuffer.resize(12 + 12 * sizeof(LumpDir), 0); // v5
 
     // ---- LUMP_GEOMETRY (stride 9) ----
     {
@@ -187,6 +190,20 @@ bool PackLumps(const MapData& map,
         buf.insert(buf.end(), (char*)navGrid.heights.data(), (char*)navGrid.heights.data() + navGrid.heights.size() * 4);        
         AppendLumpRaw(outBuffer, dirs, LUMP_NAVGRID, buf);
     }
+
+    // 👈 新增 LUMP_NODEGRAPH 打包
+    if (!nodeRecs.empty()) {
+        std::vector<char> buf;
+        uint32_t nodeCount = (uint32_t)nodeRecs.size();
+        uint32_t linkCount = (uint32_t)nodeLinks.size();
+        
+        buf.insert(buf.end(), (char*)&nodeCount, (char*)&nodeCount + 4);
+        buf.insert(buf.end(), (char*)&linkCount, (char*)&linkCount + 4);
+        buf.insert(buf.end(), (char*)nodeRecs.data(), (char*)nodeRecs.data() + nodeRecs.size() * sizeof(NodeRecord));
+        buf.insert(buf.end(), (char*)nodeLinks.data(), (char*)nodeLinks.data() + nodeLinks.size() * 4);
+        
+        AppendLumpRaw(outBuffer, dirs, LUMP_NODEGRAPH, buf);
+    }  
 
     // ---- 回填头部 ----
     uint32_t lumpCount = (uint32_t)dirs.size();

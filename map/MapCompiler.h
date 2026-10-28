@@ -85,6 +85,13 @@ void BakeVertexLighting(const MapData& map,
 
 void BuildNavGrid(const MapData& map, const MeshBuffers& collisionMesh, NavGrid& outGrid);
 
+bool IsOccluded(const glm::vec3& start, 
+                const glm::vec3& end, 
+                const MeshBuffers& collisionMesh);
+
+void BuildNodeGraph(const MapData& map, const MeshBuffers& collisionMesh, 
+                    std::vector<NodeRecord>& outNodes, std::vector<uint32_t>& outLinks);
+
 bool PackLumps(const MapData& map,
                const MeshBuffers& renderMesh,
                const MeshBuffers& collisionMesh,
@@ -96,4 +103,6 @@ bool PackLumps(const MapData& map,
                const std::vector<float>& zombieSpawns,
                const std::vector<float>& barrelSpawns,
                const NavGrid& navGrid,
+               const std::vector<NodeRecord>& nodeRecs,   // 👈 新增
+               const std::vector<uint32_t>& nodeLinks,    // 👈 新增
                const char* outPath);
