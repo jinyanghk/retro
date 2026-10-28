@@ -119,11 +119,6 @@ void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_
         Layers::NON_MOVING);
     bcs.mEnhancedInternalEdgeRemoval = true;
     g_physics->GetBodyInterface().CreateAndAddBody(bcs, JPH::EActivation::DontActivate);
-
-    // 简易静态地板
-    JPH::BoxShapeSettings floor_shape(JPH::Vec3(1024.0f, 8.0f, 1024.0f));
-    JPH::BodyCreationSettings floor_settings(floor_shape.Create().Get(), JPH::RVec3(0, -8, 0), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::NON_MOVING);
-    g_physics->GetBodyInterface().CreateAndAddBody(floor_settings, JPH::EActivation::DontActivate);
 }
 
 JPH::BodyID CreatePlayerBody(float x, float y, float z) {

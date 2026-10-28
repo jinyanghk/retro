@@ -48,9 +48,19 @@ int main(int, char**) {
     std::vector<BulletHole> bulletHoles;
     std::vector<CollisionTri> collisionTris;
     // 🔥 改用 collisionIndices 和 collisionVerts 来构建 BVH
+    // 计算顶点数组的安全上限（以顶点个数计，而不是浮点数个数）
+    size_t vertexMemoryCap = mapData.collisionVerts.size() / 3;
+    
     for (size_t i = 0; i + 2 < mapData.collisionIndices.size(); i += 3) {
-        uint32_t i0 = mapData.collisionIndices[i], i1 = mapData.collisionIndices[i+1], i2 = mapData.collisionIndices[i+2];
-        if (i0 >= mapData.cnv || i1 >= mapData.cnv || i2 >= mapData.cnv) continue;
+        uint32_t i0 = mapData.collisionIndices[i];
+        uint32_t i1 = mapData.collisionIndices[i+1];
+        uint32_t i2 = mapData.collisionIndices[i+2];
+        
+        // 严格越界检查，如果索引大于顶点总数，直接跳过这个三角形
+        if (i0 >= vertexMemoryCap || i1 >= vertexMemoryCap || i2 >= vertexMemoryCap) {
+            continue;
+        }
+        
         glm::vec3 v0(mapData.collisionVerts[i0*3], mapData.collisionVerts[i0*3+1], mapData.collisionVerts[i0*3+2]);
         glm::vec3 v1(mapData.collisionVerts[i1*3], mapData.collisionVerts[i1*3+1], mapData.collisionVerts[i1*3+2]);
         glm::vec3 v2(mapData.collisionVerts[i2*3], mapData.collisionVerts[i2*3+1], mapData.collisionVerts[i2*3+2]);

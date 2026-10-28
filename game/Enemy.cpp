@@ -42,7 +42,7 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
             if (enemy.pathTimer <= 0.0f) {
                 enemy.path = FindPath(mapData, enemy.pos, player.pos);
                 enemy.pathIndex = 0;
-                enemy.pathTimer = 0.5f; 
+                enemy.pathTimer = 0.5f + ((rand() % 100) / 1000.0f); // 0.5s ~ 0.6s 随机抖动
             }
 
             glm::vec3 moveTarget = player.pos;
@@ -149,15 +149,14 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         glm::vec3 desiredVel(enemy.vel.x, 0.0f, enemy.vel.z);
         
         // --- 移动与物理交互 ---
+        // 1. 把我们算出的意图速度（enemy.vel）写给 Jolt
         if (!enemy.bodyId.IsInvalid()) {
             JPH::Vec3 currentVel = body_interface.GetLinearVelocity(enemy.bodyId);
-            
-            // 水平速度完全由寻路决定，垂直速度保持物理引擎的重力计算
-            JPH::Vec3 desiredVel(enemy.vel.x, currentVel.GetY(), enemy.vel.z);
-            body_interface.SetLinearVelocity(enemy.bodyId, desiredVel);
+            // 保留 Y 轴原本的物理速度（重力），只覆盖 X 和 Z 的速度
+            body_interface.SetLinearVelocity(enemy.bodyId, JPH::Vec3(enemy.vel.x, currentVel.GetY(), enemy.vel.z));
             body_interface.ActivateBody(enemy.bodyId);
             
-            // 读取物理引擎算出的真实位置
+            // 2. 从 Jolt 读取它真正到达的位置（物理引擎已经帮你处理了滑墙和碰撞）
             JPH::RVec3 physPos = body_interface.GetCenterOfMassPosition(enemy.bodyId);
             enemy.pos = glm::vec3((float)physPos.GetX(), (float)physPos.GetY(), (float)physPos.GetZ());
         }
