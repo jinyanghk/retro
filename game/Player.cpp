@@ -2,12 +2,22 @@
 #include "BVH.h"
 #include "Trace.h"
 
+#include <cstdlib> // 需要用到 rand()
+
 glm::vec3 PlayerState::GetForward() const {
-    float pitchRad = glm::radians(camPitch);
+    // 👈 核心：根据 shakeAmount 添加随机抖动
+    float shakeX = 0.0f, shakeY = 0.0f;
+    if (shakeTimer > 0.0f) {
+        // 把范围从 [-1, 1] 放大到 [-shakeAmount, shakeAmount]
+        shakeX = ((rand() % 100) / 100.0f - 0.5f) * 2.0f * shakeAmount;
+        shakeY = ((rand() % 100) / 100.0f - 0.5f) * 2.0f * shakeAmount;
+    }
+
+    float pitchRad = glm::radians(camPitch + shakeY);
     glm::vec3 front;
-    front.x = cos(glm::radians(camYaw)) * cos(pitchRad);
+    front.x = cos(glm::radians(camYaw + shakeX)) * cos(pitchRad);
     front.y = sin(pitchRad);
-    front.z = sin(glm::radians(camYaw)) * cos(pitchRad);
+    front.z = sin(glm::radians(camYaw + shakeX)) * cos(pitchRad);
     return glm::normalize(front);
 }
 

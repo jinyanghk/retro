@@ -290,6 +290,14 @@ int main(int, char**) {
         UpdatePlayer(player, deltaTime, physboxIds, barrels, doorTrace, body_interface, player_body, mapData.physboxMins, mapData.physboxMaxs);
         PlayerPushEntities(player, deltaTime, body_interface, physboxIds, barrels, mapData.physboxMins, mapData.physboxMaxs);
 
+        // 👈 新增：更新屏幕震动衰减
+        if (player.shakeTimer > 0.0f) {
+            player.shakeTimer -= deltaTime;
+            if (player.shakeTimer <= 0.0f) {
+                player.shakeAmount = 0.0f;
+            }
+        }
+
         // ====================================================================
         // 触发器检测
         // ====================================================================
@@ -363,6 +371,10 @@ int main(int, char**) {
 
         if (!levelComplete && bFirePressed) {
             FireWeapon(player, weapon, gravityGun, deltaTime, body_interface, physboxIds, doorTrace, enemies, barrels, bulletHoles, audio.sndShoot, audio.sndHit, audio.sndExplosion);
+            
+            // 👈 新增：开火震动
+            player.shakeAmount = 1.5f;
+            player.shakeTimer = 0.1f;
         }
 
         UpdateGravityGun(player, gravityGun, bGrabPressed, bThrowPressed, deltaTime, body_interface, physboxIds, doorTrace, enemies, barrels, audio.sndDoor, audio.sndShoot);
@@ -456,6 +468,10 @@ int main(int, char**) {
 
         if (player.damageTimer > 0.0f) {
             drawList->AddRectFilled(ImVec2(0, 0), ImVec2((float)scrW, (float)scrH), IM_COL32(255, 0, 0, (int)(player.damageTimer * 150.0f / 0.2f)));
+
+            // 👈 新增：受击震动
+            player.shakeAmount = 5.0f;
+            player.shakeTimer = 0.3f;
         }
 
         char hpText[64];

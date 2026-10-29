@@ -20,6 +20,10 @@ struct PlayerState {
     const float jumpSpeed = 320.0f;
     const float gravity = 800.0f;
     const float mouseSensitivity = 0.1f;
+
+    // 👈 新增：屏幕震动
+    float shakeAmount = 0.0f;   // 当前震动幅度
+    float shakeTimer = 0.0f;    // 震动剩余时间    
     
     // 获取眼睛位置
     glm::vec3 GetEyePos() const { return pos + glm::vec3(0.0f, 8.0f, 0.0f); }
