@@ -88,7 +88,14 @@ int main(int, char**) {
         glm::vec3 mx = mapData.physboxMaxs[i];
         glm::vec3 center = (mn + mx) * 0.5f;
         glm::vec3 halfSize = (mx - mn) * 0.5f;
-        physboxIds.push_back(CreatePhysBox(center.x, center.y, center.z, halfSize.x, halfSize.y, halfSize.z));
+        
+        // 👈 终极简化：只要这个箱子悬空（中心高度大于 400），它就是陷阱铁块！
+        if (center.y > 400.0f) {
+            physboxIds.push_back(CreateTrapBody(center.x, center.y, center.z, halfSize.x, halfSize.y, halfSize.z));
+            printf("[TRAP] Created Kinematic trap block at Y=%.1f\n", center.y);
+        } else {
+            physboxIds.push_back(CreatePhysBox(center.x, center.y, center.z, halfSize.x, halfSize.y, halfSize.z));
+        }
     }
 
     std::vector<JPH::BodyID> doorBodies;
@@ -226,25 +233,6 @@ int main(int, char**) {
                 wishDir = glm::normalize(wishDir);
                 player.vel.x = wishDir.x * player.moveSpeed;
                 player.vel.z = wishDir.z * player.moveSpeed;
-
-                // 检查玩家是否快要撞到僵尸了
-                for (const auto& e : enemies) {
-                    if (e.state == EnemyState::DEAD) continue;
-                    
-                    float dist = glm::length(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
-                    float minDist = player.radius + e.radius - 2.0f; // -2.0f 是为了留一点点缓冲
-                    
-                    if (dist < minDist) {
-                        // 如果已经重叠了，直接把玩家往外推
-                        glm::vec2 pushDir = glm::normalize(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
-                        player.pos.x = e.pos.x + pushDir.x * minDist;
-                        player.pos.z = e.pos.z + pushDir.y * minDist;
-                        
-                        // 并且取消当前的移动意图
-                        player.vel.x = 0.0f;
-                        player.vel.z = 0.0f;
-                    }
-                }                
             } else {
                 player.vel.x = 0.0f; player.vel.z = 0.0f;
             }
@@ -255,6 +243,39 @@ int main(int, char**) {
         } else {
             player.vel.x = 0.0f; player.vel.z = 0.0f;
         }
+
+        // 👈 核心修复：无论玩家动不动，只要和僵尸重叠，就强行推开
+        for (const auto& e : enemies) {
+            if (e.state == EnemyState::DEAD) continue;
+            float dist = glm::length(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
+            float minDist = player.radius + e.radius - 2.0f;
+            if (dist < minDist && dist > 0.01f) {
+                glm::vec2 pushDir = glm::normalize(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
+                player.pos.x = e.pos.x + pushDir.x * minDist;
+                player.pos.z = e.pos.z + pushDir.y * minDist;
+                player.vel.x = 0.0f;
+                player.vel.z = 0.0f;
+            }
+        }
+
+        // 检查玩家是否快要撞到僵尸了
+        for (const auto& e : enemies) {
+            //if (e.state == EnemyState::DEAD) continue;
+            
+            float dist = glm::length(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
+            float minDist = player.radius + e.radius - 2.0f; // -2.0f 是为了留一点点缓冲
+            
+            if (dist < minDist) {
+                // 如果已经重叠了，直接把玩家往外推
+                glm::vec2 pushDir = glm::normalize(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
+                player.pos.x = e.pos.x + pushDir.x * minDist;
+                player.pos.z = e.pos.z + pushDir.y * minDist;
+                
+                // 并且取消当前的移动意图
+                player.vel.x = 0.0f;
+                player.vel.z = 0.0f;
+            }
+        } 
 
         // 构建门的碰撞状态
         doorTrace.clear();
@@ -297,6 +318,25 @@ int main(int, char**) {
                                 door.waitTimer = 0.0f;
                                 if (audio.sndDoor) Mix_PlayChannel(-1, audio.sndDoor, 0);
                                 printf("[GAME] Opened door: %s\n", tgt.c_str());
+                            }
+                        }
+
+                        // 👈 直接找高度大于 400 的箱子，强制掉落
+                        for (size_t bIdx = 0; bIdx < physboxIds.size(); bIdx++) {
+                            glm::vec3 mn = mapData.physboxMins[bIdx];
+                            glm::vec3 mx = mapData.physboxMaxs[bIdx];
+                            glm::vec3 bCenter = (mn + mx) * 0.5f;
+
+                            if (bCenter.y > 400.0f) {
+                                // 👈 先检查它是不是还是 Kinematic，如果是，才触发掉落
+                                if (body_interface.GetMotionType(physboxIds[bIdx]) == JPH::EMotionType::Kinematic) {
+                                    SetBodyToDynamic(physboxIds[bIdx]);
+                                    // 直接给一个极快的初速度
+                                    body_interface.SetLinearVelocity(physboxIds[bIdx], JPH::Vec3(0.0f, -800.0f, 0.0f));
+                                    body_interface.SetAngularVelocity(physboxIds[bIdx], JPH::Vec3(0.0f, 0.0f, 0.0f));
+                                    printf("[TRAP] Falling block triggered!\n");
+                                }
+                                break; 
                             }
                         }
                     } else {

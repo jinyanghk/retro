@@ -244,6 +244,9 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
         glm::mat4 enemyModel = glm::translate(glm::mat4(1.0f), enemy.pos);
         if (enemy.state == EnemyState::DEAD) {
+            if (enemy.bodyId.IsInvalid()) {
+                continue; // 👈 如果物理刚体被销毁了（被砸扁），就不画它了
+            }
             enemyModel = glm::rotate(enemyModel, glm::radians(90.0f), glm::vec3(1,0,0)) * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.radius, enemy.height * 0.5f));
         } else {
             enemyModel = enemyModel * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.height * 0.5f, enemy.radius));

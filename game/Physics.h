@@ -33,3 +33,7 @@ void MoveKinematicBody(JPH::BodyID id, float x, float y, float z);
 
 // 创建敌人的 Kinematic 刚体
 JPH::BodyID CreateEnemyBody(float x, float y, float z);
+
+void SetBodyToDynamic(JPH::BodyID id);
+
+JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float hz);

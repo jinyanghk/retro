@@ -123,6 +123,10 @@ void PlayerPushEntities(PlayerState& p, float dt,
 
     // 推箱子
     for (size_t i = 0; i < physboxIds.size(); i++) {
+        // 👈 核心修复：如果是悬空的陷阱铁块（Y > 400），直接跳过，绝对不推！
+        glm::vec3 centerY = (physboxMins[i] + physboxMaxs[i]) * 0.5f;
+        if (centerY.y > 400.0f) continue;
+                
         JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(physboxIds[i]);
         glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
 

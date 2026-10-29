@@ -206,3 +206,28 @@ JPH::BodyID CreateEnemyBody(float x, float y, float z) {
                             
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
 }
+
+void SetBodyToDynamic(JPH::BodyID id) {
+    g_physics->GetBodyInterface().SetMotionType(id, JPH::EMotionType::Dynamic, JPH::EActivation::Activate);
+}
+
+JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float hz) {
+    JPH::BoxShapeSettings shape(JPH::Vec3(hx, hy, hz));
+    JPH::BodyCreationSettings settings(
+        shape.Create().Get(),
+        JPH::RVec3(x, y, z),
+        JPH::Quat::sIdentity(),
+        JPH::EMotionType::Kinematic, 
+        Layers::MOVING
+    );
+    
+    settings.mGravityFactor = 0.0f;
+    settings.mAllowDynamicOrKinematic = true;
+    
+    // 👈 核心修复 1：绝对不反弹（弹性为0）
+    settings.mRestitution = 0.0f; 
+    // 👈 核心修复 2：摩擦力拉满，防止乱滑
+    settings.mFriction = 1.0f;    
+
+    return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+}

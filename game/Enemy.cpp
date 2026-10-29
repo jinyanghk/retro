@@ -122,6 +122,10 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         float enemySpeedH = glm::length(enemyVelH);
         if (enemySpeedH > 0.01f) {
             for (size_t i = 0; i < physboxIds.size(); i++) {
+                // 👈 核心修复：如果箱子悬空（Y > 400），绝对不推它！
+                glm::vec3 boxCenter = (physboxMins[i] + physboxMaxs[i]) * 0.5f;
+                if (boxCenter.y > 400.0f) continue;
+
                 JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(physboxIds[i]);
                 glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
                 glm::vec3 diff = enemy.pos - bpos; diff.y = 0.0f;
@@ -186,5 +190,37 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 enemy.stuckTimer = 0.0f;
             }
         }        
+
+        // --- 👈 新增：致命物理压杀检测 ---
+        for (size_t i = 0; i < physboxIds.size(); i++) {
+            JPH::Vec3 vel = body_interface.GetLinearVelocity(physboxIds[i]);
+            // 只要铁块在下落，并且离僵尸很近
+            if (vel.GetY() < -200.0f) {
+                JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(physboxIds[i]);
+                glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
+                
+                glm::vec3 diff = enemy.pos - bpos;
+                // 简单 AABB 重叠判定
+                if (std::abs(diff.x) < 80.0f && std::abs(diff.z) < 80.0f && std::abs(diff.y) < 80.0f) {
+                    enemy.hp = 0.0f;
+                    enemy.state = EnemyState::DEAD;
+                    
+                    // 删除敌人的刚体
+                    if (!enemy.bodyId.IsInvalid()) {
+                        body_interface.RemoveBody(enemy.bodyId);
+                        body_interface.DestroyBody(enemy.bodyId);
+                        enemy.bodyId = JPH::BodyID(); 
+                    }
+                    
+                    // 👈 核心修复：砸死敌人后，立刻让铁块失去所有速度并休眠！
+                    body_interface.SetLinearVelocity(physboxIds[i], JPH::Vec3(0.0f, 0.0f, 0.0f));
+                    body_interface.SetAngularVelocity(physboxIds[i], JPH::Vec3(0.0f, 0.0f, 0.0f));
+                    body_interface.SetMotionType(physboxIds[i], JPH::EMotionType::Static, JPH::EActivation::Activate);
+                    
+                    printf("[TRAP] Enemy crushed by falling block! Instantly Killed!\n");
+                    break;
+                }
+            }
+        }                      
     }
 }
