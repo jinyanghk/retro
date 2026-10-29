@@ -2,14 +2,16 @@
 #include "Common.h"
 #include "Player.h"
 #include "MapLoader.h" // 👈 引入 MapData
+#include "Weapon.h" // 引入 GravityGunState
 
 // 更新所有敌人 AI、物理与互动
 void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float dt,
                    JPH::BodyInterface& body_interface,
-                   const MapData& mapData, // 👈 传进来
+                   const MapData& mapData,
                    const std::vector<JPH::BodyID>& physboxIds,
                    std::vector<ExplosiveBarrel>& barrels,
                    const std::vector<DoorStateForTrace>& doorTrace,
                    const std::vector<glm::vec3>& physboxMins,
                    const std::vector<glm::vec3>& physboxMaxs,
+                   const GravityGunState& gravityGun, // 👈 新增
                    Mix_Chunk* sndHit);

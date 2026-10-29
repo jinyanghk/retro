@@ -351,6 +351,7 @@ int main(int, char**) {
         UpdateEnemies(enemies, player, deltaTime, body_interface, mapData, 
                 physboxIds, barrels, doorTrace, 
                 mapData.physboxMins, mapData.physboxMaxs, 
+                gravityGun, // 👈 新增
                 audio.sndHit);
 
         if (player.damageTimer > 0.0f) player.damageTimer -= deltaTime;

@@ -11,6 +11,7 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                    const std::vector<DoorStateForTrace>& doorTrace,
                    const std::vector<glm::vec3>& physboxMins,
                    const std::vector<glm::vec3>& physboxMaxs,
+                   const GravityGunState& gravityGun, // 👈 新增
                    Mix_Chunk* sndHit) {
     
     glm::vec3 dummyNormal;
@@ -122,7 +123,7 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         float enemySpeedH = glm::length(enemyVelH);
         if (enemySpeedH > 0.01f) {
             for (size_t i = 0; i < physboxIds.size(); i++) {
-                // 👈 核心修复：如果箱子悬空（Y > 400），绝对不推它！
+                // 如果箱子悬空（Y > 400），绝对不推它（防止空中陷阱被横向推走）
                 glm::vec3 boxCenter = (physboxMins[i] + physboxMaxs[i]) * 0.5f;
                 if (boxCenter.y > 400.0f) continue;
 
@@ -175,6 +176,58 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
             }
         }
 
+        // ==========================================================
+        // 👈 统一物理撞击检测（重力枪砸 / 机关掉落）
+        // ==========================================================
+        for (size_t i = 0; i < physboxIds.size(); i++) {
+            
+            // 如果这个箱子正被重力枪抓着，绝对不能造成伤害！
+            if (gravityGun.holding && gravityGun.heldBody == physboxIds[i]) {
+                continue;
+            }
+
+            JPH::RVec3 boxPosJolt = body_interface.GetCenterOfMassPosition(physboxIds[i]);
+            glm::vec3 bpos((float)boxPosJolt.GetX(), (float)boxPosJolt.GetY(), (float)boxPosJolt.GetZ());
+            JPH::Vec3 boxVel = body_interface.GetLinearVelocity(physboxIds[i]);
+            float speedSq = boxVel.LengthSq();
+
+            glm::vec3 diff = enemy.pos - bpos;
+            bool isHit = (std::abs(diff.x) < 60.0f && std::abs(diff.z) < 60.0f && std::abs(diff.y) < 70.0f);
+
+            if (isHit) {
+                // 👈 情况 1：高空陷阱砸落（高度 > 200，速度向下）
+                bool isFallingTrap = (bpos.y > 200.0f && boxVel.GetY() < -100.0f);
+                
+                // 👈 情况 2：重力枪抛掷飞弹（速度极快）
+                bool isThrownFast = (speedSq > 400.0f * 400.0f);
+
+                if (isFallingTrap || isThrownFast) {
+                    // 1. 秒杀敌人
+                    enemy.hp = 0.0f;
+                    enemy.state = EnemyState::DEAD;
+                    
+                    // 2. 摧毁敌人的物理刚体
+                    if (!enemy.bodyId.IsInvalid()) {
+                        body_interface.RemoveBody(enemy.bodyId);
+                        body_interface.DestroyBody(enemy.bodyId);
+                        enemy.bodyId = JPH::BodyID(); 
+                    }
+                    
+                    // 3. 如果是陷阱大铁块，让它停在半空变成静态墙
+                    if (isFallingTrap) {
+                        body_interface.SetLinearVelocity(physboxIds[i], JPH::Vec3(0.0f, 0.0f, 0.0f));
+                        body_interface.SetAngularVelocity(physboxIds[i], JPH::Vec3(0.0f, 0.0f, 0.0f));
+                        body_interface.SetMotionType(physboxIds[i], JPH::EMotionType::Static, JPH::EActivation::Activate);
+                        printf("[TRAP] Enemy crushed by falling block!\n");
+                    } else {
+                        printf("[PHYSICS] Enemy killed by flying object!\n");
+                    }
+                    
+                    break; 
+                }
+            }
+        }
+
         // --- 卡死检测 ---
         float distMoved = glm::length(enemy.pos - oldPos); 
         if (enemy.state == EnemyState::CHASE && (enemy.vel.x != 0 || enemy.vel.z != 0)) {
@@ -190,37 +243,5 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 enemy.stuckTimer = 0.0f;
             }
         }        
-
-        // --- 👈 新增：致命物理压杀检测 ---
-        for (size_t i = 0; i < physboxIds.size(); i++) {
-            JPH::Vec3 vel = body_interface.GetLinearVelocity(physboxIds[i]);
-            // 只要铁块在下落，并且离僵尸很近
-            if (vel.GetY() < -200.0f) {
-                JPH::RVec3 box_pos = body_interface.GetCenterOfMassPosition(physboxIds[i]);
-                glm::vec3 bpos((float)box_pos.GetX(), (float)box_pos.GetY(), (float)box_pos.GetZ());
-                
-                glm::vec3 diff = enemy.pos - bpos;
-                // 简单 AABB 重叠判定
-                if (std::abs(diff.x) < 80.0f && std::abs(diff.z) < 80.0f && std::abs(diff.y) < 80.0f) {
-                    enemy.hp = 0.0f;
-                    enemy.state = EnemyState::DEAD;
-                    
-                    // 删除敌人的刚体
-                    if (!enemy.bodyId.IsInvalid()) {
-                        body_interface.RemoveBody(enemy.bodyId);
-                        body_interface.DestroyBody(enemy.bodyId);
-                        enemy.bodyId = JPH::BodyID(); 
-                    }
-                    
-                    // 👈 核心修复：砸死敌人后，立刻让铁块失去所有速度并休眠！
-                    body_interface.SetLinearVelocity(physboxIds[i], JPH::Vec3(0.0f, 0.0f, 0.0f));
-                    body_interface.SetAngularVelocity(physboxIds[i], JPH::Vec3(0.0f, 0.0f, 0.0f));
-                    body_interface.SetMotionType(physboxIds[i], JPH::EMotionType::Static, JPH::EActivation::Activate);
-                    
-                    printf("[TRAP] Enemy crushed by falling block! Instantly Killed!\n");
-                    break;
-                }
-            }
-        }                      
     }
 }
