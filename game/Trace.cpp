@@ -118,7 +118,7 @@ void ExplodeBarrel(int idx, JPH::BodyInterface& bi,
     const float verticalRadius = 300.0f; // 垂直方向额外容忍
 
     for (auto& e : enemies) {
-        if (e.state == EnemyInfo::DEAD) continue;
+        if (e.state == EnemyState::DEAD) continue;
         glm::vec3 diff = e.pos - center;
         float horizDist = glm::length(glm::vec2(diff.x, diff.z)); // 只算水平
         float vertDist  = std::abs(diff.y);
@@ -131,7 +131,7 @@ void ExplodeBarrel(int idx, JPH::BodyInterface& bi,
             printf("[BARREL] Damaged enemy! dist=%.1f dmg=%.1f hp_left=%.1f\n", horizDist, 180.0f * falloff, e.hp);
 
             if (e.hp <= 0.0f) {
-                e.state = EnemyInfo::DEAD;
+                e.state = EnemyState::DEAD;
                 printf("[BARREL] Enemy killed by explosion!\n");
             }
         }
@@ -230,7 +230,7 @@ float TraceFire(const glm::vec3& start, const glm::vec3& dir,
 
     // 4. 敌人
     for (size_t i = 0; i < enemies.size(); i++) {
-        if (enemies[i].state == EnemyInfo::DEAD) continue;
+        if (enemies[i].state == EnemyState::DEAD) continue;
         glm::vec3 bmin = enemies[i].pos - glm::vec3(enemies[i].radius, enemies[i].height * 0.5f, enemies[i].radius);
         glm::vec3 bmax = enemies[i].pos + glm::vec3(enemies[i].radius, enemies[i].height * 0.5f, enemies[i].radius);
         

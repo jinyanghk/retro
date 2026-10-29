@@ -226,6 +226,25 @@ int main(int, char**) {
                 wishDir = glm::normalize(wishDir);
                 player.vel.x = wishDir.x * player.moveSpeed;
                 player.vel.z = wishDir.z * player.moveSpeed;
+
+                // 检查玩家是否快要撞到僵尸了
+                for (const auto& e : enemies) {
+                    if (e.state == EnemyState::DEAD) continue;
+                    
+                    float dist = glm::length(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
+                    float minDist = player.radius + e.radius - 2.0f; // -2.0f 是为了留一点点缓冲
+                    
+                    if (dist < minDist) {
+                        // 如果已经重叠了，直接把玩家往外推
+                        glm::vec2 pushDir = glm::normalize(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
+                        player.pos.x = e.pos.x + pushDir.x * minDist;
+                        player.pos.z = e.pos.z + pushDir.y * minDist;
+                        
+                        // 并且取消当前的移动意图
+                        player.vel.x = 0.0f;
+                        player.vel.z = 0.0f;
+                    }
+                }                
             } else {
                 player.vel.x = 0.0f; player.vel.z = 0.0f;
             }

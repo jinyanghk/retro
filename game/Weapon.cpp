@@ -33,10 +33,21 @@ void FireWeapon(PlayerState& p, WeaponState& w, GravityGunState& g, float dt,
                 body_interface.SetLinearVelocity(physboxIds[hitIndex], newV);
             }
         } else if (hitType == 4 && hitIndex >= 0) {
+            // 1. 基础伤害
             enemies[hitIndex].hp -= 34.0f;
             if (sndHit) Mix_PlayChannel(-1, sndHit, 0);
+            
             if (enemies[hitIndex].hp <= 0.0f) {
-                enemies[hitIndex].state = EnemyInfo::DEAD;
+                enemies[hitIndex].state = EnemyState::DEAD;
+            } else {
+                // 2. 👈 核心打法：没死的话，进入 STUNNED 状态，被打飞！
+                enemies[hitIndex].state = EnemyState::STUNNED;
+                enemies[hitIndex].stunTimer = 0.6f; // 眩晕 0.6 秒
+                
+                // 3. 沿着子弹方向给一个极强的物理推力
+                glm::vec3 pushDir = glm::normalize(front);
+                enemies[hitIndex].vel.x += pushDir.x * 300.0f;
+                enemies[hitIndex].vel.z += pushDir.z * 300.0f;
             }
         } else if (hitType == 5 && hitIndex >= 0) {
             ExplodeBarrel(hitIndex, body_interface, barrels, (std::vector<JPH::BodyID>&)physboxIds, 

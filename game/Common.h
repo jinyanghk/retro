@@ -54,6 +54,14 @@ struct ExplosiveBarrel {
     bool       exploded = false;
 };
 
+enum class EnemyState {
+    IDLE,
+    CHASE,
+    ATTACK,
+    STUNNED,
+    DEAD
+};
+
 struct EnemyInfo {
     glm::vec3 pos;
     glm::vec3 vel = glm::vec3(0.0f);
@@ -63,7 +71,8 @@ struct EnemyInfo {
     bool isGrounded = false;
     float attackTimer = 0.0f;
     float stepCooldown = 0.0f;
-    enum State { IDLE, CHASE, ATTACK, DEAD } state = CHASE;
+    EnemyState state = EnemyState::IDLE;
+    float stunTimer = 0.0f;
     float deathTimer = 0.0f;
     JPH::BodyID bodyId;
     // 👈 新增：A* 寻路缓存

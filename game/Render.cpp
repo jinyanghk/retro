@@ -229,10 +229,21 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
     // 敌人
     for (auto& enemy : enemies) {
-        if (enemy.state == EnemyInfo::DEAD && enemy.deathTimer > 10.0f) continue;
-        glUniform3f(uColorLoc, enemy.state == EnemyInfo::DEAD ? 0.2f : 0.8f, enemy.state == EnemyInfo::DEAD ? 0.1f : 0.2f, 0.2f);
+        if (enemy.state == EnemyState::DEAD && enemy.deathTimer > 10.0f) continue;
+
+        // 👈 根据状态变色
+        if (enemy.state == EnemyState::DEAD) {
+            glUniform3f(uColorLoc, 0.2f, 0.1f, 0.1f); 
+        } else if (enemy.state == EnemyState::STUNNED) {
+            glUniform3f(uColorLoc, 1.0f, 1.0f, 0.0f); // 被打晕时变黄
+        } else if (enemy.state == EnemyState::ATTACK) {
+            glUniform3f(uColorLoc, 1.0f, 0.0f, 0.0f); // 攻击时变红
+        } else {
+            glUniform3f(uColorLoc, 0.8f, 0.2f, 0.2f); // 正常追击
+        }
+
         glm::mat4 enemyModel = glm::translate(glm::mat4(1.0f), enemy.pos);
-        if (enemy.state == EnemyInfo::DEAD) {
+        if (enemy.state == EnemyState::DEAD) {
             enemyModel = glm::rotate(enemyModel, glm::radians(90.0f), glm::vec3(1,0,0)) * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.radius, enemy.height * 0.5f));
         } else {
             enemyModel = enemyModel * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.height * 0.5f, enemy.radius));
