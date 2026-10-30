@@ -8,20 +8,26 @@ int main(int argc, char** argv) {
                 << ", commit: " << Version::GIT_HASH << ", " 
                 << Version::CMAKE_BUILD_TYPE << std::endl;
 
-     // 👈 解析命令行参数：默认关闭光照烘焙和 NavGrid
+     // 👈 解析命令行参数：默认关闭光照烘焙和 Node Graph
     bool genNavGrid = false;
     bool doLightBake = false;
+    std::string inPath = "map.json";
+    std::string outPath = "map.bvh";
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--nav") == 0 || std::strcmp(argv[i], "-n") == 0) {
             genNavGrid = true;
         }
         if (std::strcmp(argv[i], "--bake") == 0 || std::strcmp(argv[i], "-b") == 0) {
             doLightBake = true;
-        }        
+        }   
+        // 👈 新增 -i / -o 参数
+        if (std::strcmp(argv[i], "-i") == 0 && i + 1 < argc) inPath = argv[++i];
+        if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) outPath = argv[++i];             
     }
 
     MapData map;
-    if (!ParseJson("map.json", map)) return 1;
+    if (!ParseJson(inPath.c_str(), map)) return 1;
 
     // 各类实体收集
     std::vector<float> triggerBounds, physboxBounds, doorBounds, zombieSpawns, barrelSpawns;
@@ -42,20 +48,20 @@ int main(int argc, char** argv) {
         std::cout << "[LightBaker] Skipped (use --bake to enable)\n";
     }
 
-    // 👈 条件生成导航网格
-    NavGrid navGrid;
-    if (genNavGrid) {
-        BuildNavGrid(map, collisionMesh, navGrid);
-    } else {
-        std::cout << "[NavGrid] Skipped (use --nav to enable)\n";
-    }
-
     // 👈 生成节点图
     std::vector<NodeRecord> nodeRecs;
     std::vector<uint32_t> nodeLinks;
-    BuildNodeGraph(map, collisionMesh, nodeRecs, nodeLinks);
-    printf("[Main] NodeRecs size before PackLumps: %zu, Links: %zu\n", nodeRecs.size(), nodeLinks.size()); // 👈 加这句
-    
+
+    // 👈 条件生成导航网格
+    NavGrid navGrid;
+    if (genNavGrid) {
+        //BuildNavGrid(map, collisionMesh, navGrid);
+        BuildNodeGraph(map, collisionMesh, nodeRecs, nodeLinks);     
+        printf("[Main] NodeRecs size before PackLumps: %zu, Links: %zu\n", nodeRecs.size(), nodeLinks.size()); // 👈 加这句   
+    } else {
+        std::cout << "[NodeGraph] Skipped (use --nav to enable)\n";
+    }
+
     // 👈 打包时传入 nodeRecs 和 nodeLinks
     if (!PackLumps(map, renderMesh, collisionMesh,
                    triggerBounds, triggerTargets,
@@ -63,7 +69,7 @@ int main(int argc, char** argv) {
                    zombieSpawns, barrelSpawns,
                    navGrid, 
                    nodeRecs, nodeLinks, // 👈 新增
-                   "map.bvh"))
+                   outPath.c_str()))
         return 1;
     return 0;
 }

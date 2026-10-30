@@ -10,6 +10,33 @@
 #include "Render.h"
 #include "AStar.h"
 
+std::string currentMap = "map1.bvh";
+std::string nextMap = "";
+bool pendingMapSwitch = false;
+
+
+// 👈 辅助函数：清空当前地图的物理、渲染与敌人资源
+void CleanupCurrentLevel(JPH::BodyInterface& body_interface,
+                         std::vector<JPH::BodyID>& physboxIds,
+                         std::vector<JPH::BodyID>& doorBodies,
+                         std::vector<EnemyInfo>& enemies,
+                         JPH::BodyID& player_body) 
+{
+    for (auto id : physboxIds) { if(!id.IsInvalid()) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); } }
+    physboxIds.clear();
+    for (auto id : doorBodies) { if(!id.IsInvalid()) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); } }
+    doorBodies.clear();
+    for (auto& e : enemies) { 
+        if(!e.bodyId.IsInvalid()) { body_interface.RemoveBody(e.bodyId); body_interface.DestroyBody(e.bodyId); }
+    }
+    enemies.clear();
+    if(!player_body.IsInvalid()) { body_interface.RemoveBody(player_body); body_interface.DestroyBody(player_body); }
+    
+    g_sortedTris.clear();
+    g_bvh.clear();
+}
+
+
 int main(int, char**) {
     std::cout << "branch: " << Version::GIT_BRANCH 
                 << ", commit: " << Version::GIT_HASH << ", " 
@@ -43,7 +70,7 @@ int main(int, char**) {
     ImGui_ImplOpenGL3_Init("#version 330");
 
     MapData mapData;
-    if (!LoadMap("map.bvh", mapData)) return 1;
+    if (!LoadMap(currentMap.c_str(), mapData)) return 1;
 
     std::vector<BulletHole> bulletHoles;
     std::vector<CollisionTri> collisionTris;
@@ -304,53 +331,27 @@ int main(int, char**) {
         if (!levelComplete) {
             glm::vec3 pMin = player.pos - glm::vec3(player.radius, player.height * 0.5f, player.radius);
             glm::vec3 pMax = player.pos + glm::vec3(player.radius, player.height * 0.5f, player.radius);
+            
             for (size_t i = 0; i < mapData.triggerMins.size(); i++) {
                 if (pMax.x >= mapData.triggerMins[i].x && pMin.x <= mapData.triggerMaxs[i].x &&
                     pMax.y >= mapData.triggerMins[i].y && pMin.y <= mapData.triggerMaxs[i].y &&
                     pMax.z >= mapData.triggerMins[i].z && pMin.z <= mapData.triggerMaxs[i].z) {
                     
                     const std::string& tgt = mapData.triggerTargets[i];
-                    
-                    // 🔥 核心逻辑：判断触发目标是“通关”还是“开门”
-                    if (tgt == "level_end") {
-                        levelComplete = true;
-                        levelCompleteTimer = 0.0f;
-                        if (audio.sndHit) Mix_PlayChannel(-1, audio.sndHit, 0); // 播放通关音效
-                        printf("[GAME] Level Complete Triggered!\n");
-                    }
-                    else if (!tgt.empty()) {
-                        // 查找 target 对应的门
-                        for (auto& door : mapData.doors) {
-                            if (door.targetname == tgt && door.openAmount < 0.01f && !door.isOpening) {
-                                door.isOpening = true;
-                                door.waitTimer = 0.0f;
-                                if (audio.sndDoor) Mix_PlayChannel(-1, audio.sndDoor, 0);
-                                printf("[GAME] Opened door: %s\n", tgt.c_str());
-                            }
-                        }
-
-                        // 👈 直接找高度大于 400 的箱子，强制掉落
-                        for (size_t bIdx = 0; bIdx < physboxIds.size(); bIdx++) {
-                            glm::vec3 mn = mapData.physboxMins[bIdx];
-                            glm::vec3 mx = mapData.physboxMaxs[bIdx];
-                            glm::vec3 bCenter = (mn + mx) * 0.5f;
-
-                            if (bCenter.y > 400.0f) {
-                                // 👈 先检查它是不是还是 Kinematic，如果是，才触发掉落
-                                if (body_interface.GetMotionType(physboxIds[bIdx]) == JPH::EMotionType::Kinematic) {
-                                    SetBodyToDynamic(physboxIds[bIdx]);
-                                    // 直接给一个极快的初速度
-                                    body_interface.SetLinearVelocity(physboxIds[bIdx], JPH::Vec3(0.0f, -800.0f, 0.0f));
-                                    body_interface.SetAngularVelocity(physboxIds[bIdx], JPH::Vec3(0.0f, 0.0f, 0.0f));
-                                    printf("[TRAP] Falling block triggered!\n");
+                    if (!tgt.empty()) {
+                        // 查找该触发器对应的实体
+                        for (const auto& e : mapData.entities) {
+                            // 👈 如果实体有 next_map 属性
+                            if (e.kv.contains("customs") && e.kv["customs"].contains("next_map")) {
+                                std::string nMap = e.kv["customs"]["next_map"].get<std::string>();
+                                if (!nMap.empty() && !pendingMapSwitch) {
+                                    nextMap = nMap;
+                                    pendingMapSwitch = true;
+                                    printf("[SYSTEM] Transition triggered! Loading: %s\n", nextMap.c_str());
+                                    break;
                                 }
-                                break; 
                             }
                         }
-                    } else {
-                        // 如果什么都没填，兼容旧地图：默认通关（可选）
-                        levelComplete = true;
-                        levelCompleteTimer = 0.0f;
                     }
                 }
             }
@@ -500,6 +501,71 @@ int main(int, char**) {
         RenderFrame(render, player, weapon, gravityGun, body_interface, mapData, physboxIds, barrels, doorBodies, enemies, bulletHoles, scrW, scrH);
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        // ==========================================================
+        // 👈 核心：执行地图加载与切换
+        // ==========================================================
+        if (pendingMapSwitch) {
+            printf("[SYSTEM] Loading new map: %s\n", nextMap.c_str());
+            
+            // 1. 清空旧地图的所有实体、物理和BVH
+            CleanupCurrentLevel(body_interface, physboxIds, doorBodies, enemies, player_body);
+            
+            // 2. 加载新地图数据
+            currentMap = nextMap;
+            mapData = MapData(); 
+            if (!LoadMap(currentMap.c_str(), mapData)) {
+                printf("[ERROR] Failed to load map: %s\n", currentMap.c_str());
+                running = false;
+                break;
+            }
+
+            // 3. 重建 BVH 树
+            size_t vertexMemoryCap = mapData.collisionVerts.size() / 3;
+            for (size_t i = 0; i + 2 < mapData.collisionIndices.size(); i += 3) {
+                uint32_t i0 = mapData.collisionIndices[i], i1 = mapData.collisionIndices[i+1], i2 = mapData.collisionIndices[i+2];
+                if (i0 >= vertexMemoryCap || i1 >= vertexMemoryCap || i2 >= vertexMemoryCap) continue;
+                glm::vec3 v0(mapData.collisionVerts[i0*3], mapData.collisionVerts[i0*3+1], mapData.collisionVerts[i0*3+2]);
+                glm::vec3 v1(mapData.collisionVerts[i1*3], mapData.collisionVerts[i1*3+1], mapData.collisionVerts[i1*3+2]);
+                glm::vec3 v2(mapData.collisionVerts[i2*3], mapData.collisionVerts[i2*3+1], mapData.collisionVerts[i2*3+2]);
+                glm::vec3 n = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                g_sortedTris.push_back({v0, v1, v2, n});
+            }
+            g_bvh.reserve(g_sortedTris.size() * 2 + 1);
+            if (!g_sortedTris.empty()) BuildBVH(0, (int)g_sortedTris.size());
+
+            // 4. 重建物理静态网格和玩家
+            CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices, mapData.cnv, mapData.cni);
+            player_body = CreatePlayerBody(mapData.spawnPos[0], mapData.spawnPos[1] + 36.0f, mapData.spawnPos[2]);
+            player.pos = glm::vec3(mapData.spawnPos[0], mapData.spawnPos[1] + 36.0f, mapData.spawnPos[2]);
+            player.vel = glm::vec3(0);
+
+            // 5. 重建箱子、门、敌人
+            for (size_t i = 0; i < mapData.physboxMins.size(); i++) {
+                glm::vec3 center = (mapData.physboxMins[i] + mapData.physboxMaxs[i]) * 0.5f;
+                glm::vec3 halfSize = (mapData.physboxMaxs[i] - mapData.physboxMins[i]) * 0.5f;
+                physboxIds.push_back(CreatePhysBox(center.x, center.y, center.z, halfSize.x, halfSize.y, halfSize.z));
+            }
+            for (size_t i = 0; i < mapData.doors.size(); i++) {
+                glm::vec3 center = (mapData.doors[i].mins + mapData.doors[i].maxs) * 0.5f;
+                glm::vec3 halfSize = (mapData.doors[i].maxs - mapData.doors[i].mins) * 0.5f;
+                doorBodies.push_back(CreateDoorBody(center.x, center.y, center.z, halfSize.x, halfSize.y, halfSize.z));
+            }
+            for (auto& pos : mapData.zombieSpawns) {
+                EnemyInfo e;
+                e.pos = pos;
+                e.bodyId = CreateEnemyBody(pos.x, pos.y, pos.z); 
+                enemies.push_back(e);
+            }
+
+            // 6. 重建渲染资产（非常重要，因为 VAO/VBO 的数据要更新）
+            ShutdownRender(render);
+            InitRender(render, mapData);
+
+            pendingMapSwitch = false;
+            printf("[SYSTEM] Map loaded successfully!\n");
+        }
+
         SDL_GL_SwapWindow(window);
     }
 
