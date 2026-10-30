@@ -9,33 +9,7 @@
 #include "Enemy.h"
 #include "Render.h"
 #include "AStar.h"
-
-std::string currentMap = "map1.bvh";
-std::string nextMap = "";
-bool pendingMapSwitch = false;
-
-
-// 👈 辅助函数：清空当前地图的物理、渲染与敌人资源
-void CleanupCurrentLevel(JPH::BodyInterface& body_interface,
-                         std::vector<JPH::BodyID>& physboxIds,
-                         std::vector<JPH::BodyID>& doorBodies,
-                         std::vector<EnemyInfo>& enemies,
-                         JPH::BodyID& player_body) 
-{
-    for (auto id : physboxIds) { if(!id.IsInvalid()) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); } }
-    physboxIds.clear();
-    for (auto id : doorBodies) { if(!id.IsInvalid()) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); } }
-    doorBodies.clear();
-    for (auto& e : enemies) { 
-        if(!e.bodyId.IsInvalid()) { body_interface.RemoveBody(e.bodyId); body_interface.DestroyBody(e.bodyId); }
-    }
-    enemies.clear();
-    if(!player_body.IsInvalid()) { body_interface.RemoveBody(player_body); body_interface.DestroyBody(player_body); }
-    
-    g_sortedTris.clear();
-    g_bvh.clear();
-}
-
+#include "Level.h"
 
 int main(int, char**) {
     std::cout << "branch: " << Version::GIT_BRANCH 
@@ -328,7 +302,7 @@ int main(int, char**) {
         // ====================================================================
         // 触发器检测
         // ====================================================================
-        if (!levelComplete) {
+        if (!levelComplete && currentState == LevelState::PLAYING) {
             glm::vec3 pMin = player.pos - glm::vec3(player.radius, player.height * 0.5f, player.radius);
             glm::vec3 pMax = player.pos + glm::vec3(player.radius, player.height * 0.5f, player.radius);
             
@@ -341,19 +315,48 @@ int main(int, char**) {
                     if (!tgt.empty()) {
                         // 查找该触发器对应的实体
                         for (const auto& e : mapData.entities) {
-                            // 👈 如果实体有 next_map 属性
                             if (e.kv.contains("customs") && e.kv["customs"].contains("next_map")) {
                                 std::string nMap = e.kv["customs"]["next_map"].get<std::string>();
-                                if (!nMap.empty() && !pendingMapSwitch) {
+                                if (!nMap.empty()) {
                                     nextMap = nMap;
-                                    pendingMapSwitch = true;
-                                    printf("[SYSTEM] Transition triggered! Loading: %s\n", nextMap.c_str());
+                                    currentState = LevelState::DOOR_CLOSING;
+                                    transitionTimer = 0.0f;
+                                    
+                                    // 👈 强制关闭所有门
+                                    for (auto& d : mapData.doors) {
+                                        d.isOpening = false;
+                                        d.waitTimer = 9999.0f;
+                                    }
+                                    printf("[SYSTEM] Triggered! Waiting for doors to close...\n");
                                     break;
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+
+        // ==========================================================
+        // 👈 新增：DOOR_CLOSING 状态（等待门关上）
+        // ==========================================================
+        if (currentState == LevelState::DOOR_CLOSING) {
+            transitionTimer += deltaTime;
+            
+            // 检查是否所有门都关上了
+            bool allClosed = true;
+            for (auto& d : mapData.doors) {
+                if (d.openAmount > 0.05f) {
+                    allClosed = false;
+                    break;
+                }
+            }
+
+            // 如果门关上了，或者超时了（防止卡死）
+            if (allClosed || transitionTimer > 2.0f) {
+                printf("[SYSTEM] Doors closed. Loading next map...\n");
+                pendingMapSwitch = true;
+                currentState = LevelState::PLAYING; // 临时切回来，切图代码会接管
             }
         }
 
@@ -382,22 +385,35 @@ int main(int, char**) {
 
         UpdatePhysics(deltaTime);
 
-        // 门与开关交互
-        if (bUsePressed) {
+        // ==========================================================
+        // 门与开关交互（按 E 开门）
+        // ==========================================================
+        if (bUsePressed && currentState == LevelState::PLAYING) { // 👈 只有正常游玩状态才允许按 E
             glm::vec3 eyePos = player.GetEyePos();
             glm::vec3 front = player.GetForward();
-            float bestT = 64.0f; int bestDoor = -1;
+            float bestT = 64.0f; // 射线探测距离（64个单位）
+            int bestDoor = -1;
+
+            // 1. 向正前方发射线，找最近的门
             for (size_t i = 0; i < mapData.doors.size(); i++) {
+                // 计算门当前的位置（加上它已经滑动的距离）
                 glm::vec3 off = mapData.doors[i].openDir * (mapData.doors[i].openDist * mapData.doors[i].openAmount);
                 float tmin, tmax;
+                // RayAABB 是射线与 AABB 包围盒的求交函数
                 if (RayAABB(eyePos, front, mapData.doors[i].mins + off, mapData.doors[i].maxs + off, tmin, tmax)) {
-                    if (tmin >= 0.0f && tmin < bestT) { bestT = tmin; bestDoor = (int)i; }
+                    if (tmin >= 0.0f && tmin < bestT) { 
+                        bestT = tmin; 
+                        bestDoor = (int)i; 
+                    }
                 }
             }
+
+            // 2. 如果找到了门，且门没开，就打开它
             if (bestDoor >= 0 && mapData.doors[bestDoor].openAmount < 0.01f && !mapData.doors[bestDoor].isOpening) {
                 mapData.doors[bestDoor].isOpening = true;
-                mapData.doors[bestDoor].waitTimer = 0.0f;
-                if (audio.sndDoor) Mix_PlayChannel(-1, audio.sndDoor, 0);
+                mapData.doors[bestDoor].waitTimer = 0.0f; // 重置等待计时器
+                if (audio.sndDoor) Mix_PlayChannel(-1, audio.sndDoor, 0); // 播放开门音效
+                printf("[GAME] Player opened door: %s\n", mapData.doors[bestDoor].targetname.c_str());
             }
         }
 
@@ -508,10 +524,10 @@ int main(int, char**) {
         if (pendingMapSwitch) {
             printf("[SYSTEM] Loading new map: %s\n", nextMap.c_str());
             
-            // 1. 清空旧地图的所有实体、物理和BVH
+            // 1. 清空旧地图
             CleanupCurrentLevel(body_interface, physboxIds, doorBodies, enemies, player_body);
             
-            // 2. 加载新地图数据
+            // 2. 加载新地图
             currentMap = nextMap;
             mapData = MapData(); 
             if (!LoadMap(currentMap.c_str(), mapData)) {
@@ -534,7 +550,7 @@ int main(int, char**) {
             g_bvh.reserve(g_sortedTris.size() * 2 + 1);
             if (!g_sortedTris.empty()) BuildBVH(0, (int)g_sortedTris.size());
 
-            // 4. 重建物理静态网格和玩家
+            // 4. 重建物理网格和玩家
             CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices, mapData.cnv, mapData.cni);
             player_body = CreatePlayerBody(mapData.spawnPos[0], mapData.spawnPos[1] + 36.0f, mapData.spawnPos[2]);
             player.pos = glm::vec3(mapData.spawnPos[0], mapData.spawnPos[1] + 36.0f, mapData.spawnPos[2]);
@@ -558,12 +574,32 @@ int main(int, char**) {
                 enemies.push_back(e);
             }
 
-            // 6. 重建渲染资产（非常重要，因为 VAO/VBO 的数据要更新）
+            // 6. 重建渲染资产
             ShutdownRender(render);
             InitRender(render, mapData);
 
             pendingMapSwitch = false;
+            currentState = LevelState::DOOR_OPENING; // 👈 加载完成，进入开门状态
+            transitionTimer = 0.0f;
             printf("[SYSTEM] Map loaded successfully!\n");
+        }
+
+        // ==========================================================
+        // 👈 新增：DOOR_OPENING 状态（新图加载完后，开门）
+        // ==========================================================
+        if (currentState == LevelState::DOOR_OPENING) {
+            transitionTimer += deltaTime;
+            // 等待 0.5 秒再开门，让玩家有个心理缓冲
+            if (transitionTimer > 0.5f) {
+                for (auto& d : mapData.doors) {
+                    if (d.targetname == "elevator_door") {
+                        d.isOpening = true;
+                        d.waitTimer = 0.0f;
+                    }
+                }
+                currentState = LevelState::PLAYING;
+                printf("[SYSTEM] Doors opening. Back to gameplay!\n");
+            }
         }
 
         SDL_GL_SwapWindow(window);

@@ -141,6 +141,7 @@ add_executable(game
     game/Enemy.cpp
     game/Render.cpp
     game/AStar.cpp
+    game/Level.cpp
 )
 target_include_directories(game PRIVATE 
     ${CMAKE_SOURCE_DIR}
