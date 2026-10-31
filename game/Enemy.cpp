@@ -233,15 +233,17 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         if (enemy.state == EnemyState::CHASE && (enemy.vel.x != 0 || enemy.vel.z != 0)) {
             if (distMoved < 0.5f) {
                 enemy.stuckTimer += dt;
-                if (enemy.stuckTimer > 1.5f) {
+                if (enemy.stuckTimer > 1.0f) {
                     enemy.pathTimer = 0.0f;
                     enemy.stuckTimer = 0.0f;
-                    enemy.vel.x += (rand() % 100 - 50);
-                    enemy.vel.z += (rand() % 100 - 50);
+                    // 👈 暴力脱困：给一个向上+向前的冲量，强行翻上台阶
+                    JPH::Vec3 push = JPH::Vec3(enemy.vel.x * 0.5f, 800.0f, enemy.vel.z * 0.5f);
+                    body_interface.AddImpulse(enemy.bodyId, push);
+                    body_interface.ActivateBody(enemy.bodyId);
                 }
             } else {
                 enemy.stuckTimer = 0.0f;
             }
-        }        
+        }            
     }
 }
