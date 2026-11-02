@@ -117,16 +117,16 @@ target_include_directories(map PRIVATE
 target_link_libraries(map PRIVATE nlohmann_json::nlohmann_json)
 
 # ---------- engine ----------
-add_library(engine SHARED 
-    engine/engine.cpp
-)
-target_include_directories(engine PRIVATE 
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR}
-)
-target_link_libraries(engine PRIVATE 
-    nlohmann_json::nlohmann_json
-)
+#add_library(engine SHARED 
+#    engine/engine.cpp
+#)
+#target_include_directories(engine PRIVATE 
+#    ${CMAKE_SOURCE_DIR}
+#    ${CMAKE_CURRENT_BINARY_DIR}
+#)
+#target_link_libraries(engine PRIVATE 
+#    nlohmann_json::nlohmann_json
+#)
 
 # ---------- game ----------
 add_executable(game 

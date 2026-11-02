@@ -12,7 +12,8 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-glm \
             mingw-w64-ucrt-x86_64-jolt-physics \
             mingw-w64-ucrt-x86_64-nlohmann-json \
-            mingw-w64-ucrt-x86_64-glew
+            mingw-w64-ucrt-x86_64-glew \
+            mingw-w64-ucrt-x86_64-python-scipy
 ```
 
 ### linux ubuntu/debian

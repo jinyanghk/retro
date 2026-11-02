@@ -7,3 +7,7 @@ vcpkg_installed
 *.exe
 *.lib
 *.dll
+*.map
+*.bvh
+
+misc/*.json
