@@ -112,7 +112,8 @@ bool ImportMapJson(const std::string& path)
     g_brushes.clear();
     g_entities.clear();
 
-    auto ParseVec3 = [](const json& j) {
+    auto ParseVec3 = [](const json& j, glm::vec3 def = glm::vec3(0.0f)) {
+        if (!j.is_array() || j.size() < 3) return def;
         return glm::vec3(j[0].get<float>(), j[1].get<float>(), j[2].get<float>());
     };
 
@@ -120,23 +121,45 @@ bool ImportMapJson(const std::string& path)
         for (const auto& jb : root["brushes"]) {
             CBrush b;
             b.m_szMaterial = jb.value("material", "DEV/DEV_MEASUREGENERIC01");
-            b.m_vecPos     = ParseVec3(jb["position"]);
-            b.m_vecSize    = ParseVec3(jb["halfSize"]);
-            b.m_angRot     = ParseVec3(jb["angles"]);
+            
+            // 安全读取 position, halfSize, angles
+            b.m_vecPos  = jb.contains("position") ? ParseVec3(jb["position"]) : glm::vec3(0.0f);
+            b.m_vecSize = jb.contains("halfSize") ? ParseVec3(jb["halfSize"]) : glm::vec3(1.0f);
+            b.m_angRot  = jb.contains("angles")   ? ParseVec3(jb["angles"])   : glm::vec3(0.0f);
+            
             b.m_vertices.clear();
-            for (const auto& v : jb["vertices"]) b.m_vertices.push_back(ParseVec3(v));
+            if (jb.contains("vertices")) {
+                for (const auto& v : jb["vertices"]) b.m_vertices.push_back(ParseVec3(v));
+            }
+            
             b.m_faces.resize(6);
             int fi = 0;
-            for (const auto& jf : jb["faces"]) {
-                if (fi >= 6) break;
-                for (int k = 0; k < 4; k++)
-                    b.m_faces[fi].m_nVertexIndices[k] = jf["indices"][k].get<int>();
-                b.m_faces[fi].m_vecNormal  = ParseVec3(jf["normal"]);
-                b.m_faces[fi].m_szMaterial = jf.value("material", "");
-                fi++;
+            if (jb.contains("faces") && jb["faces"].is_array()) {
+                for (const auto& jf : jb["faces"]) {
+                    if (fi >= 6) break;
+                    // 安全读取 indices
+                    if (jf.contains("indices") && jf["indices"].is_array() && jf["indices"].size() >= 4) {
+                        for (int k = 0; k < 4; k++)
+                            b.m_faces[fi].m_nVertexIndices[k] = jf["indices"][k].get<int>();
+                    } else {
+                        // 缺数据兜底，给 0 1 2 3，避免崩
+                        b.m_faces[fi].m_nVertexIndices[0] = 0;
+                        b.m_faces[fi].m_nVertexIndices[1] = 1;
+                        b.m_faces[fi].m_nVertexIndices[2] = 2;
+                        b.m_faces[fi].m_nVertexIndices[3] = 3;
+                    }
+                    b.m_faces[fi].m_vecNormal  = jf.contains("normal") ? ParseVec3(jf["normal"]) : glm::vec3(0.0f, 1.0f, 0.0f);
+                    b.m_faces[fi].m_szMaterial = jf.value("material", b.m_szMaterial);
+                    fi++;
+                }
             }
-            if (b.m_vertices.size() == 8) b.RecalcFaceNormals();
-            else                          b.RebuildPrimitiveMesh();
+            
+            // 如果原来的逻辑会导致崩溃，这里可以做个保护：
+            if (b.m_vertices.size() == 8 && fi > 0) {
+                b.RecalcFaceNormals();
+            } else {
+                b.RebuildPrimitiveMesh(); 
+            }
             g_brushes.push_back(b);
         }
     }
@@ -145,8 +168,10 @@ bool ImportMapJson(const std::string& path)
         for (const auto& je : root["entities"]) {
             CEntity e;
             e.m_szName = je.value("classname", "info_player_start");
-            e.m_vecPos = ParseVec3(je["origin"]);
-            e.m_angRot = ParseVec3(je["angles"]);
+            
+            // 安全读取实体字段
+            e.m_vecPos = je.contains("origin") ? ParseVec3(je["origin"]) : glm::vec3(0.0f);
+            e.m_angRot = je.contains("angles") ? ParseVec3(je["angles"]) : glm::vec3(0.0f);
             e.m_iType  = (EntityType)je.value("type", (int)ENTITY_MODEL);
 
             if (je.contains("bbox_mins") && je.contains("bbox_maxs")) {
@@ -164,7 +189,6 @@ bool ImportMapJson(const std::string& path)
                     e.m_customProperties[it.key()] = it.value().get<std::string>();
             }
 
-            // 🔥 新增：读取 I/O 连接
             if (je.contains("connections") && je["connections"].is_array()) {
                 for (const auto& jo : je["connections"]) {
                     EntityConnection conn;
@@ -177,7 +201,7 @@ bool ImportMapJson(const std::string& path)
                 }
             }
                         
-            // 如果 bbox 没从 json 里读到，才走 UpdateEntityBBox
+            // 如果 bbox 没从 json 里读到，走 UpdateEntityBBox
             if (!je.contains("bbox_mins")) UpdateEntityBBox(e);
             g_entities.push_back(e);
         }
