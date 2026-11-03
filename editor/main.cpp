@@ -23,6 +23,7 @@
 #include "View2D.h"
 #include "MapIO.h"
 #include "version.h"
+#include "Log.h"
 
 #include <cstdio>
 #include <cstring>

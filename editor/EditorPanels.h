@@ -32,6 +32,4 @@ void SetCompileAndRunHandler(void (*pfn)());
 void OpenCompileOptionsWindow();
 void DrawCompileOptionsWindow();
 
-void LogAdd(const char* s);
-
 #endif

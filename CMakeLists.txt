@@ -17,6 +17,11 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
 endif()
 
+# 针对 MSYS2 / MinGW-w64，屏蔽 DLL 导出的属性重定义警告
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-attributes)
+endif()
+
 # ---------- GIT ----------
 # Get the latest abbreviated commit hash
 execute_process(
@@ -34,7 +39,7 @@ execute_process(
 
 # Configure version.hpp out of the template
 configure_file(
-    ${CMAKE_SOURCE_DIR}/common/version.h.in
+    src/common/version.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
 
@@ -64,6 +69,31 @@ add_library(imguizmo STATIC
 target_include_directories(imguizmo PUBLIC ${IMGUIZMO_DIR} ${IMGUI_DIR})
 target_link_libraries(imguizmo PUBLIC imgui)
 
+# ==========================================
+# core 动态库
+# ==========================================
+add_library(core SHARED
+    src/core/Log.cpp
+)
+target_compile_definitions(core PRIVATE CORE_EXPORTS)
+target_include_directories(core PUBLIC 
+    src/common
+)
+
+# ==========================================
+# geometry 动态库
+# ==========================================
+add_library(geometry SHARED
+    src/geometry/BVH.cpp
+    #src/geometry/Trace.cpp
+)
+target_compile_definitions(geometry PRIVATE GEOMETRY_EXPORTS)
+target_include_directories(geometry PUBLIC 
+    src/geometry
+    src/common
+)
+target_link_libraries(geometry PUBLIC core glm::glm)
+
 # ---------- editor ----------
 add_executable(editor
     editor/main.cpp
@@ -87,6 +117,7 @@ add_custom_command(TARGET editor POST_BUILD
 target_include_directories(editor PRIVATE 
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
+    src/core
 )
 target_link_libraries(editor PRIVATE
     imgui
@@ -97,6 +128,8 @@ target_link_libraries(editor PRIVATE
     GLEW::GLEW
     OpenGL::GL
     nlohmann_json::nlohmann_json
+    core
+    geometry
 )
 
 # ---------- map ----------
@@ -114,24 +147,15 @@ target_include_directories(map PRIVATE
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_CURRENT_BINARY_DIR}
 )
-target_link_libraries(map PRIVATE nlohmann_json::nlohmann_json)
-
-# ---------- engine ----------
-#add_library(engine SHARED 
-#    engine/engine.cpp
-#)
-#target_include_directories(engine PRIVATE 
-#    ${CMAKE_SOURCE_DIR}
-#    ${CMAKE_CURRENT_BINARY_DIR}
-#)
-#target_link_libraries(engine PRIVATE 
-#    nlohmann_json::nlohmann_json
-#)
+target_link_libraries(map PRIVATE 
+    nlohmann_json::nlohmann_json
+    core
+    geometry
+)
 
 # ---------- game ----------
 add_executable(game 
     game/main.cpp
-    game/BVH.cpp
     game/Trace.cpp
     game/MapLoader.cpp
     game/Physics.cpp
@@ -163,4 +187,6 @@ target_link_libraries(game PRIVATE
     Jolt::Jolt
     GLEW::GLEW
     OpenGL::GL
+    core
+    geometry
 )

@@ -1,5 +1,6 @@
 #pragma once
 #include "BVH.h"
+#include "Common.h"
 
 // 射线检测动态物理箱子与爆炸桶
 float TraceDynamicBoxes(JPH::BodyInterface& bi,

@@ -2,6 +2,7 @@
 #include "MapIO.h"
 #include "SceneGlobals.h"
 #include "EditorPanels.h"
+#include "Log.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>

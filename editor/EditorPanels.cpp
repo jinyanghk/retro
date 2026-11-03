@@ -17,6 +17,7 @@
 #include "UndoStack.h"
 #include "GameDatabase.h"
 #include "EditorLayout.h"
+#include "Log.h"
 
 // ---------- handlers ----------
 static void (*s_pfnExportMap)() = nullptr;
@@ -26,15 +27,6 @@ static void (*s_pfnCompileAndRun)() = nullptr;
 void SetExportMapHandler(void (*pfn)()) { s_pfnExportMap = pfn; }
 void SetImportMapHandler(void (*pfn)()) { s_pfnImportMap = pfn; }
 void SetCompileAndRunHandler(void (*pfn)()) { s_pfnCompileAndRun = pfn; }
-
-// ---------- 简单日志缓冲 ----------
-#include <deque>
-static std::deque<std::string> g_logLines;
-void LogAdd(const char* s) {
-    g_logLines.push_back(s ? s : "");
-    if (g_logLines.size() > 1000) g_logLines.pop_front();
-}
-const std::deque<std::string>& LogLines() { return g_logLines; }
 
 // ---------------------------------------------------------------------------
 void DrawMenuBar()
