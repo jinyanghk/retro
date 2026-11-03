@@ -11,3 +11,4 @@ vcpkg_installed
 *.bvh
 
 misc/*.json
+misc/*.vmf

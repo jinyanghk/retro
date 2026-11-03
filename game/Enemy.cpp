@@ -20,6 +20,15 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         auto& enemy = enemies[eIdx];
         if (enemy.state == EnemyState::DEAD) {
             enemy.deathTimer += dt;
+
+            // 👈 新增：如果刚体还在，就把它销毁
+            if (!enemy.bodyId.IsInvalid()) {
+                body_interface.RemoveBody(enemy.bodyId);
+                body_interface.DestroyBody(enemy.bodyId);
+                enemy.bodyId = JPH::BodyID(); // 置空，防止重复销毁
+                printf("[AI] Enemy body destroyed after death.\n");
+            }
+
             continue;
         }
 

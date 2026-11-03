@@ -274,7 +274,7 @@ int main(int argc, char** argv) {
 
         // 检查玩家是否快要撞到僵尸了
         for (const auto& e : enemies) {
-            //if (e.state == EnemyState::DEAD) continue;
+            if (e.state == EnemyState::DEAD) continue;
 
             // 👈 加上高度判定
             if (std::abs(player.pos.y - e.pos.y) > (player.height * 0.5f + e.height * 0.5f + 20.0f)) {
