@@ -11,10 +11,17 @@
 #include "AStar.h"
 #include "Level.h"
 
-int main(int, char**) {
+int main(int argc, char** argv) {
     std::cout << "branch: " << Version::GIT_BRANCH 
                 << ", commit: " << Version::GIT_HASH << ", " 
                 << Version::CMAKE_BUILD_TYPE << std::endl;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "+map") == 0 && i + 1 < argc) {
+            currentMap = argv[++i];
+        }            
+    }
+
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif

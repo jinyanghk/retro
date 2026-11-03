@@ -884,17 +884,17 @@ static void BuildDefaultScene()
 // 回调
 // ---------------------------------------------------------------------------
 static void OnExportMap() {
-    if (ExportMapJson("map.json")) LogAdd("[MAP] exported map.json");
+    if (ExportMapJson(currentMap)) LogAdd("[MAP] exported");
 }
 static void OnImportMap() {
-    if (ImportMapJson("map.json")) {
-        LogAdd("[MAP] imported map.json");
+    if (ImportMapJson(currentMap)) {
+        LogAdd("[MAP] imported");
         g_iSelectedBrush  = -1;
         g_iSelectedEntity = -1;
     }
 }
 static void OnCompileAndRun() {
-    if (!ExportMapJson("map.json")) { LogAdd("[COMPILE] export map.json FAILED"); return; }
+    if (!ExportMapJson(currentMap)) { LogAdd("[COMPILE] export FAILED"); return; }
     
     // 根据平台决定执行命令
 #ifdef _WIN32
@@ -1099,11 +1099,18 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
 // ---------------------------------------------------------------------------
 // 主函数
 // ---------------------------------------------------------------------------
-int main(int, char**)
+int main(int argc, char** argv)
 {
     std::cout << "branch: " << Version::GIT_BRANCH 
                 << ", commit: " << Version::GIT_HASH << ", " 
                 << Version::CMAKE_BUILD_TYPE << std::endl;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "-map") == 0 && i + 1 < argc) {
+            currentMap = argv[++i];
+        }            
+    }                
+
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif
@@ -1147,6 +1154,9 @@ int main(int, char**)
     SetExportMapHandler(OnExportMap);
     SetImportMapHandler(OnImportMap);
     SetCompileAndRunHandler(OnCompileAndRun);
+
+    // open currentMap
+    OnImportMap();
 
     bool running = true;
     while (running)

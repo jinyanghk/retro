@@ -9,6 +9,8 @@
 
 using json = nlohmann::json;
 
+std::string currentMap = "map.json";
+
 static json Vec3ToJson(const glm::vec3& v)
 {
     return json::array({v.x, v.y, v.z});
@@ -102,7 +104,7 @@ bool ExportMapJson(const std::string& path)
 bool ImportMapJson(const std::string& path)
 {
     std::ifstream f(path);
-    if (!f.is_open()) { LogAdd("[MAP] FAILED to open map.json"); return false; }
+    if (!f.is_open()) { LogAdd("[MAP] FAILED to open map"); return false; }
     json root;
     try { f >> root; } catch (const std::exception& e) {
         char b[256]; snprintf(b, sizeof(b), "[MAP] json parse error: %s", e.what()); LogAdd(b);

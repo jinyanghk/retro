@@ -42,8 +42,8 @@ void DrawMenuBar()
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Open map.json"))  { if (s_pfnImportMap) s_pfnImportMap(); }
-            if (ImGui::MenuItem("Save map.json")) { if (s_pfnExportMap) s_pfnExportMap(); }
+            //if (ImGui::MenuItem("Open"))  { if (s_pfnImportMap) s_pfnImportMap(); }
+            if (ImGui::MenuItem("Save")) { if (s_pfnExportMap) s_pfnExportMap(); }
             ImGui::Separator();
             if (ImGui::MenuItem("Compile & Run"))   { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
             //if (ImGui::MenuItem("Compile Options...")) OpenCompileOptionsWindow();
