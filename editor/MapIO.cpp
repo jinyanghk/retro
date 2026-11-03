@@ -3,6 +3,7 @@
 #include "SceneGlobals.h"
 #include "EditorPanels.h"
 #include "Log.h"
+#include "FileSystem.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -104,10 +105,16 @@ bool ExportMapJson(const std::string& path)
 
 bool ImportMapJson(const std::string& path)
 {
-    std::ifstream f(path);
-    if (!f.is_open()) { LogAdd("[MAP] FAILED to open map"); return false; }
+    std::string content = FileSystem::ReadFile(path);
+    if (content.empty()) 
+    { 
+        LogAdd("[MAP] FAILED to open map"); 
+        return false; 
+    }
     json root;
-    try { f >> root; } catch (const std::exception& e) {
+    try { 
+        root = json::parse(content);  
+    } catch (const std::exception& e) {
         char b[256]; snprintf(b, sizeof(b), "[MAP] json parse error: %s", e.what()); LogAdd(b);
         return false;
     }

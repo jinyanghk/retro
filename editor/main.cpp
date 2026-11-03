@@ -24,6 +24,7 @@
 #include "MapIO.h"
 #include "version.h"
 #include "Log.h"
+#include "FileSystem.h"
 
 #include <cstdio>
 #include <cstring>
@@ -1105,6 +1106,8 @@ int main(int argc, char** argv)
     std::cout << "branch: " << Version::GIT_BRANCH 
                 << ", commit: " << Version::GIT_HASH << ", " 
                 << Version::CMAKE_BUILD_TYPE << std::endl;
+
+    FileSystem::Init(".");
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-map") == 0 && i + 1 < argc) {

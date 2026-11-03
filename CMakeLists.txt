@@ -94,6 +94,16 @@ target_include_directories(geometry PUBLIC
 )
 target_link_libraries(geometry PUBLIC core glm::glm)
 
+# ==========================================
+# assets 动态库
+# ==========================================
+add_library(assets SHARED
+    src/assets/FileSystem.cpp
+)
+target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
+target_include_directories(assets PUBLIC src/assets)
+target_link_libraries(assets PUBLIC core)
+
 # ---------- editor ----------
 add_executable(editor
     editor/main.cpp
@@ -130,6 +140,7 @@ target_link_libraries(editor PRIVATE
     nlohmann_json::nlohmann_json
     core
     geometry
+    assets
 )
 
 # ---------- map ----------
@@ -151,6 +162,7 @@ target_link_libraries(map PRIVATE
     nlohmann_json::nlohmann_json
     core
     geometry
+    assets
 )
 
 # ---------- game ----------
@@ -189,4 +201,5 @@ target_link_libraries(game PRIVATE
     OpenGL::GL
     core
     geometry
+    assets
 )

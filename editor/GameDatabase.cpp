@@ -1,8 +1,7 @@
 #include "GameDatabase.h"
+#include "FileSystem.h"
 
 #include <nlohmann/json.hpp>
-#include <fstream>
-#include <sstream>
 #include <cstdio>
 
 using json = nlohmann::json;
@@ -27,13 +26,20 @@ void GameDatabase::Clear() { m_classes.clear(); }
 
 bool GameDatabase::LoadFromFile(const std::string& path)
 {
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        printf("[GameDatabase] cannot open %s\n", path.c_str());
+    // 1. 调用 FileSystem 读取文件
+    std::string content = FileSystem::ReadFile(path);
+    
+    // 2. 判断是否读取成功（ReadFile 失败会返回空字符串）
+    if (content.empty()) {
+        printf("[GameDatabase] cannot open or empty file: %s\n", path.c_str());
         return false;
     }
+
+    // 3. 直接从字符串解析 JSON
     json j;
-    try { f >> j; } catch (const std::exception& e) {
+    try { 
+        j = json::parse(content); 
+    } catch (const std::exception& e) {
         printf("[GameDatabase] json parse error: %s\n", e.what());
         return false;
     }
