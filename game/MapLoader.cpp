@@ -44,6 +44,33 @@ bool LoadMap(const char* filename, MapData& outData) {
         f.read((char*)outData.indices.data(), outData.ni * 4);
     }
 
+    // 12) MATERIALS (v6)
+    if (version >= 6) {
+        if (auto d = FindLump(LUMP_MATERIALS)) {
+            f.seekg(d->offset);
+            uint32_t count = 0;
+            f.read((char*)&count, 4);
+            std::vector<MaterialGroupRecord> recs(count);
+            f.read((char*)recs.data(), count * sizeof(MaterialGroupRecord));
+            outData.materialGroups.reserve(count);
+            for (auto& r : recs) {
+                MapData::MaterialGroup g;
+                g.name        = LumpString(r.name, 64);
+                g.indexOffset = r.indexOffset;
+                g.indexCount  = r.indexCount;
+                outData.materialGroups.push_back(std::move(g));
+            }
+            printf("[MapLoader] Loaded %u material groups\n", count);
+        }
+    } else {
+        // 兼容 v5 旧地图：全体走默认材质
+        MapData::MaterialGroup g;
+        g.name        = "DEV/DEV_MEASUREGENERIC01";
+        g.indexOffset = 0;
+        g.indexCount  = outData.ni;
+        outData.materialGroups.push_back(g);
+    }
+
     // 3) COLLISION
     if (auto d = FindLump(LUMP_COLLISION)) {
         f.seekg(d->offset);

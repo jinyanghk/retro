@@ -66,6 +66,14 @@ struct MapData {
         std::vector<uint32_t> links;
     };
     std::vector<NodeData> navNodes;    
+
+    // v6: 材质分组
+    struct MaterialGroup {
+        std::string name;
+        uint32_t    indexOffset = 0;
+        uint32_t    indexCount  = 0;
+    };
+    std::vector<MaterialGroup> materialGroups;    
 };
 
 bool LoadMap(const char* filename, MapData& outData);

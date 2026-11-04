@@ -33,31 +33,29 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         in vec3 vWorldPos;
         in vec3 vColor;
         out vec4 FragColor;
-        uniform vec3 uColor;
-        uniform int  uMode;
-        uniform int  uUseVColor;
+        uniform vec3  uColor;
+        uniform int   uMode;
+        uniform int   uUseVColor;
+        uniform sampler2D uTex;
 
         void main() {
             vec3 baseColor = uColor;
 
             if (uMode == 1) {
-                // 棋盘格纹理
-                vec3 blend = abs(vNormal); blend /= (blend.x + blend.y + blend.z);
-                vec3 p = vWorldPos * 0.05;
-                float checkerX = mod(floor(p.y) + floor(p.z), 2.0);
-                float checkerY = mod(floor(p.x) + floor(p.z), 2.0);
-                float checkerZ = mod(floor(p.x) + floor(p.y), 2.0);
-                float checker = checkerX * blend.x + checkerY * blend.y + checkerZ * blend.z;
-                baseColor = mix(vec3(0.6, 0.6, 0.65), vec3(0.4, 0.4, 0.45), checker);
-            } else if (uMode == 2) {
-                baseColor = vec3(0.25, 0.25, 0.28);
+                // 地图模式：世界坐标平面投影 UV
+                vec2 uv;
+                vec3 blend = abs(vNormal);
+                if (blend.y > 0.5)       uv = vWorldPos.xz * 0.02;
+                else if (blend.x > 0.5)  uv = vWorldPos.zy * 0.02;
+                else                     uv = vWorldPos.xy * 0.02;
+
+                vec3 tex = texture(uTex, uv).rgb;
+                baseColor = tex;
             }
 
-            // 👈 如果是地图，直接输出 基础色 * 烘焙的顶点光照
             if (uUseVColor == 1) {
-                FragColor = vec4(baseColor * vColor, 1.0); 
+                FragColor = vec4(baseColor * vColor, 1.0);
             } else {
-                // 如果是箱子、敌人、枪，保留一点点简单的方向光，免得完全没立体感
                 vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
                 float diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5;
                 FragColor = vec4(baseColor * diff, 1.0);
@@ -114,6 +112,50 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glBindVertexArray(0);
+
+    // ---- 材质占位纹理 (C1) ----
+    render.materialTexIds.resize(mapData.materialGroups.size(), 0);
+    for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
+        const std::string& name = mapData.materialGroups[i].name;
+
+        // 用名字 hash 出 4 个色块之一
+        uint32_t h = 0;
+        for (char c : name) h = h * 131 + (uint8_t)c;
+        int palette = h % 4;
+
+        glm::vec3 baseColors[4] = {
+            {0.55f, 0.50f, 0.42f},  // 石墙
+            {0.40f, 0.42f, 0.38f},  // 苔藓
+            {0.48f, 0.36f, 0.30f},  // 砖
+            {0.42f, 0.42f, 0.46f},  // 金属
+        };
+        glm::vec3 base = baseColors[palette];
+
+        // 生成 64x64 棋盘 + 色块
+        const int SZ = 64;
+        std::vector<uint8_t> pixels(SZ * SZ * 4);
+        for (int y = 0; y < SZ; ++y) {
+            for (int x = 0; x < SZ; ++x) {
+                bool checker = ((x / 8) + (y / 8)) & 1;
+                float k = checker ? 1.0f : 0.82f;
+                int idx = (y * SZ + x) * 4;
+                pixels[idx+0] = (uint8_t)(base.r * k * 255);
+                pixels[idx+1] = (uint8_t)(base.g * k * 255);
+                pixels[idx+2] = (uint8_t)(base.b * k * 255);
+                pixels[idx+3] = 255;
+            }
+        }
+
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SZ, SZ, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        render.materialTexIds[i] = tex;
+    }    
 }
 
 void ShutdownRender(RenderAssets& render) {
@@ -121,6 +163,9 @@ void ShutdownRender(RenderAssets& render) {
     glDeleteVertexArrays(1, &render.mapVAO); glDeleteBuffers(1, &render.mapVBO); glDeleteBuffers(1, &render.mapEBO);
     glDeleteVertexArrays(1, &render.boxVAO); glDeleteBuffers(1, &render.boxVBO); glDeleteBuffers(1, &render.boxEBO);
     glDeleteVertexArrays(1, &render.gunVAO); glDeleteBuffers(1, &render.gunVBO); glDeleteBuffers(1, &render.gunEBO);
+    for (GLuint t : render.materialTexIds) 
+        if (t) glDeleteTextures(1, &t);
+            render.materialTexIds.clear();
 }
 
 void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponState& weapon, const GravityGunState& gravityGun,
@@ -151,8 +196,21 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glUniform1i(uUseVColorLoc, 1);
     glUniform1i(uModeLoc, 1);
     glUniform3f(uColorLoc, 0.6f, 0.6f, 0.65f);
+    // 原来：
+    // glBindVertexArray(render.mapVAO);
+    // glDrawElements(GL_TRIANGLES, mapData.ni, GL_UNSIGNED_INT, 0);
+
+    // 改成：
     glBindVertexArray(render.mapVAO);
-    glDrawElements(GL_TRIANGLES, mapData.ni, GL_UNSIGNED_INT, 0);
+    for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
+        const auto& g = mapData.materialGroups[i];
+        if (g.indexCount == 0) continue;
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, render.materialTexIds[i]);
+        glUniform1i(glGetUniformLocation(render.program, "uTex"), 0);
+        glDrawElements(GL_TRIANGLES, g.indexCount, GL_UNSIGNED_INT,
+                    (void*)(g.indexOffset * sizeof(uint32_t)));
+    }
 
     // 立刻关掉，之后所有 box/barrel/door/beam/enemy/bullet/gun 都不受影响
     glUniform1i(uUseVColorLoc, 0);

@@ -4,7 +4,7 @@
 #include <string>
 
 static constexpr uint32_t MAP_MAGIC   = 0x4856424D; // "MBVH"
-static constexpr uint32_t MAP_VERSION = 5; // v4: +LUMP_NODEGRAPH
+static constexpr uint32_t MAP_VERSION = 6; // v6: +LUMP_MATERIALS
 
 enum LumpType : uint32_t {
     LUMP_GEOMETRY   = 1,
@@ -17,7 +17,8 @@ enum LumpType : uint32_t {
     LUMP_BARRELS    = 8,
     LUMP_ENTITIES   = 9,
     LUMP_NAVGRID    = 10,
-    LUMP_NODEGRAPH  = 11, // v5: 导航节点图
+    LUMP_NODEGRAPH  = 11, // v5
+    LUMP_MATERIALS  = 12, // v6: 材质分组（渲染分批用）
 };
 
 #pragma pack(push, 1)
@@ -43,14 +44,6 @@ struct DoorRecord {
     char  targetname[64];
 };
 
-// v3: 变长实体记录
-// 布局: u32 count, 然后 count 条 EntityRecord
-//       每条 EntityRecord 之后紧跟 kvJsonSize 字节的 UTF-8 JSON
-//       所有 EntityRecord 先连续存放，再放所有 kvJson（见注释图）
-// 为避免对齐问题，我们采用「交错存」更简单：
-//   [count]
-//   [EntityRecord][kvJson bytes][padding?] ... 循环 count 次
-// 读取时按 kvJsonSize 自增指针即可。
 struct EntityRecord {
     char     classname[64];
     float    origin[3];
@@ -61,21 +54,25 @@ struct EntityRecord {
     // 紧跟 kvJsonSize 字节 UTF-8
 };
 
-// v3: GEOMETRY 顶点 stride = 9 float (pos3 + normal3 + color3)
-// 读取: u32 nv, u32 ni, float verts[nv*9], u32 indices[ni]
-
 struct NavGridHeader {
-    float minX, minZ;       // 网格左下角原点
-    float cellSize;         // 每个格子的大小 (比如 32.0f)
-    uint32_t cols, rows;    // 网格列数和行数
-    // 紧跟 cols * rows 个 uint8_t，0为不可走，1为可走
+    float minX, minZ;
+    float cellSize;
+    uint32_t cols, rows;
+    // 紧跟 cols * rows 个 uint8_t
 };
 
-// 在底部加结构体定义：
 struct NodeRecord {
     float pos[3];
-    uint32_t firstLink;  // 在 linkIndices 里的起始索引
-    uint32_t numLinks;   // 连接数量
+    uint32_t firstLink;
+    uint32_t numLinks;
+};
+
+// v6: 材质分组记录
+// 布局: u32 groupCount, [MaterialGroupRecord] × groupCount
+struct MaterialGroupRecord {
+    char     name[64];       // 材质名
+    uint32_t indexOffset;    // 在 LUMP_GEOMETRY.indices 里的起始下标
+    uint32_t indexCount;     // 索引个数（6 的倍数）
 };
 
 #pragma pack(pop)

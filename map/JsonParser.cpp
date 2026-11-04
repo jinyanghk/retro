@@ -86,8 +86,33 @@ bool ParseJson(const char* path, MapData& out) {
                             }
                         }
                     }
+                    // 在 BrushFace face; 之后，读材质名
+                    if (jf.contains("material") && jf["material"].is_string()) {
+                        face.material = jf["material"].get<std::string>();
+                    }                    
                     b.faces.push_back(std::move(face));
                 }
+
+                // 在 out.brushes.push_back(std::move(b)); 之前
+                {
+                    // 用 normal 把 editor 的 face 映射到 6 个标准方向
+                    // 顺序: [POS_Z, NEG_Z, POS_X, NEG_X, POS_Y, NEG_Y]
+                    const Vec3 kDirs[6] = {
+                        {0,0,1}, {0,0,-1}, {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}
+                    };
+                    for (auto& jf : jb["faces"]) {
+                        if (!jf.contains("normal") || !jf.contains("material")) continue;
+                        float nx = jf["normal"][0], ny = jf["normal"][1], nz = jf["normal"][2];
+                        for (int k = 0; k < 6; ++k) {
+                            if (std::abs(nx - kDirs[k].x) < 0.01f &&
+                                std::abs(ny - kDirs[k].y) < 0.01f &&
+                                std::abs(nz - kDirs[k].z) < 0.01f) {
+                                b.faceMaterials[k] = jf["material"].get<std::string>();
+                                break;
+                            }
+                        }
+                    }
+                }                
                 out.brushes.push_back(std::move(b));
                 brushCount++;
             }

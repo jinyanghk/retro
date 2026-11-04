@@ -12,6 +12,7 @@ struct BrushFace {
     std::vector<Vec3> verts;
     std::vector<int>  indices;
     Vec3              normal{0,0,1};
+    std::string       material;   // v6: 面材质（空 = 继承 brush 默认）
 };
 
 struct Brush {
@@ -19,6 +20,9 @@ struct Brush {
     std::vector<BrushFace> faces;
     Vec3 mins{1e9f, 1e9f, 1e9f};
     Vec3 maxs{-1e9f, -1e9f, -1e9f};
+    // v6: 每面材质名，按 [FACE_POS_Z, FACE_NEG_Z, FACE_POS_X, FACE_NEG_X, FACE_POS_Y, FACE_NEG_Y] 顺序
+    // 空字符串 = 用默认材质 "DEV/DEV_MEASUREGENERIC01"
+    std::string faceMaterials[6];    
 };
 
 struct Entity {
@@ -45,6 +49,13 @@ struct MapData {
 struct MeshBuffers {
     std::vector<float>    verts;
     std::vector<uint32_t> indices;
+    // v6: 按材质分组（每个 group 是 indices 的一个连续切片）
+    struct MaterialGroup {
+        std::string name;
+        uint32_t    indexOffset = 0;  // 在 indices 里的起始下标
+        uint32_t    indexCount  = 0;  // 索引个数
+    };
+    std::vector<MaterialGroup> materialGroups;    
 };
 
 struct LightBakeOptions {

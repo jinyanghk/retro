@@ -52,6 +52,22 @@ bool PackLumps(const MapData& map,
         AppendLumpRaw(outBuffer, dirs, LUMP_GEOMETRY, buf);
     }
 
+    // ---- LUMP_MATERIALS (v6) ----
+    {
+        std::vector<char> buf;
+        uint32_t groupCount = (uint32_t)renderMesh.materialGroups.size();
+        buf.insert(buf.end(), (char*)&groupCount, (char*)&groupCount + 4);
+
+        for (const auto& g : renderMesh.materialGroups) {
+            MaterialGroupRecord rec{};
+            strncpy(rec.name, g.name.c_str(), 63);
+            rec.indexOffset = g.indexOffset;
+            rec.indexCount  = g.indexCount;
+            buf.insert(buf.end(), (char*)&rec, (char*)&rec + sizeof(MaterialGroupRecord));
+        }
+        AppendLumpRaw(outBuffer, dirs, LUMP_MATERIALS, buf);
+    }
+
     // ---- LUMP_COLLISION ----
     {
         std::vector<char> buf;
