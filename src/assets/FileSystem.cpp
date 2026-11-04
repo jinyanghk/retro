@@ -33,8 +33,20 @@ bool FileSystem::Exists(const std::string& path) {
 }
 
 std::string FileSystem::ResolveMaterial(const std::string& materialName) {
-    // 这里可以先写死一个逻辑，或者直接返回原始名字
-    // 比如 HL2 里 "DEV/DEV_MEASUREGENERIC01" 对应 "materials/dev/dev_measuregeneric01.vmt"
-    // 我们目前先按你的引擎需求，简单返回材质名
-    return materialName;
+    std::string name = materialName;
+    
+    // 统一转小写，替换反斜杠
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c){ return std::tolower(c); });
+    std::replace(name.begin(), name.end(), '\\', '/');
+
+    // 提取文件名（DEV/xxx -> xxx）
+    size_t slashPos = name.find_last_of('/');
+    if (slashPos != std::string::npos) {
+        name = name.substr(slashPos + 1);
+    }
+
+    // 👈 核心修复：加上 "assets/" 前缀
+    std::string relativePath = "assets/materials/dev/" + name + ".png";
+    
+    return s_baseDir + relativePath;
 }

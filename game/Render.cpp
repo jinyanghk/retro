@@ -1,5 +1,12 @@
 #include "Render.h"
 #include "BVH.h"
+#include "FileSystem.h"
+#include <cstdio>
+#include <vector>
+#include <string>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 void InitRender(RenderAssets& render, const MapData& mapData) {
     glGenVertexArrays(1, &render.mapVAO); glGenBuffers(1, &render.mapVBO); glGenBuffers(1, &render.mapEBO);
@@ -10,6 +17,7 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(6 * sizeof(float)));
 
+    // 着色器：严格分离地图模式(uMode=1)和物体模式(uMode=0/2)
     const char* vs_src = R"(
         #version 330 core
         layout(location=0) in vec3 aPos;
@@ -33,13 +41,14 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         in vec3 vWorldPos;
         in vec3 vColor;
         out vec4 FragColor;
-        uniform vec3  uColor;
-        uniform int   uMode;
-        uniform int   uUseVColor;
+        uniform vec3 uColor;
+        uniform int  uMode;
+        uniform int  uUseVColor;
         uniform sampler2D uTex;
 
         void main() {
             vec3 baseColor = uColor;
+            float diff = 1.0;
 
             if (uMode == 1) {
                 // 地图模式：世界坐标平面投影 UV
@@ -48,16 +57,19 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
                 if (blend.y > 0.5)       uv = vWorldPos.xz * (1.0 / 128.0);
                 else if (blend.x > 0.5)  uv = vWorldPos.zy * (1.0 / 128.0);
                 else                     uv = vWorldPos.xy * (1.0 / 128.0);
-
-                vec3 tex = texture(uTex, uv).rgb;
-                baseColor = tex;
+                
+                baseColor = texture(uTex, uv).rgb;
+                diff = 1.0; // 地图走烘焙光照，不乘方向光
+            } else {
+                // 实体模式：枪、箱子、敌人等
+                vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
+                diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5;
             }
 
+            // 对于地图（uUseVColor==1），乘上烘焙颜色。其他物体乘方向光。
             if (uUseVColor == 1) {
-                FragColor = vec4(baseColor * vColor, 1.0);
+                FragColor = vec4(baseColor * vColor, 1.0); 
             } else {
-                vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-                float diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5;
                 FragColor = vec4(baseColor * diff, 1.0);
             }
         }
@@ -111,59 +123,71 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, render.gunEBO); glBufferData(GL_ELEMENT_ARRAY_BUFFER, gun_idx.size() * 4, gun_idx.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glBindVertexArray(0);
+    
+    // White Texture (兜底，防止非地图物体绑定空纹理变黑)
+    uint8_t whitePixel[4] = {255,255,255,255};
+    glGenTextures(1, &render.whiteTex);
+    glBindTexture(GL_TEXTURE_2D, render.whiteTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whitePixel);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    // ---- 材质占位纹理 (C1) ----
+    // 加载贴图
     render.materialTexIds.resize(mapData.materialGroups.size(), 0);
     for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
         const std::string& name = mapData.materialGroups[i].name;
+        GLuint tex = 0;
+        bool loaded = false;
 
-        // 用名字 hash 出 4 个色块之一
-        uint32_t h = 0;
-        for (char c : name) h = h * 131 + (uint8_t)c;
-        int palette = h % 4;
-
-        glm::vec3 baseColors[4] = {
-            {0.55f, 0.50f, 0.42f},  // 石墙
-            {0.40f, 0.42f, 0.38f},  // 苔藓
-            {0.48f, 0.36f, 0.30f},  // 砖
-            {0.42f, 0.42f, 0.46f},  // 金属
-        };
-        glm::vec3 base = baseColors[palette];
-
-        // 生成 64x64 棋盘 + 色块
-        const int SZ = 64;
-        std::vector<uint8_t> pixels(SZ * SZ * 4);
-        for (int y = 0; y < SZ; ++y) {
-            for (int x = 0; x < SZ; ++x) {
-                bool checker = ((x / 16) + (y / 16)) & 1;
-                float k = checker ? 1.0f : 0.82f;
-                int idx = (y * SZ + x) * 4;
-                pixels[idx+0] = (uint8_t)(base.r * k * 255);
-                pixels[idx+1] = (uint8_t)(base.g * k * 255);
-                pixels[idx+2] = (uint8_t)(base.b * k * 255);
-                pixels[idx+3] = 255;
-            }
+        // 尝试加载真实图片 (依赖 FileSystem::ResolveMaterial 返回全路径)
+        // 注意：这里的路径一定要确保你放对了文件！
+        std::string texPath = FileSystem::ResolveMaterial(name);
+        int w, h, channels;
+        unsigned char* pixels = stbi_load(texPath.c_str(), &w, &h, &channels, 4);
+        if (pixels) {
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            stbi_image_free(pixels);
+            loaded = true;
+            printf("[Render] Loaded real texture: %s (%dx%d)\n", texPath.c_str(), w, h);
         }
 
-        GLuint tex = 0;
-        glGenTextures(1, &tex);
-        glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SZ, SZ, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        // 如果没有图，或者加载失败，生成棋盘格占位
+        if (!loaded) {
+            uint32_t hash = 0;
+            for (char c : name) hash = hash * 131 + (uint8_t)c;
+            glm::vec3 base(0.55f, 0.50f, 0.42f); // 默认石墙色
+            
+            const int SZ = 64;
+            std::vector<uint8_t> pix(SZ * SZ * 4);
+            for (int y = 0; y < SZ; ++y) {
+                for (int x = 0; x < SZ; ++x) {
+                    bool checker = ((x / 16) + (y / 16)) & 1;
+                    float k = checker ? 1.0f : 0.82f;
+                    int idx = (y * SZ + x) * 4;
+                    pix[idx+0] = (uint8_t)(base.r * k * 255);
+                    pix[idx+1] = (uint8_t)(base.g * k * 255);
+                    pix[idx+2] = (uint8_t)(base.b * k * 255);
+                    pix[idx+3] = 255;
+                }
+            }
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SZ, SZ, 0, GL_RGBA, GL_UNSIGNED_BYTE, pix.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
         render.materialTexIds[i] = tex;
-    }    
-    {
-        uint8_t whitePixel[4] = {255,255,255,255};
-        glGenTextures(1, &render.whiteTex);
-        glBindTexture(GL_TEXTURE_2D, render.whiteTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whitePixel);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     }
+    glBindVertexArray(0);
 }
 
 void ShutdownRender(RenderAssets& render) {
@@ -171,14 +195,8 @@ void ShutdownRender(RenderAssets& render) {
     glDeleteVertexArrays(1, &render.mapVAO); glDeleteBuffers(1, &render.mapVBO); glDeleteBuffers(1, &render.mapEBO);
     glDeleteVertexArrays(1, &render.boxVAO); glDeleteBuffers(1, &render.boxVBO); glDeleteBuffers(1, &render.boxEBO);
     glDeleteVertexArrays(1, &render.gunVAO); glDeleteBuffers(1, &render.gunVBO); glDeleteBuffers(1, &render.gunEBO);
-    for (GLuint t : render.materialTexIds) 
-        if (t) glDeleteTextures(1, &t);
-            render.materialTexIds.clear();
-    if (render.whiteTex) 
-    { 
-        glDeleteTextures(1, &render.whiteTex); 
-        render.whiteTex = 0; 
-    }            
+    if (render.whiteTex) glDeleteTextures(1, &render.whiteTex);
+    for (GLuint t : render.materialTexIds) if (t) glDeleteTextures(1, &t);
 }
 
 void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponState& weapon, const GravityGunState& gravityGun,
@@ -195,6 +213,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     GLint uUseVColorLoc = glGetUniformLocation(render.program, "uUseVColor");
     GLint uModeLoc = glGetUniformLocation(render.program, "uMode");
     GLint uColorLoc = glGetUniformLocation(render.program, "uColor");
+    GLint uTexLoc = glGetUniformLocation(render.program, "uTex");
 
     glm::mat4 projection = glm::perspective(glm::radians(85.0f), (float)scrW / (float)scrH, 1.0f, 10000.0f);
     glm::vec3 eyePos = player.GetEyePos();
@@ -202,40 +221,32 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = projection * view * model;
     
-    // 渲染地图
+    // ================== 渲染地图 ==================
     glEnable(GL_CULL_FACE); glCullFace(GL_BACK);        
     glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
     glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniform1i(uUseVColorLoc, 1);
-    glUniform1i(uModeLoc, 1);
-    glUniform3f(uColorLoc, 0.6f, 0.6f, 0.65f);
-    // 原来：
-    // glBindVertexArray(render.mapVAO);
-    // glDrawElements(GL_TRIANGLES, mapData.ni, GL_UNSIGNED_INT, 0);
+    glUniform1i(uUseVColorLoc, 1); // 地图用顶点光照
+    glUniform1i(uModeLoc, 1);      // 地图模式
+    glUniform1i(uTexLoc, 0);
 
-    // 改成：
     glBindVertexArray(render.mapVAO);
     for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
         const auto& g = mapData.materialGroups[i];
         if (g.indexCount == 0) continue;
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, render.materialTexIds[i]);
-        glUniform1i(glGetUniformLocation(render.program, "uTex"), 0);
-        glDrawElements(GL_TRIANGLES, g.indexCount, GL_UNSIGNED_INT,
-                    (void*)(g.indexOffset * sizeof(uint32_t)));
+        glDrawElements(GL_TRIANGLES, g.indexCount, GL_UNSIGNED_INT, (void*)(g.indexOffset * sizeof(uint32_t)));
     }
 
-    // 立刻关掉，之后所有 box/barrel/door/beam/enemy/bullet/gun 都不受影响
+    // ================== 渲染实体（关闭 Cull，切白图）==================
     glUniform1i(uUseVColorLoc, 0);
-
+    glUniform1i(uModeLoc, 0);
     glDisable(GL_CULL_FACE);
     
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, render.whiteTex);
-    glUniform1i(glGetUniformLocation(render.program, "uTex"), 0);
-
+    glBindTexture(GL_TEXTURE_2D, render.whiteTex); // 绑定白图兜底，防止采样黑块
+    
     // 渲染物理箱子
-    glUniform1i(uModeLoc, 0);
     glUniform3f(uColorLoc, 0.6f, 0.4f, 0.2f);
     for (size_t i = 0; i < physboxIds.size(); i++) {
         JPH::RMat44 t = body_interface.GetWorldTransform(physboxIds[i]);
@@ -306,22 +317,19 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     for (auto& enemy : enemies) {
         if (enemy.state == EnemyState::DEAD && enemy.deathTimer > 10.0f) continue;
 
-        // 👈 根据状态变色
         if (enemy.state == EnemyState::DEAD) {
             glUniform3f(uColorLoc, 0.2f, 0.1f, 0.1f); 
         } else if (enemy.state == EnemyState::STUNNED) {
-            glUniform3f(uColorLoc, 1.0f, 1.0f, 0.0f); // 被打晕时变黄
+            glUniform3f(uColorLoc, 1.0f, 1.0f, 0.0f);
         } else if (enemy.state == EnemyState::ATTACK) {
-            glUniform3f(uColorLoc, 1.0f, 0.0f, 0.0f); // 攻击时变红
+            glUniform3f(uColorLoc, 1.0f, 0.0f, 0.0f);
         } else {
-            glUniform3f(uColorLoc, 0.8f, 0.2f, 0.2f); // 正常追击
+            glUniform3f(uColorLoc, 0.8f, 0.2f, 0.2f);
         }
 
         glm::mat4 enemyModel = glm::translate(glm::mat4(1.0f), enemy.pos);
         if (enemy.state == EnemyState::DEAD) {
-            if (enemy.bodyId.IsInvalid()) {
-                continue; // 👈 如果物理刚体被销毁了（被砸扁），就不画它了
-            }
+            if (enemy.bodyId.IsInvalid()) continue;
             enemyModel = glm::rotate(enemyModel, glm::radians(90.0f), glm::vec3(1,0,0)) * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.radius, enemy.height * 0.5f));
         } else {
             enemyModel = enemyModel * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.height * 0.5f, enemy.radius));
@@ -344,7 +352,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // 武器（2D 视角）
+    // ================== 渲染武器 ==================
     glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
     float recoilOffset = 0.0f, recoilPitch = 0.0f;
     if (weapon.recoilTimer > 0.0f) {
@@ -356,7 +364,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     gunBase = glm::rotate(gunBase, glm::radians(recoilPitch), glm::vec3(1, 0, 0));
     gunBase = glm::rotate(gunBase, glm::radians(-5.0f), glm::vec3(0, 1, 0));
 
-    glUniform1i(uModeLoc, 2);
+    glUniform1i(uModeLoc, 2); // 枪模式
     auto DrawGunPart = [&](glm::vec3 offset, glm::vec3 scale) {
         glm::mat4 partModel = glm::translate(gunBase, offset) * glm::scale(glm::mat4(1.0f), scale);
         glm::mat4 partMvp = gunProj * glm::mat4(1.0f) * partModel;
@@ -374,6 +382,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glDrawElements(GL_TRIANGLES, render.gunIndexCount, GL_UNSIGNED_INT, 0);
 
     glBindVertexArray(render.boxVAO);
+    glUniform3f(uColorLoc, 0.25f, 0.25f, 0.28f); // 设置枪的灰色
     DrawGunPart(glm::vec3(0.0f, 0.0f, -0.05f), glm::vec3(0.035f, 0.05f, 0.25f));
     DrawGunPart(glm::vec3(0.0f, -0.08f, 0.02f), glm::vec3(0.02f, 0.08f, 0.04f));
     DrawGunPart(glm::vec3(0.0f, -0.06f, 0.1f), glm::vec3(0.025f, 0.06f, 0.03f));

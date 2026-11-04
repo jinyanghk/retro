@@ -6,7 +6,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}\\build\\game.exe",
-            "args": [],
+            "args": ["+map", "dm1.bvh"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}\\build",
             "environment": [],

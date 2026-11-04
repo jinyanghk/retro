@@ -10,6 +10,7 @@
 #include "Render.h"
 #include "AStar.h"
 #include "Level.h"
+#include "FileSystem.h"
 
 int main(int argc, char** argv) {
     std::cout << "branch: " << Version::GIT_BRANCH 
@@ -21,7 +22,7 @@ int main(int argc, char** argv) {
             currentMap = argv[++i];
         }            
     }
-
+    FileSystem::Init("."); 
 #ifdef _WIN32
     ::SetProcessDPIAware();
 #endif
