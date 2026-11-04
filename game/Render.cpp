@@ -215,18 +215,30 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     GLint uColorLoc = glGetUniformLocation(render.program, "uColor");
     GLint uTexLoc = glGetUniformLocation(render.program, "uTex");
 
-    glm::mat4 projection = glm::perspective(glm::radians(85.0f), (float)scrW / (float)scrH, 1.0f, 10000.0f);
+    // 恢复真实的相机视角
+    glm::mat4 projection = glm::perspective(glm::radians(85.0f), (float)scrW / (float)scrH, 0.1f, 100000.0f);
     glm::vec3 eyePos = player.GetEyePos();
-    glm::mat4 view = glm::lookAt(eyePos, eyePos + player.GetForward(), glm::vec3(0, 1, 0));
-    glm::mat4 model = glm::mat4(1.0f);
+    glm::vec3 forward = player.GetForward();
+    
+    // 注意这里的 Y-up 方向
+    glm::mat4 view = glm::lookAt(eyePos, eyePos + forward, glm::vec3(0, 1, 0));
+    glm::mat4 model = glm::mat4(1.0f); // 地图自带世界坐标，不需要模型矩阵
+
+    // 打印一下，确认相机在看哪里
+    // printf("Eye: %.1f, %.1f, %.1f | Forward: %.1f, %.1f, %.1f\n", 
+    //     eyePos.x, eyePos.y, eyePos.z, forward.x, forward.y, forward.z);
+
+    // ================== 渲染地图 ==================
+    //glDisable(GL_CULL_FACE);
+    glEnable(GL_CULL_FACE); glCullFace(GL_BACK);
+    // 用真实的 MVP 矩阵
     glm::mat4 mvp = projection * view * model;
     
-    // ================== 渲染地图 ==================
-    glEnable(GL_CULL_FACE); glCullFace(GL_BACK);        
     glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
     glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniform1i(uUseVColorLoc, 1); // 地图用顶点光照
-    glUniform1i(uModeLoc, 1);      // 地图模式
+
+    glUniform1i(uUseVColorLoc, 1); 
+    glUniform1i(uModeLoc, 1);      
     glUniform1i(uTexLoc, 0);
 
     glBindVertexArray(render.mapVAO);
@@ -244,7 +256,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glDisable(GL_CULL_FACE);
     
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, render.whiteTex); // 绑定白图兜底，防止采样黑块
+    glBindTexture(GL_TEXTURE_2D, render.whiteTex);
     
     // 渲染物理箱子
     glUniform3f(uColorLoc, 0.6f, 0.4f, 0.2f);

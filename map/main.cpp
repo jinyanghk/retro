@@ -43,6 +43,8 @@ int main(int argc, char** argv) {
     if (doLightBake) {
         LightBakeOptions bakeOpts;
         bakeOpts.enabled = true;
+bakeOpts.ambient = 0.6f;       // 从 0.1 提高到 0.6，防止全黑死角
+bakeOpts.samplesPerLight = 8;        
         BakeVertexLighting(map, renderMesh, collisionMesh, bakeOpts);
     } else {
         std::cout << "[LightBaker] Skipped (use --bake to enable)\n";

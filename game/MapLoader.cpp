@@ -33,14 +33,14 @@ bool LoadMap(const char* filename, MapData& outData) {
         f.read((char*)outData.spawnAngles, 12);
     }
 
-    // 2) GEOMETRY (v3: stride 9)
+    // 2) GEOMETRY (v7: stride 11)
     if (auto d = FindLump(LUMP_GEOMETRY)) {
         f.seekg(d->offset);
         f.read((char*)&outData.nv, 4);
         f.read((char*)&outData.ni, 4);
-        outData.verts.resize(outData.nv * 9);
+        outData.verts.resize(outData.nv * 11);
         outData.indices.resize(outData.ni);
-        f.read((char*)outData.verts.data(),   outData.nv * 9 * 4);
+        f.read((char*)outData.verts.data(),   outData.nv * 11 * 4);
         f.read((char*)outData.indices.data(), outData.ni * 4);
     }
 
@@ -81,13 +81,13 @@ bool LoadMap(const char* filename, MapData& outData) {
         f.read((char*)outData.collisionVerts.data(),   outData.cnv * 3 * 4);
         f.read((char*)outData.collisionIndices.data(), outData.cni * 4);
     } else {
-        // 兜底：从 GEOMETRY 抽 pos（stride 9 → 3）
+        // 兜底：从 GEOMETRY 抽 pos（stride 11 → 3）
         outData.cnv = outData.nv; outData.cni = outData.ni;
         outData.collisionVerts.resize(outData.nv * 3);
         for (uint32_t i = 0; i < outData.nv; i++) {
-            outData.collisionVerts[i*3+0] = outData.verts[i*9+0];
-            outData.collisionVerts[i*3+1] = outData.verts[i*9+1];
-            outData.collisionVerts[i*3+2] = outData.verts[i*9+2];
+            outData.collisionVerts[i*3+0] = outData.verts[i*11+0];   // 👈 11
+            outData.collisionVerts[i*3+1] = outData.verts[i*11+1];   // 👈 11
+            outData.collisionVerts[i*3+2] = outData.verts[i*11+2];   // 👈 11
         }
         outData.collisionIndices = outData.indices;
     }

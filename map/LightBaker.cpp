@@ -61,7 +61,7 @@ void BakeVertexLighting(const MapData& map, MeshBuffers& renderMesh, const MeshB
 
     // 1. 解析 light 实体
     for (const auto& e : map.entities) {
-        if (e.classname == "light") {
+        if (e.classname == "light" || e.classname == "light_spot") {
             Light L;
             L.pos = glm::vec3(e.origin.x, e.origin.y, e.origin.z);
             L.color = glm::vec3(1.0f); 
@@ -88,6 +88,12 @@ void BakeVertexLighting(const MapData& map, MeshBuffers& renderMesh, const MeshB
             if (e.properties.contains("_distance") && e.properties["_distance"].is_string()) {
                 try { L.radius = std::stof(e.properties["_distance"].get<std::string>()); } catch(...) {}
             }
+
+            // 👈 聚光灯通常距离短、亮度高，我们给它强制保底一个半径
+            if (e.classname == "light_spot" && L.radius > 2000.0f) {
+                L.radius = 500.0f; 
+            }
+                        
             lights.push_back(L);
         }
     }

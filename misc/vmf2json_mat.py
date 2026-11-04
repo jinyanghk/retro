@@ -66,7 +66,7 @@ def parse_vmf(path):
     result_entities = []
     for e in entities:
         cn = e.get('classname', '')
-        if cn in ('info_player_start', 'info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'light'):
+        if cn in ('info_player_start', 'info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'light', 'light_spot'):
             o_str = e.get('origin', '0 0 0')
             parts = o_str.split()
             o = [float(x) for x in parts] if len(parts) == 3 else [0.0, 0.0, 0.0]
@@ -158,9 +158,12 @@ def brush_faces(sides):
                 np.dot(np.array(p) - center, v2),
                 np.dot(np.array(p) - center, v1)
             ))
+
+            mat_val = s.get('mat', 'DEV/DEV_MEASUREGENERIC01')
+            if not mat_val: mat_val = 'DEV/DEV_MEASUREGENERIC01'
             
             faces_out.append({
-                'material': s.get('mat', 'DEV/DEV_MEASUREGENERIC01'),
+                'material': mat_val,
                 'vertices': sorted_verts,
                 'normal': [float(n[0]), float(n[1]), float(n[2])],
                 'uaxis': s.get('uaxis', '[1 0 0 0] 1'),
@@ -223,7 +226,7 @@ def to_my_json(solids, entities, out_path):
                 primary_spawn_added = True
             continue 
             
-        if cn in ('info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'light'):
+        if cn in ('info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'light', 'light_spot'):
             o = e['origin']
             out['entities'].append({
                 'classname': cn,
