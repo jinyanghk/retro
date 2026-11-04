@@ -95,6 +95,30 @@ target_include_directories(geometry PUBLIC
 target_link_libraries(geometry PUBLIC core glm::glm)
 
 # ==========================================
+# physics 动态库（Jolt 物理世界 + 射线检测 + 爆炸）
+# 依赖：core / geometry / GameTypes / Jolt / SDL2_mixer
+# 注意：不依赖 ImGui / GLEW / SDL2 主头 / game 业务头
+# ==========================================
+add_library(physics SHARED
+    src/physics/Physics.cpp
+    src/physics/Trace.cpp
+)
+target_compile_definitions(physics PRIVATE PHYSICS_EXPORTS)
+target_include_directories(physics PUBLIC
+    src/common     # 👈 让 GameTypes.h 对使用方可见
+)
+target_include_directories(physics PRIVATE
+    src/geometry   # Trace.h 要 #include "BVH.h"
+)
+target_link_libraries(physics PUBLIC
+    core
+    geometry
+    glm::glm
+    Jolt::Jolt
+    SDL2_mixer::SDL2_mixer
+)
+
+# ==========================================
 # assets 动态库
 # ==========================================
 add_library(assets SHARED
@@ -168,9 +192,7 @@ target_link_libraries(map PRIVATE
 # ---------- game ----------
 add_executable(game 
     game/main.cpp
-    game/Trace.cpp
     game/MapLoader.cpp
-    game/Physics.cpp
     game/Player.cpp
     game/Weapon.cpp
     game/Audio.cpp
@@ -182,6 +204,7 @@ add_executable(game
 target_include_directories(game PRIVATE 
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/common
+    src/physics
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 # 让 build 目录自动同步 sounds
@@ -202,4 +225,5 @@ target_link_libraries(game PRIVATE
     core
     geometry
     assets
+    physics
 )

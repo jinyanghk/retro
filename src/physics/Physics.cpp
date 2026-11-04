@@ -1,5 +1,22 @@
 #include "Physics.h"
 
+// ---- Jolt 依赖（physics.cpp 自己用得到，不进 Physics.h）----
+#include <Jolt/Jolt.h>
+#include <Jolt/RegisterTypes.h>
+#include <Jolt/Core/Factory.h>
+#include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/MotionProperties.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
+
+#include <thread>
+#include <vector>
+#include <cstdint>
+
 // ============================================================================
 // Jolt 物理层过滤器
 // ============================================================================
@@ -102,7 +119,6 @@ void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_
     JPH::VertexList vertices;
     vertices.reserve(nv);
     for (uint32_t i = 0; i < nv; i++) {
-        // 🔥 注意：这里改为 i*3，因为我们传入的只有位置，没有法线
         vertices.push_back(JPH::Float3(verts[i*3+0], verts[i*3+1], verts[i*3+2]));
     }
     JPH::IndexedTriangleList triangles;
@@ -182,28 +198,22 @@ void MoveKinematicBody(JPH::BodyID id, float x, float y, float z) {
 }
 
 JPH::BodyID CreateEnemyBody(float x, float y, float z) {
-    // 敌人的逻辑半径 20，高度 60，所以半高是 30，半宽是 20
     JPH::BoxShapeSettings shape(JPH::Vec3(20.0f, 30.0f, 20.0f));
     JPH::BodyCreationSettings settings(
         shape.Create().Get(),
         JPH::RVec3(x, y, z),
         JPH::Quat::sIdentity(),
-        JPH::EMotionType::Dynamic,  // 👈 改为 Dynamic！
+        JPH::EMotionType::Dynamic,
         Layers::MOVING
     );
-    
-    // 🔥 关键设置：
-    settings.mFriction = 0.0f;             // 无摩擦，防止贴墙卡顿
-    settings.mAllowSleeping = false;       // 永不休眠
-    settings.mLinearDamping = 0.0f;        // 无线性阻尼，速度完全由我们控制
-    settings.mAngularDamping = 1.0f;       // 高角阻尼，防止它被撞得乱转
-    settings.mGravityFactor = 1.0f;        // 受重力影响（确保贴地）
-    
-    // 锁定旋转（防止像个不倒翁一样被撞倒）
-    settings.mAllowedDOFs = JPH::EAllowedDOFs::TranslationX | 
-                            JPH::EAllowedDOFs::TranslationY | 
+    settings.mFriction = 0.0f;
+    settings.mAllowSleeping = false;
+    settings.mLinearDamping = 0.0f;
+    settings.mAngularDamping = 1.0f;
+    settings.mGravityFactor = 1.0f;
+    settings.mAllowedDOFs = JPH::EAllowedDOFs::TranslationX |
+                            JPH::EAllowedDOFs::TranslationY |
                             JPH::EAllowedDOFs::TranslationZ;
-                            
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
 }
 
@@ -217,17 +227,12 @@ JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float 
         shape.Create().Get(),
         JPH::RVec3(x, y, z),
         JPH::Quat::sIdentity(),
-        JPH::EMotionType::Kinematic, 
+        JPH::EMotionType::Kinematic,
         Layers::MOVING
     );
-    
     settings.mGravityFactor = 0.0f;
     settings.mAllowDynamicOrKinematic = true;
-    
-    // 👈 核心修复 1：绝对不反弹（弹性为0）
-    settings.mRestitution = 0.0f; 
-    // 👈 核心修复 2：摩擦力拉满，防止乱滑
-    settings.mFriction = 1.0f;    
-
+    settings.mRestitution = 0.0f;
+    settings.mFriction = 1.0f;
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
 }

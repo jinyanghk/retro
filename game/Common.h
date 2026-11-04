@@ -19,7 +19,7 @@
 #include <iostream>
 #include <utility>
 
-// Jolt 核心头文件
+// Jolt 核心
 #include <Jolt/Jolt.h>
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
@@ -35,59 +35,9 @@
 
 #include "version.h"
 
+// 👇 跨模块共享 POD（ExplosiveBarrel / EnemyInfo / DoorStateForTrace / BulletHole）
+#include "GameTypes.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
-
-// ============================================================================
-// 基础数据结构
-// ============================================================================
-
-
-struct ExplosiveBarrel {
-    JPH::BodyID bodyId;
-    glm::vec3  spawnPos;
-    float      hp = 20.0f;
-    bool       exploded = false;
-};
-
-enum class EnemyState {
-    IDLE,
-    CHASE,
-    ATTACK,
-    STUNNED,
-    DEAD
-};
-
-struct EnemyInfo {
-    glm::vec3 pos;
-    glm::vec3 vel = glm::vec3(0.0f);
-    float hp = 100.0f;
-    float radius = 20.0f;
-    float height = 60.0f;
-    bool isGrounded = false;
-    float attackTimer = 0.0f;
-    float stepCooldown = 0.0f;
-    EnemyState state = EnemyState::IDLE;
-    float stunTimer = 0.0f;
-    float deathTimer = 0.0f;
-    JPH::BodyID bodyId;
-    // 👈 新增：A* 寻路缓存
-    std::vector<glm::vec3> path;
-    int pathIndex = 0;
-    float pathTimer = 0.0f; // 重新计算路径的冷却时间  
-    float stuckTimer = 0.0f;  
-};
-
-struct DoorStateForTrace {
-    glm::vec3 mins, maxs;
-    glm::vec3 openDir;
-    float openDist;
-    float openAmount;
-};
-
-struct BulletHole {
-    glm::vec3 pos;
-    glm::vec3 normal;
-    float life;
-};

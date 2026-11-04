@@ -1,5 +1,10 @@
 #pragma once
-#include "Common.h"
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyID.h>
+#include <vector>
+#include <cstdint>
 
 // 初始化 Jolt
 void InitPhysics();

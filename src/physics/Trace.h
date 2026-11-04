@@ -1,6 +1,16 @@
 #pragma once
-#include "BVH.h"
-#include "Common.h"
+#include "BVH.h"                              // glm + RayAABB
+#include "GameTypes.h"                        // ExplosiveBarrel / EnemyInfo / DoorStateForTrace
+#include <SDL2/SDL_mixer.h>                   // Mix_Chunk
+#include <glm/glm.hpp>
+#include <vector>
+
+// Jolt 完整依赖（Trace.cpp 里用 GetShape()->GetWorldSpaceBounds / JPH::AABox）
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Geometry/AABox.h>
 
 // 射线检测动态物理箱子与爆炸桶
 float TraceDynamicBoxes(JPH::BodyInterface& bi,
