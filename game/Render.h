@@ -12,6 +12,7 @@ struct RenderAssets {
     GLuint gunIndexCount = 0;
     GLuint boxIndexCount = 0;
     std::vector<GLuint> materialTexIds;   // 和 mapData.materialGroups 一一对应
+    GLuint whiteTex = 0;
 };
 
 void InitRender(RenderAssets& render, const MapData& mapData);

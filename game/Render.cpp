@@ -45,9 +45,9 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
                 // 地图模式：世界坐标平面投影 UV
                 vec2 uv;
                 vec3 blend = abs(vNormal);
-                if (blend.y > 0.5)       uv = vWorldPos.xz * 0.02;
-                else if (blend.x > 0.5)  uv = vWorldPos.zy * 0.02;
-                else                     uv = vWorldPos.xy * 0.02;
+                if (blend.y > 0.5)       uv = vWorldPos.xz * (1.0 / 128.0);
+                else if (blend.x > 0.5)  uv = vWorldPos.zy * (1.0 / 128.0);
+                else                     uv = vWorldPos.xy * (1.0 / 128.0);
 
                 vec3 tex = texture(uTex, uv).rgb;
                 baseColor = tex;
@@ -136,7 +136,7 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         std::vector<uint8_t> pixels(SZ * SZ * 4);
         for (int y = 0; y < SZ; ++y) {
             for (int x = 0; x < SZ; ++x) {
-                bool checker = ((x / 8) + (y / 8)) & 1;
+                bool checker = ((x / 16) + (y / 16)) & 1;
                 float k = checker ? 1.0f : 0.82f;
                 int idx = (y * SZ + x) * 4;
                 pixels[idx+0] = (uint8_t)(base.r * k * 255);
@@ -156,6 +156,14 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         render.materialTexIds[i] = tex;
     }    
+    {
+        uint8_t whitePixel[4] = {255,255,255,255};
+        glGenTextures(1, &render.whiteTex);
+        glBindTexture(GL_TEXTURE_2D, render.whiteTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whitePixel);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
 }
 
 void ShutdownRender(RenderAssets& render) {
@@ -166,6 +174,11 @@ void ShutdownRender(RenderAssets& render) {
     for (GLuint t : render.materialTexIds) 
         if (t) glDeleteTextures(1, &t);
             render.materialTexIds.clear();
+    if (render.whiteTex) 
+    { 
+        glDeleteTextures(1, &render.whiteTex); 
+        render.whiteTex = 0; 
+    }            
 }
 
 void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponState& weapon, const GravityGunState& gravityGun,
@@ -217,6 +230,10 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
     glDisable(GL_CULL_FACE);
     
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, render.whiteTex);
+    glUniform1i(glGetUniformLocation(render.program, "uTex"), 0);
+
     // 渲染物理箱子
     glUniform1i(uModeLoc, 0);
     glUniform3f(uColorLoc, 0.6f, 0.4f, 0.2f);
