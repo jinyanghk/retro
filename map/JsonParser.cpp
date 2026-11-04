@@ -24,43 +24,64 @@ bool ParseJson(const char* path, MapData& out) {
         for (const auto& jb : data["brushes"]) {
             Brush b;
             
-            // 情况 A: 如果你的编辑器已经显式存了 8 个顶点
+            // 👈 新增：优先解析真实的多边形面
+            if (jb.contains("faces") && jb["faces"].is_array()) {
+                for (const auto& jf : jb["faces"]) {
+                    BrushFace face;
+                    face.material = jf.value("material", "DEV/DEV_MEASUREGENERIC01");
+                    face.uaxis    = jf.value("uaxis", "[1 0 0 0] 1");
+                    face.vaxis    = jf.value("vaxis", "[0 1 0 0] 1");
+                    
+                    // 保存面法线
+                    if (jf.contains("normal") && jf["normal"].size() >= 3) {
+                        face.normal.x = jf["normal"][0].get<float>();
+                        face.normal.y = jf["normal"][1].get<float>();
+                        face.normal.z = jf["normal"][2].get<float>();
+                    }
+
+                    // 解析该面的顶点
+                    if (jf.contains("vertices")) {
+                        for (const auto& jv : jf["vertices"]) {
+                            face.verts.push_back({ 
+                                jv[0].get<float>(), 
+                                jv[1].get<float>(), 
+                                jv[2].get<float>() 
+                            });
+                        }
+                    }
+                    if (!face.verts.empty()) {
+                        b.faces.push_back(face);
+                    }
+                }
+            }
+
+            // 原有的 AABB 兜底（如果没有 faces，或者编辑器生成的小方块）
             if (jb.contains("vertices") && jb["vertices"].size() >= 8) {
                 for (const auto& jv : jb["vertices"])
                     b.verts.push_back({ jv[0].get<float>(), jv[1].get<float>(), jv[2].get<float>() });
-            } 
-            // 情况 B: 使用 position 和 halfSize 自动生成标准的 8 个角
-            else if (jb.contains("position") && jb.contains("halfSize")) {
+            } else if (jb.contains("position") && jb.contains("halfSize")) {
                 float px = jb["position"][0], py = jb["position"][1], pz = jb["position"][2];
                 float hx = jb["halfSize"][0], hy = jb["halfSize"][1], hz = jb["halfSize"][2];
 
-                // 打印前几个，确认坐标轴和尺寸对不对
-                if (brushCount < 3) {
-                    printf("[Debug] Brush %d: pos(%.1f, %.1f, %.1f), halfSize(%.1f, %.1f, %.1f)\n", 
-                           brushCount, px, py, pz, hx, hy, hz);
-                }
-
-                // 标准的 AABB 8顶点生成 (OpenGL Y-up 标准顺序)
                 b.verts = {
-                    { px - hx, py - hy, pz - hz }, // 0: 左 下 后
-                    { px + hx, py - hy, pz - hz }, // 1: 右 下 后
-                    { px + hx, py + hy, pz - hz }, // 2: 右 上 后
-                    { px - hx, py + hy, pz - hz }, // 3: 左 上 后
-                    { px - hx, py - hy, pz + hz }, // 4: 左 下 前
-                    { px + hx, py - hy, pz + hz }, // 5: 右 下 前
-                    { px + hx, py + hy, pz + hz }, // 6: 右 上 前
-                    { px - hx, py + hy, pz + hz }  // 7: 左 上 前
+                    { px - hx, py - hy, pz - hz },
+                    { px + hx, py - hy, pz - hz },
+                    { px + hx, py + hy, pz - hz },
+                    { px - hx, py + hy, pz - hz },
+                    { px - hx, py - hy, pz + hz },
+                    { px + hx, py - hy, pz + hz },
+                    { px + hx, py + hy, pz + hz },
+                    { px - hx, py + hy, pz + hz }
                 };
             }
 
-            // 如果是用 position 和 halfSize 生成的，最好直接存：
+            // 处理包围盒（用于编辑器里的框选）
             if (jb.contains("position") && jb.contains("halfSize")) {
                 float px = jb["position"][0], py = jb["position"][1], pz = jb["position"][2];
                 float hx = jb["halfSize"][0], hy = jb["halfSize"][1], hz = jb["halfSize"][2];
                 b.mins = { px - hx, py - hy, pz - hz };
                 b.maxs = { px + hx, py + hy, pz + hz };
             } else if (!b.verts.empty()) {
-                // 如果是显式顶点，自己算
                 for (auto& v : b.verts) {
                     b.mins.x = std::min(b.mins.x, v.x); b.maxs.x = std::max(b.maxs.x, v.x);
                     b.mins.y = std::min(b.mins.y, v.y); b.maxs.y = std::max(b.maxs.y, v.y);
@@ -68,51 +89,8 @@ bool ParseJson(const char* path, MapData& out) {
                 }
             }
 
-            // 如果成功生成了顶点，再解析面
-            if (!b.verts.empty() && jb.contains("faces")) {
-                for (const auto& jf : jb["faces"]) {
-                    BrushFace face;
-                    face.normal = jf.contains("normal")
-                        ? Vec3{ jf["normal"][0].get<float>(), jf["normal"][1].get<float>(), jf["normal"][2].get<float>() }
-                        : Vec3{0,0,1};
-                    
-                    // 直接读取你编辑器提供的 indices
-                    if (jf.contains("indices")) {
-                        for (const auto& ji : jf["indices"]) {
-                            int idx = ji.get<int>();
-                            // 安全校验
-                            if (idx >= 0 && idx < (int)b.verts.size()) {
-                                face.indices.push_back(idx);
-                            }
-                        }
-                    }
-                    // 在 BrushFace face; 之后，读材质名
-                    if (jf.contains("material") && jf["material"].is_string()) {
-                        face.material = jf["material"].get<std::string>();
-                    }                    
-                    b.faces.push_back(std::move(face));
-                }
-
-                // 在 out.brushes.push_back(std::move(b)); 之前
-                {
-                    // 用 normal 把 editor 的 face 映射到 6 个标准方向
-                    // 顺序: [POS_Z, NEG_Z, POS_X, NEG_X, POS_Y, NEG_Y]
-                    const Vec3 kDirs[6] = {
-                        {0,0,1}, {0,0,-1}, {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}
-                    };
-                    for (auto& jf : jb["faces"]) {
-                        if (!jf.contains("normal") || !jf.contains("material")) continue;
-                        float nx = jf["normal"][0], ny = jf["normal"][1], nz = jf["normal"][2];
-                        for (int k = 0; k < 6; ++k) {
-                            if (std::abs(nx - kDirs[k].x) < 0.01f &&
-                                std::abs(ny - kDirs[k].y) < 0.01f &&
-                                std::abs(nz - kDirs[k].z) < 0.01f) {
-                                b.faceMaterials[k] = jf["material"].get<std::string>();
-                                break;
-                            }
-                        }
-                    }
-                }                
+            // 只要有顶点或者面，就收进刷子
+            if (!b.verts.empty() || !b.faces.empty()) {
                 out.brushes.push_back(std::move(b));
                 brushCount++;
             }

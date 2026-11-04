@@ -96,13 +96,13 @@ void BakeVertexLighting(const MapData& map, MeshBuffers& renderMesh, const MeshB
         std::cout << "[LightBaker] No light entities found, skipping bake.\n";
         return;
     }
-    std::cout << "[LightBaker] Baking " << lights.size() << " lights onto " << (renderMesh.verts.size()/9) << " vertices...\n";
+    std::cout << "[LightBaker] Baking " << lights.size() << " lights onto " << (renderMesh.verts.size()/11) << " vertices...\n";
 
     // 2. 遍历渲染网格顶点，累加光照
-    uint32_t nv = (uint32_t)(renderMesh.verts.size() / 9);
+    uint32_t nv = (uint32_t)(renderMesh.verts.size() / 11);
     for (uint32_t i = 0; i < nv; i++) {
-        glm::vec3 pos  (renderMesh.verts[i*9+0], renderMesh.verts[i*9+1], renderMesh.verts[i*9+2]);
-        glm::vec3 norm (renderMesh.verts[i*9+3], renderMesh.verts[i*9+4], renderMesh.verts[i*9+5]);
+        glm::vec3 pos  (renderMesh.verts[i*11+0], renderMesh.verts[i*11+1], renderMesh.verts[i*11+2]);
+        glm::vec3 norm (renderMesh.verts[i*11+3], renderMesh.verts[i*11+4], renderMesh.verts[i*11+5]);
         
         glm::vec3 totalLight = glm::vec3(opts.ambient);
 
@@ -126,8 +126,8 @@ void BakeVertexLighting(const MapData& map, MeshBuffers& renderMesh, const MeshB
         }
 
         // 把最终颜色限制在 0 ~ 1 之间
-        renderMesh.verts[i*9+6] = std::min(totalLight.r, 1.0f);
-        renderMesh.verts[i*9+7] = std::min(totalLight.g, 1.0f);
-        renderMesh.verts[i*9+8] = std::min(totalLight.b, 1.0f);
+        renderMesh.verts[i*11+6] = std::min(totalLight.r, 1.0f);
+        renderMesh.verts[i*11+7] = std::min(totalLight.g, 1.0f);
+        renderMesh.verts[i*11+8] = std::min(totalLight.b, 1.0f);
     }
 }

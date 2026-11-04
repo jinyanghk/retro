@@ -12,7 +12,11 @@ struct BrushFace {
     std::vector<Vec3> verts;
     std::vector<int>  indices;
     Vec3              normal{0,0,1};
-    std::string       material;   // v6: 面材质（空 = 继承 brush 默认）
+    std::string       material;
+    
+    // 👈 新增：HL2 的 UV 轴
+    std::string uaxis;
+    std::string vaxis;
 };
 
 struct Brush {
@@ -47,15 +51,15 @@ struct MapData {
 };
 
 struct MeshBuffers {
-    std::vector<float>    verts;
+    std::vector<float>    verts; // stride 11
     std::vector<uint32_t> indices;
-    // v6: 按材质分组（每个 group 是 indices 的一个连续切片）
+    
     struct MaterialGroup {
         std::string name;
-        uint32_t    indexOffset = 0;  // 在 indices 里的起始下标
-        uint32_t    indexCount  = 0;  // 索引个数
+        uint32_t    indexOffset = 0;
+        uint32_t    indexCount  = 0;
     };
-    std::vector<MaterialGroup> materialGroups;    
+    std::vector<MaterialGroup> materialGroups;
 };
 
 struct LightBakeOptions {

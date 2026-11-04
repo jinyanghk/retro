@@ -13,9 +13,10 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     glBindVertexArray(render.mapVAO);
     glBindBuffer(GL_ARRAY_BUFFER, render.mapVBO); glBufferData(GL_ARRAY_BUFFER, mapData.verts.size() * 4, mapData.verts.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, render.mapEBO); glBufferData(GL_ELEMENT_ARRAY_BUFFER, mapData.indices.size() * 4, mapData.indices.data(), GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(3); glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(9 * sizeof(float)));
 
     // 着色器：严格分离地图模式(uMode=1)和物体模式(uMode=0/2)
     const char* vs_src = R"(
@@ -23,16 +24,19 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         layout(location=0) in vec3 aPos;
         layout(location=1) in vec3 aNormal;
         layout(location=2) in vec3 aColor;
+        layout(location=3) in vec2 aUV;
         uniform mat4 uMVP;
         uniform mat4 uModel;
         out vec3 vNormal;
         out vec3 vWorldPos;
         out vec3 vColor;
+        out vec2 vUV;
         void main() {
             gl_Position = uMVP * vec4(aPos, 1.0);
             vNormal   = mat3(uModel) * aNormal;
             vWorldPos = vec3(uModel * vec4(aPos, 1.0));
             vColor    = aColor;
+            vUV       = aUV;
         }
     )";
     const char* fs_src = R"(
@@ -40,6 +44,7 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         in vec3 vNormal;
         in vec3 vWorldPos;
         in vec3 vColor;
+        in vec2 vUV;
         out vec4 FragColor;
         uniform vec3 uColor;
         uniform int  uMode;
@@ -51,14 +56,9 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
             float diff = 1.0;
 
             if (uMode == 1) {
-                // 地图模式：世界坐标平面投影 UV
-                vec2 uv;
-                vec3 blend = abs(vNormal);
-                if (blend.y > 0.5)       uv = vWorldPos.xz * (1.0 / 128.0);
-                else if (blend.x > 0.5)  uv = vWorldPos.zy * (1.0 / 128.0);
-                else                     uv = vWorldPos.xy * (1.0 / 128.0);
-                
-                baseColor = texture(uTex, uv).rgb;
+                // 直接使用顶点传进来的 HL2 UV
+                vec3 tex = texture(uTex, vUV).rgb;
+                baseColor = tex; 
                 diff = 1.0; // 地图走烘焙光照，不乘方向光
             } else {
                 // 实体模式：枪、箱子、敌人等

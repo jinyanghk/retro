@@ -116,6 +116,10 @@ void UpdatePhysics(float deltaTime) {
 // 实体创建封装
 // ============================================================================
 void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_t>& indices, uint32_t nv, uint32_t ni) {
+    if (nv == 0 || ni < 3) {
+        printf("[Physics] WARNING: CreateStaticMesh called with empty data (nv=%u, ni=%u), skipping.\n", nv, ni);
+        return;
+    }
     JPH::VertexList vertices;
     vertices.reserve(nv);
     for (uint32_t i = 0; i < nv; i++) {

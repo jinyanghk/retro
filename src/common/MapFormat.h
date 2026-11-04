@@ -4,7 +4,7 @@
 #include <string>
 
 static constexpr uint32_t MAP_MAGIC   = 0x4856424D; // "MBVH"
-static constexpr uint32_t MAP_VERSION = 6; // v6: +LUMP_MATERIALS
+static constexpr uint32_t MAP_VERSION = 7; // v7: stride 11 + real UV
 
 enum LumpType : uint32_t {
     LUMP_GEOMETRY   = 1,

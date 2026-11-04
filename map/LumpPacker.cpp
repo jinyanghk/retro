@@ -42,7 +42,7 @@ bool PackLumps(const MapData& map,
     {
         std::vector<char> buf;
         auto PushU32 = [&](uint32_t v){ buf.insert(buf.end(), (char*)&v, (char*)&v + 4); };
-        uint32_t nv = (uint32_t)(renderMesh.verts.size() / 9);
+        uint32_t nv = (uint32_t)(renderMesh.verts.size() / 11);  //v7 11 stride
         uint32_t ni = (uint32_t)renderMesh.indices.size();
         PushU32(nv); PushU32(ni);
         buf.insert(buf.end(), (const char*)renderMesh.verts.data(),
