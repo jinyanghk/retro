@@ -106,9 +106,7 @@ add_library(physics SHARED
 target_compile_definitions(physics PRIVATE PHYSICS_EXPORTS)
 target_include_directories(physics PUBLIC
     src/common     # 👈 让 GameTypes.h 对使用方可见
-)
-target_include_directories(physics PRIVATE
-    src/geometry   # Trace.h 要 #include "BVH.h"
+    src/geometry   # Trace.h 要 #include "BVH.h"    
 )
 target_link_libraries(physics PUBLIC
     core
