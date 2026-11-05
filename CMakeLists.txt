@@ -128,19 +128,37 @@ target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
 target_include_directories(assets PUBLIC src/assets)
 target_link_libraries(assets PUBLIC core)
 
+# ---------- shader 嵌入 ----------
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(SHADER_DIR ${CMAKE_SOURCE_DIR}/src/shaders)
+set(SHADER_GEN ${CMAKE_CURRENT_BINARY_DIR}/shaders_generated.h)
+
+file(GLOB SHADER_FILES ${SHADER_DIR}/*.vert ${SHADER_DIR}/*.frag)
+
+add_custom_command(
+    OUTPUT ${SHADER_GEN}
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tools/embed_shaders.py
+            ${SHADER_DIR} ${SHADER_GEN}
+    DEPENDS ${SHADER_FILES} ${CMAKE_SOURCE_DIR}/tools/embed_shaders.py
+    COMMENT "Embedding GLSL shaders"
+)
+
+add_custom_target(shaders_gen DEPENDS ${SHADER_GEN})
+
 # ---------- editor ----------
 add_executable(editor
-    editor/main.cpp
-    editor/SceneGlobals.cpp
-    editor/Brush.cpp
-    editor/Entity.cpp
-    editor/UndoStack.cpp
-    editor/EditorLayout.cpp
-    editor/GraphEditorPanel.cpp
-    editor/GameDatabase.cpp
-    editor/EditorPanels.cpp
-    editor/View2D.cpp
-    editor/MapIO.cpp
+    src/editor/main.cpp
+    src/editor/SceneGlobals.cpp
+    src/editor/Brush.cpp
+    src/editor/Entity.cpp
+    src/editor/UndoStack.cpp
+    src/editor/EditorLayout.cpp
+    src/editor/GraphEditorPanel.cpp
+    src/editor/GameDatabase.cpp
+    src/editor/EditorPanels.cpp
+    src/editor/View2D.cpp
+    src/editor/MapIO.cpp
 )
 # 让 build 目录自动同步 editor.json 文件
 add_custom_command(TARGET editor POST_BUILD
@@ -169,13 +187,13 @@ target_link_libraries(editor PRIVATE
 
 # ---------- map ----------
 add_executable(map
-    map/main.cpp
-    map/JsonParser.cpp
-    map/BrushBuilder.cpp
-    map/LumpPacker.cpp
-    map/LightBaker.cpp
-    map/NavGridBuilder.cpp
-    map/NodeGraphBuilder.cpp
+    src/map/main.cpp
+    src/map/JsonParser.cpp
+    src/map/BrushBuilder.cpp
+    src/map/LumpPacker.cpp
+    src/map/LightBaker.cpp
+    src/map/NavGridBuilder.cpp
+    src/map/NodeGraphBuilder.cpp
 )
 target_include_directories(map PRIVATE 
     ${CMAKE_SOURCE_DIR}
@@ -191,16 +209,17 @@ target_link_libraries(map PRIVATE
 
 # ---------- game ----------
 add_executable(game 
-    game/main.cpp
-    game/MapLoader.cpp
-    game/Player.cpp
-    game/Weapon.cpp
-    game/Audio.cpp
-    game/Enemy.cpp
-    game/Render.cpp
-    game/AStar.cpp
-    game/Level.cpp
+    src/game/main.cpp
+    src/game/MapLoader.cpp
+    src/game/Player.cpp
+    src/game/Weapon.cpp
+    src/game/Audio.cpp
+    src/game/Enemy.cpp
+    src/game/Render.cpp
+    src/game/AStar.cpp
+    src/game/Level.cpp
 )
+add_dependencies(game shaders_gen)
 target_include_directories(game PRIVATE 
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/common

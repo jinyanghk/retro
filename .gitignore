@@ -12,3 +12,5 @@ vcpkg_installed
 
 misc/*.json
 misc/*.vmf
+misc/*.bvh
+misc/assets

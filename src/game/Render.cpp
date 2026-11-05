@@ -8,6 +8,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include "shaders_generated.h"
+
+
 void InitRender(RenderAssets& render, const MapData& mapData) {
     glGenVertexArrays(1, &render.mapVAO); glGenBuffers(1, &render.mapVBO); glGenBuffers(1, &render.mapEBO);
     glBindVertexArray(render.mapVAO);
@@ -18,70 +21,33 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(3); glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(9 * sizeof(float)));
 
-    // 着色器：严格分离地图模式(uMode=1)和物体模式(uMode=0/2)
-    const char* vs_src = R"(
-        #version 330 core
-        layout(location=0) in vec3 aPos;
-        layout(location=1) in vec3 aNormal;
-        layout(location=2) in vec3 aColor;
-        layout(location=3) in vec2 aUV;
-        uniform mat4 uMVP;
-        uniform mat4 uModel;
-        out vec3 vNormal;
-        out vec3 vWorldPos;
-        out vec3 vColor;
-        out vec2 vUV;
-        void main() {
-            gl_Position = uMVP * vec4(aPos, 1.0);
-            vNormal   = mat3(uModel) * aNormal;
-            vWorldPos = vec3(uModel * vec4(aPos, 1.0));
-            vColor    = aColor;
-            vUV       = aUV;
-        }
-    )";
-    const char* fs_src = R"(
-        #version 330 core
-        in vec3 vNormal;
-        in vec3 vWorldPos;
-        in vec3 vColor;
-        in vec2 vUV;
-        out vec4 FragColor;
-        uniform vec3 uColor;
-        uniform int  uMode;
-        uniform int  uUseVColor;
-        uniform sampler2D uTex;
-
-        void main() {
-            vec3 baseColor = uColor;
-            float diff = 1.0;
-
-            if (uMode == 1) {
-                // 直接使用顶点传进来的 HL2 UV
-                vec3 tex = texture(uTex, vUV).rgb;
-                baseColor = tex; 
-                diff = 1.0; // 地图走烘焙光照，不乘方向光
-            } else {
-                // 实体模式：枪、箱子、敌人等
-                vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-                diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5;
-            }
-
-            // 对于地图（uUseVColor==1），乘上烘焙颜色。其他物体乘方向光。
-            if (uUseVColor == 1) {
-                FragColor = vec4(baseColor * vColor, 1.0); 
-            } else {
-                FragColor = vec4(baseColor * diff, 1.0);
-            }
-        }
-    )";
+    // ================= 编译三个 Program =================
     auto compile_shader = [](GLenum type, const char* src) {
-        GLuint s = glCreateShader(type); glShaderSource(s, 1, &src, nullptr); glCompileShader(s); return s;
+        GLuint s = glCreateShader(type); 
+        glShaderSource(s, 1, &src, nullptr); 
+        glCompileShader(s); 
+        // 可以加个错误检查
+        GLint success;
+        glGetShaderiv(s, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetShaderInfoLog(s, 512, nullptr, infoLog);
+            printf("[Shader] Compile error: %s\n", infoLog);
+        }
+        return s;
     };
-    GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src);
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src);
-    render.program = glCreateProgram();
-    glAttachShader(render.program, vs); glAttachShader(render.program, fs); glLinkProgram(render.program);
-    glDeleteShader(vs); glDeleteShader(fs);
+    auto link_program = [&](const char* vs_src, const char* fs_src) {
+        GLuint vs = compile_shader(GL_VERTEX_SHADER, vs_src);
+        GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fs_src);
+        GLuint prog = glCreateProgram();
+        glAttachShader(prog, vs); glAttachShader(prog, fs); glLinkProgram(prog);
+        glDeleteShader(vs); glDeleteShader(fs);
+        return prog;
+    };
+
+    render.mapProgram    = link_program(Shaders::common_vert, Shaders::map_frag);
+    render.entityProgram = link_program(Shaders::common_vert, Shaders::entity_frag);
+    render.gunProgram    = link_program(Shaders::common_vert, Shaders::gun_frag);
 
     // Box Geometry
     std::vector<float> box_verts = {
@@ -191,7 +157,9 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
 }
 
 void ShutdownRender(RenderAssets& render) {
-    glDeleteProgram(render.program);
+    glDeleteProgram(render.mapProgram);
+    glDeleteProgram(render.entityProgram);
+    glDeleteProgram(render.gunProgram);
     glDeleteVertexArrays(1, &render.mapVAO); glDeleteBuffers(1, &render.mapVBO); glDeleteBuffers(1, &render.mapEBO);
     glDeleteVertexArrays(1, &render.boxVAO); glDeleteBuffers(1, &render.boxVBO); glDeleteBuffers(1, &render.boxEBO);
     glDeleteVertexArrays(1, &render.gunVAO); glDeleteBuffers(1, &render.gunVBO); glDeleteBuffers(1, &render.gunEBO);
@@ -209,37 +177,19 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
                  const std::vector<BulletHole>& bulletHoles,
                  int scrW, int scrH) {
     
-    glUseProgram(render.program);
-    GLint uUseVColorLoc = glGetUniformLocation(render.program, "uUseVColor");
-    GLint uModeLoc = glGetUniformLocation(render.program, "uMode");
-    GLint uColorLoc = glGetUniformLocation(render.program, "uColor");
-    GLint uTexLoc = glGetUniformLocation(render.program, "uTex");
-
-    // 恢复真实的相机视角
     glm::mat4 projection = glm::perspective(glm::radians(85.0f), (float)scrW / (float)scrH, 0.1f, 100000.0f);
     glm::vec3 eyePos = player.GetEyePos();
-    glm::vec3 forward = player.GetForward();
+    glm::mat4 view = glm::lookAt(eyePos, eyePos + player.GetForward(), glm::vec3(0, 1, 0));
+    glm::mat4 model = glm::mat4(1.0f);
+
+    // ================== 1. 渲染地图 ==================
+    glUseProgram(render.mapProgram);
+    glDisable(GL_CULL_FACE);
     
-    // 注意这里的 Y-up 方向
-    glm::mat4 view = glm::lookAt(eyePos, eyePos + forward, glm::vec3(0, 1, 0));
-    glm::mat4 model = glm::mat4(1.0f); // 地图自带世界坐标，不需要模型矩阵
-
-    // 打印一下，确认相机在看哪里
-    // printf("Eye: %.1f, %.1f, %.1f | Forward: %.1f, %.1f, %.1f\n", 
-    //     eyePos.x, eyePos.y, eyePos.z, forward.x, forward.y, forward.z);
-
-    // ================== 渲染地图 ==================
-    //glDisable(GL_CULL_FACE);
-    glEnable(GL_CULL_FACE); glCullFace(GL_BACK);
-    // 用真实的 MVP 矩阵
     glm::mat4 mvp = projection * view * model;
-    
-    glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
-    glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
-
-    glUniform1i(uUseVColorLoc, 1); 
-    glUniform1i(uModeLoc, 1);      
-    glUniform1i(uTexLoc, 0);
+    glUniformMatrix4fv(glGetUniformLocation(render.mapProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniformMatrix4fv(glGetUniformLocation(render.mapProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform1i(glGetUniformLocation(render.mapProgram, "uTex"), 0);
 
     glBindVertexArray(render.mapVAO);
     for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
@@ -250,16 +200,20 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glDrawElements(GL_TRIANGLES, g.indexCount, GL_UNSIGNED_INT, (void*)(g.indexOffset * sizeof(uint32_t)));
     }
 
-    // ================== 渲染实体（关闭 Cull，切白图）==================
-    glUniform1i(uUseVColorLoc, 0);
-    glUniform1i(uModeLoc, 0);
+    // ================== 2. 渲染实体 ==================
+    glUseProgram(render.entityProgram);
     glDisable(GL_CULL_FACE);
-    
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, render.whiteTex);
-    
-    // 渲染物理箱子
-    glUniform3f(uColorLoc, 0.6f, 0.4f, 0.2f);
+
+    GLint entColorLoc = glGetUniformLocation(render.entityProgram, "uColor");
+    GLint entMvpLoc   = glGetUniformLocation(render.entityProgram, "uMVP");
+    GLint entModelLoc = glGetUniformLocation(render.entityProgram, "uModel");
+
+    glBindVertexArray(render.boxVAO);
+
+    // 物理箱子
+    glUniform3f(entColorLoc, 0.6f, 0.4f, 0.2f);
     for (size_t i = 0; i < physboxIds.size(); i++) {
         JPH::RMat44 t = body_interface.GetWorldTransform(physboxIds[i]);
         JPH::Vec3 pos = t.GetTranslation(); JPH::Quat q = t.GetQuaternion();
@@ -267,15 +221,13 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glm::mat4 box_model = glm::translate(glm::mat4(1.0f), glm::vec3(pos.GetX(), pos.GetY(), pos.GetZ())) 
                             * glm::mat4_cast(glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ())) 
                             * glm::scale(glm::mat4(1.0f), halfSize);
-        glm::mat4 box_mvp = projection * view * box_model;
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(box_mvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(box_model));
-        glBindVertexArray(render.boxVAO);
+        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * box_model));
+        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(box_model));
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // 渲染桶
-    glUniform3f(uColorLoc, 0.8f, 0.15f, 0.1f);
+    // 桶
+    glUniform3f(entColorLoc, 0.8f, 0.15f, 0.1f);
     for (auto& b : barrels) {
         if (b.exploded) continue;
         JPH::RMat44 t = body_interface.GetWorldTransform(b.bodyId);
@@ -283,23 +235,19 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(pos.GetX(), pos.GetY(), pos.GetZ())) 
                     * glm::mat4_cast(glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ())) 
                     * glm::scale(glm::mat4(1.0f), glm::vec3(12.0f, 24.0f, 12.0f));
-        glm::mat4 mvp = projection * view * m;
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(m));
-        glBindVertexArray(render.boxVAO);
+        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * m));
+        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(m));
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // 渲染门
-    glUniform3f(uColorLoc, 0.2f, 0.6f, 0.8f);
+    // 门
+    glUniform3f(entColorLoc, 0.2f, 0.6f, 0.8f);
     for (auto& d : mapData.doors) {
         glm::vec3 center = (d.mins + d.maxs) * 0.5f + d.openDir * (d.openDist * d.openAmount);
         glm::vec3 halfSize = (d.maxs - d.mins) * 0.5f;
         glm::mat4 doorModel = glm::translate(glm::mat4(1.0f), center) * glm::scale(glm::mat4(1.0f), halfSize);
-        glm::mat4 doorMvp = projection * view * doorModel;
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(doorMvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(doorModel));
-        glBindVertexArray(render.boxVAO);
+        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * doorModel));
+        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(doorModel));
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
@@ -317,26 +265,23 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glm::mat4 beam = glm::translate(glm::mat4(1.0f), mid);
         beam[0] = glm::vec4(right, 0); beam[1] = glm::vec4(up, 0); beam[2] = glm::vec4(dir, 0);
         beam = beam * glm::scale(glm::mat4(1.0f), glm::vec3(0.6f, 0.6f, len * 0.5f));
-        glm::mat4 beamMvp = projection * view * beam;
-        glUniform3f(uColorLoc, 0.3f, 0.8f, 1.0f);
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(beamMvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(beam));
-        glBindVertexArray(render.boxVAO);
+        glUniform3f(entColorLoc, 0.3f, 0.8f, 1.0f);
+        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * beam));
+        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(beam));
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
     // 敌人
     for (auto& enemy : enemies) {
         if (enemy.state == EnemyState::DEAD && enemy.deathTimer > 10.0f) continue;
-
         if (enemy.state == EnemyState::DEAD) {
-            glUniform3f(uColorLoc, 0.2f, 0.1f, 0.1f); 
+            glUniform3f(entColorLoc, 0.2f, 0.1f, 0.1f); 
         } else if (enemy.state == EnemyState::STUNNED) {
-            glUniform3f(uColorLoc, 1.0f, 1.0f, 0.0f);
+            glUniform3f(entColorLoc, 1.0f, 1.0f, 0.0f);
         } else if (enemy.state == EnemyState::ATTACK) {
-            glUniform3f(uColorLoc, 1.0f, 0.0f, 0.0f);
+            glUniform3f(entColorLoc, 1.0f, 0.0f, 0.0f);
         } else {
-            glUniform3f(uColorLoc, 0.8f, 0.2f, 0.2f);
+            glUniform3f(entColorLoc, 0.8f, 0.2f, 0.2f);
         }
 
         glm::mat4 enemyModel = glm::translate(glm::mat4(1.0f), enemy.pos);
@@ -346,26 +291,24 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         } else {
             enemyModel = enemyModel * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.height * 0.5f, enemy.radius));
         }
-        glm::mat4 enemyMvp = projection * view * enemyModel;
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(enemyMvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(enemyModel));
-        glBindVertexArray(render.boxVAO);
+        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * enemyModel));
+        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(enemyModel));
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
     // 弹孔
-    glUniform3f(uColorLoc, 0.1f, 0.1f, 0.1f);
+    glUniform3f(entColorLoc, 0.1f, 0.1f, 0.1f);
     for (auto& bh : bulletHoles) {
         glm::mat4 bulletModel = glm::translate(glm::mat4(1.0f), bh.pos) * glm::scale(glm::mat4(1.0f), glm::vec3(0.5f));
-        glm::mat4 bulletMvp = projection * view * bulletModel;
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(bulletMvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(bulletModel));
-        glBindVertexArray(render.boxVAO);
+        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * bulletModel));
+        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(bulletModel));
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // ================== 渲染武器 ==================
+    // ================== 3. 渲染武器 ==================
+    glUseProgram(render.gunProgram);
     glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
+    
     float recoilOffset = 0.0f, recoilPitch = 0.0f;
     if (weapon.recoilTimer > 0.0f) {
         float progress = weapon.recoilTimer / weapon.recoilDuration;
@@ -376,32 +319,37 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     gunBase = glm::rotate(gunBase, glm::radians(recoilPitch), glm::vec3(1, 0, 0));
     gunBase = glm::rotate(gunBase, glm::radians(-5.0f), glm::vec3(0, 1, 0));
 
-    glUniform1i(uModeLoc, 2); // 枪模式
+    GLint gunColorLoc = glGetUniformLocation(render.gunProgram, "uColor");
+    GLint gunMvpLoc   = glGetUniformLocation(render.gunProgram, "uMVP");
+    GLint gunModelLoc = glGetUniformLocation(render.gunProgram, "uModel");
+
     auto DrawGunPart = [&](glm::vec3 offset, glm::vec3 scale) {
         glm::mat4 partModel = glm::translate(gunBase, offset) * glm::scale(glm::mat4(1.0f), scale);
-        glm::mat4 partMvp = gunProj * glm::mat4(1.0f) * partModel;
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(partMvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(partModel));
+        glm::mat4 partMvp = gunProj * partModel;
+        glUniformMatrix4fv(gunMvpLoc, 1, GL_FALSE, glm::value_ptr(partMvp));
+        glUniformMatrix4fv(gunModelLoc, 1, GL_FALSE, glm::value_ptr(partModel));
         glBindVertexArray(render.boxVAO);
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     };
 
+    glUniform3f(gunColorLoc, 0.25f, 0.25f, 0.28f);
+
+    // 枪管（圆柱体）
     glm::mat4 barrelModel = glm::translate(gunBase, glm::vec3(0.0f, 0.02f, -0.3f)) * glm::scale(glm::mat4(1.0f), glm::vec3(0.008f, 0.008f, 0.4f));
-    glm::mat4 barrelMvp = gunProj * barrelModel;
-    glUniformMatrix4fv(glGetUniformLocation(render.program, "uMVP"), 1, GL_FALSE, glm::value_ptr(barrelMvp));
-    glUniformMatrix4fv(glGetUniformLocation(render.program, "uModel"), 1, GL_FALSE, glm::value_ptr(barrelModel));
+    glUniformMatrix4fv(gunMvpLoc, 1, GL_FALSE, glm::value_ptr(gunProj * barrelModel));
+    glUniformMatrix4fv(gunModelLoc, 1, GL_FALSE, glm::value_ptr(barrelModel));
     glBindVertexArray(render.gunVAO);
     glDrawElements(GL_TRIANGLES, render.gunIndexCount, GL_UNSIGNED_INT, 0);
 
     glBindVertexArray(render.boxVAO);
-    glUniform3f(uColorLoc, 0.25f, 0.25f, 0.28f); // 设置枪的灰色
     DrawGunPart(glm::vec3(0.0f, 0.0f, -0.05f), glm::vec3(0.035f, 0.05f, 0.25f));
     DrawGunPart(glm::vec3(0.0f, -0.08f, 0.02f), glm::vec3(0.02f, 0.08f, 0.04f));
     DrawGunPart(glm::vec3(0.0f, -0.06f, 0.1f), glm::vec3(0.025f, 0.06f, 0.03f));
     DrawGunPart(glm::vec3(0.0f, 0.05f, -0.3f), glm::vec3(0.005f, 0.015f, 0.02f));
     
+    // 枪口火焰
     if (weapon.recoilTimer > 0.05f) { 
-        glUniform1i(uModeLoc, 0); glUniform3f(uColorLoc, 1.0f, 0.8f, 0.2f); 
+        glUniform3f(gunColorLoc, 1.0f, 0.8f, 0.2f); 
         DrawGunPart(glm::vec3(0.0f, 0.02f, -0.6f), glm::vec3(0.04f, 0.04f, 0.04f));
     }
 }

@@ -5,7 +5,11 @@
 #include "Weapon.h"
 
 struct RenderAssets {
-    GLuint program = 0;
+    // 三个独立的着色器程序
+    GLuint mapProgram = 0;
+    GLuint entityProgram = 0;
+    GLuint gunProgram = 0;
+    
     GLuint mapVAO = 0, mapVBO = 0, mapEBO = 0;
     GLuint boxVAO = 0, boxVBO = 0, boxEBO = 0;
     GLuint gunVAO = 0, gunVBO = 0, gunEBO = 0;
