@@ -1,7 +1,8 @@
 #pragma once
 #include "Common.h"
+#include "GameExport.h"
 
-struct AudioAssets {
+struct GAME_API AudioAssets {
     Mix_Chunk* sndShoot = nullptr;
     Mix_Chunk* sndHit = nullptr;
     Mix_Chunk* sndDoor = nullptr;
@@ -9,7 +10,7 @@ struct AudioAssets {
 };
 
 // 初始化音频系统并加载所有音效
-void InitAudio(AudioAssets& audio);
+GAME_API void InitAudio(AudioAssets& audio);
 
 // 释放音频资源
-void ShutdownAudio(AudioAssets& audio);
+GAME_API void ShutdownAudio(AudioAssets& audio);

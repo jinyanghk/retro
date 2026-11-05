@@ -1,8 +1,9 @@
 #pragma once
 #include "Common.h"
 #include "Player.h"
+#include "GameExport.h"
 
-struct GravityGunState {
+struct GAME_API GravityGunState {
     JPH::BodyID heldBody;
     bool holding = false;
     float holdDistance = 300.0f;
@@ -10,14 +11,14 @@ struct GravityGunState {
     float releaseCooldown = 0.0f;
 };
 
-struct WeaponState {
+struct GAME_API WeaponState {
     float recoilTimer = 0.0f;
     const float recoilDuration = 0.1f;
     float crosshairHitTimer = 0.0f;
 };
 
 // 开火（左键）
-void FireWeapon(PlayerState& p, WeaponState& w, GravityGunState& g, float dt,
+GAME_API void FireWeapon(PlayerState& p, WeaponState& w, GravityGunState& g, float dt,
                 JPH::BodyInterface& body_interface,
                 const std::vector<JPH::BodyID>& physboxIds,
                 const std::vector<DoorStateForTrace>& doorTrace,
@@ -27,7 +28,7 @@ void FireWeapon(PlayerState& p, WeaponState& w, GravityGunState& g, float dt,
                 Mix_Chunk* sndShoot, Mix_Chunk* sndHit, Mix_Chunk* sndExplosion);
 
 // 重力枪逻辑更新
-void UpdateGravityGun(PlayerState& p, GravityGunState& g, bool bGrabPressed, bool bThrowPressed, float dt,
+GAME_API void UpdateGravityGun(PlayerState& p, GravityGunState& g, bool bGrabPressed, bool bThrowPressed, float dt,
                       JPH::BodyInterface& body_interface,
                       const std::vector<JPH::BodyID>& physboxIds,
                       const std::vector<DoorStateForTrace>& doorTrace,

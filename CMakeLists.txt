@@ -183,6 +183,7 @@ target_link_libraries(editor PRIVATE
     core
     geometry
     assets
+    game
 )
 
 # ---------- map ----------
@@ -207,42 +208,56 @@ target_link_libraries(map PRIVATE
     assets
 )
 
-# ---------- game ----------
-add_executable(game 
-    src/game/main.cpp
-    src/game/MapLoader.cpp
+# ==========================================
+# game 逻辑动态库（供 game.exe 和 editor.exe 使用）
+# ==========================================
+add_library(game SHARED
     src/game/Player.cpp
     src/game/Weapon.cpp
-    src/game/Audio.cpp
     src/game/Enemy.cpp
-    src/game/Render.cpp
     src/game/AStar.cpp
     src/game/Level.cpp
+    src/game/Audio.cpp
+    src/game/MapLoader.cpp
+    # 注意：这里不包含 Render.cpp，也不包含 main.cpp
 )
-add_dependencies(game shaders_gen)
-target_include_directories(game PRIVATE 
+target_compile_definitions(game PRIVATE GAME_EXPORTS)
+target_include_directories(game PUBLIC 
+    src/game
+    src/common
+    src/physics
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(game PUBLIC
+    core
+    geometry
+    physics
+    assets
+    imgui
+    Jolt::Jolt
+    glm::glm
+    SDL2::SDL2
+    SDL2_mixer::SDL2_mixer
+    nlohmann_json::nlohmann_json
+)
+
+# ---------- game executable ----------
+add_executable(retro 
+    src/game/main.cpp
+    src/game/Render.cpp
+)
+add_dependencies(retro shaders_gen)
+target_include_directories(retro PRIVATE 
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/common
     src/physics
     ${CMAKE_CURRENT_BINARY_DIR}
 )
-# 让 build 目录自动同步 sounds
-#add_custom_command(TARGET game POST_BUILD
-#    COMMAND ${CMAKE_COMMAND} -E copy_directory
-#        ${CMAKE_SOURCE_DIR}/sounds
-#        $<TARGET_FILE_DIR:game>/sounds
-#)
-target_link_libraries(game PRIVATE
+target_link_libraries(retro PRIVATE
+    game
     imgui
     SDL2::SDL2main
     SDL2::SDL2
-    SDL2_mixer::SDL2_mixer
-    glm::glm
-    Jolt::Jolt
     GLEW::GLEW
     OpenGL::GL
-    core
-    geometry
-    assets
-    physics
 )

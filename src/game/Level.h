@@ -3,6 +3,7 @@
 #include "Physics.h"
 #include "Enemy.h"
 #include "BVH.h"
+#include "GameExport.h"
 
 // 状态机
 enum class LevelState {
@@ -11,14 +12,14 @@ enum class LevelState {
     DOOR_OPENING         // 门正在打开
 };
 
-extern LevelState currentState;
-extern float transitionTimer;
+extern GAME_API LevelState currentState;
+extern GAME_API float transitionTimer;
 
-extern std::string currentMap;
-extern std::string nextMap;
-extern bool pendingMapSwitch;
+extern GAME_API std::string currentMap;
+extern GAME_API std::string nextMap;
+extern GAME_API bool pendingMapSwitch;
 
-void CleanupCurrentLevel(JPH::BodyInterface& body_interface,
+GAME_API void CleanupCurrentLevel(JPH::BodyInterface& body_interface,
                          std::vector<JPH::BodyID>& physboxIds,
                          std::vector<JPH::BodyID>& doorBodies,
                          std::vector<EnemyInfo>& enemies,

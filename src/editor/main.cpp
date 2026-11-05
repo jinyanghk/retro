@@ -25,6 +25,7 @@
 #include "version.h"
 #include "Log.h"
 #include "FileSystem.h"
+#include "MapLoader.h"   // 需要 MapData 和 LoadMap
 
 #include <cstdio>
 #include <cstring>
@@ -130,6 +131,11 @@ static GLuint g_lineColorProg = 0;
 static GLuint g_faceHiProg  = 0;
 static GLuint g_faceHiVAO   = 0;
 static GLuint g_faceHiVBO   = 0;
+
+// from libgame
+static MapData g_loadedMapData;
+static bool g_bLoadedBvh = false;
+static GLuint g_bvhVAO = 0, g_bvhVBO = 0, g_bvhEBO = 0;
 
 // ---------------------------------------------------------------------------
 // GL 辅助与 FBO
@@ -895,6 +901,51 @@ static void OnImportMap() {
         g_iSelectedEntity = -1;
     }
 }
+static void OnLoadBvh() {
+    const char* path = "d1_town_02a.bvh";  // 或者用 ImGui 文件对话框
+    if (!LoadMap(path, g_loadedMapData)) {
+        LogAdd("[EDITOR] Failed to load BVH");
+        return;
+    }
+    g_bLoadedBvh = true;
+    LogAdd("[EDITOR] Loaded BVH");
+    printf("[Editor] verts=%zu indices=%zu groups=%zu\n",
+           g_loadedMapData.verts.size(),
+           g_loadedMapData.indices.size(),
+           g_loadedMapData.materialGroups.size());
+
+    // 上传 VBO
+    if (g_bvhVAO == 0) {
+        glGenVertexArrays(1, &g_bvhVAO);
+        glGenBuffers(1, &g_bvhVBO);
+        glGenBuffers(1, &g_bvhEBO);
+    }
+    glBindVertexArray(g_bvhVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, g_bvhVBO);
+    glBufferData(GL_ARRAY_BUFFER, g_loadedMapData.verts.size() * 4, g_loadedMapData.verts.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_bvhEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, g_loadedMapData.indices.size() * 4, g_loadedMapData.indices.data(), GL_STATIC_DRAW);
+
+    // 注意：你的 g_brushProg 的顶点布局是 pos3 + normal3 + uv2 = 8 floats
+    // 但 MapData 的 stride 是 11（pos3 + normal3 + color3 + uv2）
+    // 所以这里需要把 color3 跳过，只传 pos/normal/uv
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(9 * sizeof(float)));
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
+    glBindVertexArray(0);
+
+    // 👈 绝对强制：强行把相机塞到地图内部（这是我们从编辑器看到的地图中心）
+    g_cam.target = glm::vec3(-2500.0f, -1000.0f, -2500.0f); 
+    g_cam.dist   = 1000.0f;
+    g_cam.yaw    = 45.0f;
+    g_cam.pitch  = -15.0f;
+    
+    printf("[Editor] Camera forced to: target=(%.1f, %.1f, %.1f), dist=%.1f\n",
+           g_cam.target.x, g_cam.target.y, g_cam.target.z, g_cam.dist);
+}
 static void OnCompileAndRun() {
     if (!ExportMapJson(currentMap)) { LogAdd("[COMPILE] export FAILED"); return; }
     
@@ -964,6 +1015,14 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     DrawGrid(vp);
     DrawBrushes(vp);
     DrawBrushWireframe(vp);
+if (g_bLoadedBvh && g_bvhVAO != 0) {
+    glUseProgram(g_brushProg);
+    GLint uMVP = glGetUniformLocation(g_brushProg, "uMVP");
+    glUniformMatrix4fv(uMVP, 1, GL_FALSE, glm::value_ptr(vp));
+    glBindVertexArray(g_bvhVAO);
+    glDrawElements(GL_TRIANGLES, (GLsizei)g_loadedMapData.indices.size(), GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+}    
     DrawEntityBBoxes(vp);
 
     // =========================================================
@@ -1158,6 +1217,7 @@ int main(int argc, char** argv)
     SetExportMapHandler(OnExportMap);
     SetImportMapHandler(OnImportMap);
     SetCompileAndRunHandler(OnCompileAndRun);
+    SetLoadBvhHandler(OnLoadBvh);   // 👈 新增
 
     // open currentMap
     OnImportMap();

@@ -23,10 +23,12 @@
 static void (*s_pfnExportMap)() = nullptr;
 static void (*s_pfnImportMap)() = nullptr;
 static void (*s_pfnCompileAndRun)() = nullptr;
+static void (*s_pfnLoadBvh)() = nullptr;
 
 void SetExportMapHandler(void (*pfn)()) { s_pfnExportMap = pfn; }
 void SetImportMapHandler(void (*pfn)()) { s_pfnImportMap = pfn; }
 void SetCompileAndRunHandler(void (*pfn)()) { s_pfnCompileAndRun = pfn; }
+void SetLoadBvhHandler(void (*pfn)()) { s_pfnLoadBvh = pfn; }
 
 // ---------------------------------------------------------------------------
 void DrawMenuBar()
@@ -39,7 +41,8 @@ void DrawMenuBar()
             //ImGui::Separator();
             //if (ImGui::MenuItem("Compile & Run"))   { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
             //if (ImGui::MenuItem("Compile Options...")) OpenCompileOptionsWindow();
-            //ImGui::Separator();
+            if (ImGui::MenuItem("Load BVH")) { if (s_pfnLoadBvh) s_pfnLoadBvh(); }         
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit")) {}
             ImGui::EndMenu();
         }

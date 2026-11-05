@@ -29,6 +29,7 @@ void DrawScenePanel();
 void SetExportMapHandler(void (*pfn)());
 void SetImportMapHandler(void (*pfn)());
 void SetCompileAndRunHandler(void (*pfn)());
+void SetLoadBvhHandler(void (*pfn)());
 void OpenCompileOptionsWindow();
 void DrawCompileOptionsWindow();
 

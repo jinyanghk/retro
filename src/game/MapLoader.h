@@ -2,8 +2,9 @@
 #include "Common.h"
 #include "MapFormat.h"
 #include <nlohmann/json.hpp>
+#include "GameExport.h"
 
-struct MapData {
+struct GAME_API MapData {
     // 几何（v3: stride 9 = pos3 + normal3 + color3）
     uint32_t nv = 0, ni = 0;
     std::vector<float> verts;
@@ -76,4 +77,4 @@ struct MapData {
     std::vector<MaterialGroup> materialGroups;    
 };
 
-bool LoadMap(const char* filename, MapData& outData);
+GAME_API bool LoadMap(const char* filename, MapData& outData);
