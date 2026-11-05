@@ -241,10 +241,10 @@ target_link_libraries(game PUBLIC
     nlohmann_json::nlohmann_json
 )
 
-# ---------- game executable ----------
+# ---------- retro ----------
 add_executable(retro 
-    src/game/main.cpp
-    src/game/Render.cpp
+    src/retro/main.cpp
+    src/retro/Render.cpp
 )
 add_dependencies(retro shaders_gen)
 target_include_directories(retro PRIVATE 
