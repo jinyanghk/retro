@@ -192,14 +192,32 @@ def to_my_json(solids, entities, out_path):
         default_mat = faces[0]['material']
         def conv(v): return [v[0], v[2], -v[1]] # Z-up -> Y-up
         
+        # 👈 新增：转换轴向量字符串
+        def convert_axis_str(axis_str):
+            # 解析类似 "[1 0 0 0] 0.25"
+            if not axis_str: return "[1 0 0 0] 1"
+            import re
+            m = re.match(r'\[([^\]]+)\]\s*(.*)', axis_str)
+            if not m: return axis_str
+            vec_str = m.group(1)
+            scale_str = m.group(2)
+            
+            parts = [float(x) for x in vec_str.split()]
+            if len(parts) == 4:
+                # 转换 x y z（第4个是 shift，不动）
+                nx, ny, nz = parts[0], parts[2], -parts[1]
+                new_vec_str = f"{nx:.6f} {ny:.6f} {nz:.6f} {parts[3]:.6f}"
+                return f"[{new_vec_str}] {scale_str}"
+            return axis_str
+
         json_faces = []
         for f in faces:
             json_faces.append({
                 'normal': [f['normal'][0], f['normal'][2], -f['normal'][1]],
                 'material': f['material'],
                 'vertices': [conv(v) for v in f['vertices']],
-                'uaxis': f['uaxis'],
-                'vaxis': f['vaxis'],
+                'uaxis': convert_axis_str(f['uaxis']), # 👈 修改这里
+                'vaxis': convert_axis_str(f['vaxis']), # 👈 修改这里
             })
 
         out['brushes'].append({

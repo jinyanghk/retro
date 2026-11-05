@@ -1,6 +1,7 @@
 #include "MapCompiler.h"
 #include <cmath>
 #include <sstream>
+#include <algorithm>
 #include <glm/glm.hpp>
 
 static void ParseAxis(const std::string& axisStr, glm::vec3& outAxis, float& outShift, float& outScale) {
@@ -22,6 +23,22 @@ static void ParseAxis(const std::string& axisStr, glm::vec3& outAxis, float& out
     outScale = scale;
 }
 
+// 👈 新增：判断是不是应该被隐藏（跳过渲染和碰撞）的工具材质
+static bool IsHiddenToolMaterial(const std::string& mat) {
+    if (mat.empty()) return false;
+    std::string lower = mat;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    
+    // 包含 tools/ 但不是 toolsskybox，一律跳过
+    if (lower.find("tools/") != std::string::npos) {
+        if (lower.find("toolsskybox") != std::string::npos) {
+            return false; // skybox 需要保留，后面用天空盒渲染
+        }
+        return true; // toolsnodraw, toolsclip, toolstrigger 等全部砍掉
+    }
+    return false;
+}
+
 void BuildBrushMeshes(const std::vector<Brush>& brushes, MeshBuffers& renderMesh, MeshBuffers& collisionMesh) {
     glm::vec3 kWhite(1.0f);
 
@@ -39,6 +56,12 @@ void BuildBrushMeshes(const std::vector<Brush>& brushes, MeshBuffers& renderMesh
         if (!b.faces.empty()) {
             for (const auto& f : b.faces) {
                 if (f.verts.size() < 3) continue;
+
+                // 👈 修正位置：过滤工具材质
+                if (IsHiddenToolMaterial(f.material)) {
+                    continue; 
+                }                
+
                 PendingFace pf;
                 pf.verts    = f.verts;
                 pf.normal   = f.normal;
@@ -62,10 +85,16 @@ void BuildBrushMeshes(const std::vector<Brush>& brushes, MeshBuffers& renderMesh
                 { {p0, p1, p5, p4}, {0,-1,0}, 4 }, // -Y
             };
             for (auto& q : quads) {
+                std::string m = b.faceMaterials[q.faceIdx];
+                
+                // 👈 修正位置：兜底 AABB 也要过滤工具材质
+                if (IsHiddenToolMaterial(m)) {
+                    continue;
+                }
+
                 PendingFace pf;
                 pf.verts = q.v;
                 pf.normal = q.n;
-                std::string m = b.faceMaterials[q.faceIdx];
                 pf.material = m.empty() ? "DEV/DEV_MEASUREGENERIC01" : m;
                 pf.uaxis = "[1 0 0 0] 1";
                 pf.vaxis = "[0 1 0 0] 1";
@@ -101,8 +130,8 @@ void BuildBrushMeshes(const std::vector<Brush>& brushes, MeshBuffers& renderMesh
 
             for (size_t i = 0; i < pf.verts.size(); ++i) {
                 glm::vec3 pos(pf.verts[i].x, pf.verts[i].y, pf.verts[i].z);
-                float u = (glm::dot(pos, uAxis) / uScale + uShift) / 1024.0f;
-                float v = (glm::dot(pos, vAxis) / vScale + vShift) / 1024.0f;
+                float u = (glm::dot(pos, uAxis) / uScale + uShift) / 512.0f;
+                float v = (glm::dot(pos, vAxis) / vScale + vShift) / 512.0f;
                 
                 renderMesh.verts.insert(renderMesh.verts.end(), {
                     pos.x, pos.y, pos.z,
