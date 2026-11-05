@@ -45,9 +45,9 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         return prog;
     };
 
-    render.mapProgram    = link_program(Shaders::common_vert, Shaders::map_frag);
-    render.entityProgram = link_program(Shaders::common_vert, Shaders::entity_frag);
-    render.gunProgram    = link_program(Shaders::common_vert, Shaders::gun_frag);
+    render.mapProgram    = link_program(Shaders::game_common_vert, Shaders::game_map_frag);
+    render.entityProgram = link_program(Shaders::game_common_vert, Shaders::game_entity_frag);
+    render.gunProgram    = link_program(Shaders::game_common_vert, Shaders::game_gun_frag);
 
     // Box Geometry
     std::vector<float> box_verts = {

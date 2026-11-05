@@ -25,7 +25,8 @@
 #include "version.h"
 #include "Log.h"
 #include "FileSystem.h"
-#include "MapLoader.h"   // 需要 MapData 和 LoadMap
+#include "MapLoader.h"
+#include "shaders_generated.h"
 
 #include <cstdio>
 #include <cstring>
@@ -37,35 +38,6 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
-
-// ---------------------------------------------------------------------------
-// 简单 shader
-// ---------------------------------------------------------------------------
-static const char* kBrushVS = R"(
-#version 330 core
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
-uniform mat4 uMVP;
-out vec3 vNormal;
-out vec2 vUV;
-void main() {
-    gl_Position = uMVP * vec4(aPos, 1.0);
-    vNormal = aNormal;
-    vUV = aUV;
-}
-)";
-static const char* kBrushFS = R"(
-#version 330 core
-in vec3 vNormal;
-in vec2 vUV;
-out vec4 FragColor;
-void main() {
-    vec3 base = vec3(0.6, 0.6, 0.65);
-    float shade = 0.5 + 0.5 * max(dot(vNormal, normalize(vec3(0.3, 0.5, 0.8))), 0.0);
-    FragColor = vec4(base * shade, 1.0);
-}
-)";
 
 // ---------------------------------------------------------------------------
 // 相机 (Y-up)
@@ -164,22 +136,8 @@ static GLuint LinkProgram(GLuint vs, GLuint fs)
 static GLuint EnsureLineColorProg()
 {
     if (g_lineColorProg != 0) return g_lineColorProg;
-    const char* vs = R"(
-        #version 330 core
-        layout(location=0) in vec3 aPos;
-        layout(location=1) in vec3 aColor;
-        uniform mat4 uVP;
-        out vec3 vColor;
-        void main() { gl_Position = uVP * vec4(aPos,1.0); vColor = aColor; }
-    )";
-    const char* fs = R"(
-        #version 330 core
-        in vec3 vColor;
-        out vec4 FragColor;
-        void main() { FragColor = vec4(vColor,1.0); }
-    )";
-    GLuint v = CompileShader(GL_VERTEX_SHADER, vs);
-    GLuint f = CompileShader(GL_FRAGMENT_SHADER, fs);
+    GLuint v = CompileShader(GL_VERTEX_SHADER, Shaders::editor_line_vert);
+    GLuint f = CompileShader(GL_FRAGMENT_SHADER, Shaders::editor_line_frag);
     g_lineColorProg = LinkProgram(v, f);
     return g_lineColorProg;
 }
@@ -187,20 +145,8 @@ static GLuint EnsureLineColorProg()
 static void EnsureFaceHighlightGL()
 {
     if (g_faceHiProg != 0) return;
-    const char* vs = R"(
-        #version 330 core
-        layout(location=0) in vec3 aPos;
-        uniform mat4 uVP;
-        void main() { gl_Position = uVP * vec4(aPos,1.0); }
-    )";
-    const char* fs = R"(
-        #version 330 core
-        uniform vec4 uColor;
-        out vec4 FragColor;
-        void main() { FragColor = uColor; }
-    )";
-    GLuint v = CompileShader(GL_VERTEX_SHADER, vs);
-    GLuint f = CompileShader(GL_FRAGMENT_SHADER, fs);
+    GLuint v = CompileShader(GL_VERTEX_SHADER, Shaders::editor_face_hi_vert);
+    GLuint f = CompileShader(GL_FRAGMENT_SHADER, Shaders::editor_face_hi_frag);
     g_faceHiProg = LinkProgram(v, f);
 
     glGenVertexArrays(1, &g_faceHiVAO);
@@ -237,8 +183,8 @@ static void ResizeFBO(int w, int h)
 
 static void InitGL()
 {
-    GLuint vs = CompileShader(GL_VERTEX_SHADER,   kBrushVS);
-    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, kBrushFS);
+    GLuint vs = CompileShader(GL_VERTEX_SHADER,   Shaders::editor_brush_vert);
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, Shaders::editor_brush_frag);
     g_brushProg = LinkProgram(vs, fs);
 
     glGenVertexArrays(1, &g_brushVAO);
@@ -275,19 +221,8 @@ static void DrawGrid(const glm::mat4& viewProj)
 {
     static GLuint gridProg = 0;
     if (gridProg == 0) {
-        const char* vs = R"(
-            #version 330 core
-            layout(location=0) in vec3 aPos;
-            uniform mat4 uVP;
-            void main() { gl_Position = uVP * vec4(aPos, 1.0); }
-        )";
-        const char* fs = R"(
-            #version 330 core
-            out vec4 FragColor;
-            void main() { FragColor = vec4(0.22, 0.22, 0.24, 1.0); }
-        )";
-        GLuint v = CompileShader(GL_VERTEX_SHADER, vs);
-        GLuint f = CompileShader(GL_FRAGMENT_SHADER, fs);
+        GLuint v = CompileShader(GL_VERTEX_SHADER, Shaders::editor_grid_vert);
+        GLuint f = CompileShader(GL_FRAGMENT_SHADER, Shaders::editor_grid_frag);
         gridProg = LinkProgram(v, f);
     }
     glUseProgram(gridProg);

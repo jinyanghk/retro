@@ -160,6 +160,7 @@ add_executable(editor
     src/editor/View2D.cpp
     src/editor/MapIO.cpp
 )
+add_dependencies(editor shaders_gen)
 # 让 build 目录自动同步 editor.json 文件
 add_custom_command(TARGET editor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
