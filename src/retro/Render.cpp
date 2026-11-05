@@ -1,15 +1,13 @@
 #include "Render.h"
 #include "BVH.h"
 #include "FileSystem.h"
+#include "TextureCache.h"     // 👈 新增
+
 #include <cstdio>
 #include <vector>
 #include <string>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
 #include "shaders_generated.h"
-
 
 void InitRender(RenderAssets& render, const MapData& mapData) {
     glGenVertexArrays(1, &render.mapVAO); glGenBuffers(1, &render.mapVBO); glGenBuffers(1, &render.mapEBO);
@@ -98,60 +96,12 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    // 加载贴图
+    // 加载贴图（统一走 TextureCache，去重 + 缓存 + fallback 都在里面）
+    TextureCache::Init();
     render.materialTexIds.resize(mapData.materialGroups.size(), 0);
     for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
-        const std::string& name = mapData.materialGroups[i].name;
-        GLuint tex = 0;
-        bool loaded = false;
-
-        // 尝试加载真实图片 (依赖 FileSystem::ResolveMaterial 返回全路径)
-        // 注意：这里的路径一定要确保你放对了文件！
-        std::string texPath = FileSystem::ResolveMaterial(name);
-        int w, h, channels;
-        unsigned char* pixels = stbi_load(texPath.c_str(), &w, &h, &channels, 4);
-        if (pixels) {
-            glGenTextures(1, &tex);
-            glBindTexture(GL_TEXTURE_2D, tex);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-            glGenerateMipmap(GL_TEXTURE_2D);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            stbi_image_free(pixels);
-            loaded = true;
-            printf("[Render] Loaded real texture: %s (%dx%d)\n", texPath.c_str(), w, h);
-        }
-
-        // 如果没有图，或者加载失败，生成棋盘格占位
-        if (!loaded) {
-            uint32_t hash = 0;
-            for (char c : name) hash = hash * 131 + (uint8_t)c;
-            glm::vec3 base(0.55f, 0.50f, 0.42f); // 默认石墙色
-            
-            const int SZ = 64;
-            std::vector<uint8_t> pix(SZ * SZ * 4);
-            for (int y = 0; y < SZ; ++y) {
-                for (int x = 0; x < SZ; ++x) {
-                    bool checker = ((x / 16) + (y / 16)) & 1;
-                    float k = checker ? 1.0f : 0.82f;
-                    int idx = (y * SZ + x) * 4;
-                    pix[idx+0] = (uint8_t)(base.r * k * 255);
-                    pix[idx+1] = (uint8_t)(base.g * k * 255);
-                    pix[idx+2] = (uint8_t)(base.b * k * 255);
-                    pix[idx+3] = 255;
-                }
-            }
-            glGenTextures(1, &tex);
-            glBindTexture(GL_TEXTURE_2D, tex);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SZ, SZ, 0, GL_RGBA, GL_UNSIGNED_BYTE, pix.data());
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        }
-        render.materialTexIds[i] = tex;
+        render.materialTexIds[i] =
+            TextureCache::GetTexture(mapData.materialGroups[i].name);
     }
     glBindVertexArray(0);
 }
@@ -164,7 +114,9 @@ void ShutdownRender(RenderAssets& render) {
     glDeleteVertexArrays(1, &render.boxVAO); glDeleteBuffers(1, &render.boxVBO); glDeleteBuffers(1, &render.boxEBO);
     glDeleteVertexArrays(1, &render.gunVAO); glDeleteBuffers(1, &render.gunVBO); glDeleteBuffers(1, &render.gunEBO);
     if (render.whiteTex) glDeleteTextures(1, &render.whiteTex);
-    for (GLuint t : render.materialTexIds) if (t) glDeleteTextures(1, &t);
+    //for (GLuint t : render.materialTexIds) if (t) glDeleteTextures(1, &t);
+    TextureCache::Shutdown();   // 👈 新增
+    render.materialTexIds.clear();
 }
 
 void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponState& weapon, const GravityGunState& gravityGun,

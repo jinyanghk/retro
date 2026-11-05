@@ -121,10 +121,14 @@ target_link_libraries(physics PUBLIC
 # ==========================================
 add_library(assets SHARED
     src/assets/FileSystem.cpp
+    src/assets/TextureCache.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
 target_include_directories(assets PUBLIC src/assets)
-target_link_libraries(assets PUBLIC core)
+target_link_libraries(assets PUBLIC 
+    core
+    GLEW::GLEW
+)
 
 # ---------- shader 嵌入 ----------
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

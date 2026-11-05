@@ -33,20 +33,23 @@ bool FileSystem::Exists(const std::string& path) {
 }
 
 std::string FileSystem::ResolveMaterial(const std::string& materialName) {
-    std::string name = materialName;
-    
-    // 统一转小写，替换反斜杠
-    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c){ return std::tolower(c); });
-    std::replace(name.begin(), name.end(), '\\', '/');
+    // 1. 统一转小写
+    std::string lowerMat = materialName;
+    std::transform(lowerMat.begin(), lowerMat.end(), lowerMat.begin(), ::tolower);
 
-    // 提取文件名（DEV/xxx -> xxx）
-    size_t slashPos = name.find_last_of('/');
-    if (slashPos != std::string::npos) {
-        name = name.substr(slashPos + 1);
+    // 2. C++17 手动判断后缀
+    auto EndsWith = [](const std::string& str, const std::string& suffix) {
+        if (str.size() < suffix.size()) return false;
+        return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+
+    if (EndsWith(lowerMat, ".png") || EndsWith(lowerMat, ".tga") || EndsWith(lowerMat, ".dds")) {
+        return s_baseDir + "materials/" + lowerMat;
     }
 
-    // 👈 核心修复：加上 "assets/" 前缀
-    std::string relativePath = "assets/materials/dev/" + name + ".png";
-    
-    return s_baseDir + relativePath;
+    // 3. 替换反斜杠为正斜杠（防止路径拼错）
+    std::replace(lowerMat.begin(), lowerMat.end(), '\\', '/');
+
+    // 4. 默认拼上 materials/ 前缀和 .png 后缀
+    return s_baseDir + "materials/" + lowerMat + ".png";
 }
