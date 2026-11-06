@@ -142,11 +142,32 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glUniformMatrix4fv(glGetUniformLocation(render.mapProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
     glUniformMatrix4fv(glGetUniformLocation(render.mapProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
     glUniform1i(glGetUniformLocation(render.mapProgram, "uTex"), 0);
+    
+    // 获取 uAlphaTest 的 location
+    GLint alphaTestLoc = glGetUniformLocation(render.mapProgram, "uAlphaTest");
 
     glBindVertexArray(render.mapVAO);
     for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
         const auto& g = mapData.materialGroups[i];
         if (g.indexCount == 0) continue;
+
+        // 👈 关键字匹配：判断是不是透明材质
+        std::string matName = g.name;
+        std::transform(matName.begin(), matName.end(), matName.begin(), ::tolower);
+        
+        bool isAlpha = false;
+        if (matName.find("glass") != std::string::npos ||
+            matName.find("grate") != std::string::npos ||
+            matName.find("fence") != std::string::npos ||
+            matName.find("wire") != std::string::npos ||
+            matName.find("tree") != std::string::npos ||
+            matName.find("window") != std::string::npos) {
+            isAlpha = true;
+        }
+
+        // 设置 alpha 开关
+        glUniform1i(alphaTestLoc, isAlpha ? 1 : 0);
+
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, render.materialTexIds[i]);
         glDrawElements(GL_TRIANGLES, g.indexCount, GL_UNSIGNED_INT, (void*)(g.indexOffset * sizeof(uint32_t)));
