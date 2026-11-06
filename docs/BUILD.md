@@ -13,7 +13,8 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-jolt-physics \
             mingw-w64-ucrt-x86_64-nlohmann-json \
             mingw-w64-ucrt-x86_64-glew \
-            mingw-w64-ucrt-x86_64-python-scipy
+            mingw-w64-ucrt-x86_64-python-scipy \
+            mingw-w64-ucrt-x86_64-assimp
 ```
 
 ### linux ubuntu/debian
@@ -21,7 +22,9 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
 
 ```sh
 sudo apt install nlohmann-json3-dev \
-                 libglew-dev
+                 libglew-dev \
+                 libassimp-dev \
+                 python3-scipy
 ```
 
 #### Jolt Physics

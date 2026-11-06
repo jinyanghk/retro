@@ -1,10 +1,14 @@
+// src/assets/MapLoader.h
 #pragma once
-#include "Common.h"
-#include "MapFormat.h"
+#include <vector>
+#include <string>
+#include <cstdint>
+#include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
-#include "GameExport.h"
+#include "MapFormat.h"
+#include "Export.h"
 
-struct GAME_API MapData {
+struct ASSET_API MapData {
     // 几何（v3: stride 9 = pos3 + normal3 + color3）
     uint32_t nv = 0, ni = 0;
     std::vector<float> verts;
@@ -77,4 +81,4 @@ struct GAME_API MapData {
     std::vector<MaterialGroup> materialGroups;    
 };
 
-GAME_API bool LoadMap(const char* filename, MapData& outData);
+ASSET_API bool LoadMap(const char* filename, MapData& outData);

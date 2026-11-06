@@ -122,12 +122,17 @@ target_link_libraries(physics PUBLIC
 add_library(assets SHARED
     src/assets/FileSystem.cpp
     src/assets/TextureCache.cpp
+    src/assets/MapLoader.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
-target_include_directories(assets PUBLIC src/assets)
+target_include_directories(assets PUBLIC 
+    src/assets
+    src/common
+)
 target_link_libraries(assets PUBLIC 
     core
     GLEW::GLEW
+    nlohmann_json::nlohmann_json
 )
 
 # ---------- shader 嵌入 ----------
@@ -186,7 +191,6 @@ target_link_libraries(editor PRIVATE
     core
     geometry
     assets
-    game
 )
 
 # ---------- map ----------
@@ -221,8 +225,6 @@ add_library(game SHARED
     src/game/AStar.cpp
     src/game/Level.cpp
     src/game/Audio.cpp
-    src/game/MapLoader.cpp
-    # 注意：这里不包含 Render.cpp，也不包含 main.cpp
 )
 target_compile_definitions(game PRIVATE GAME_EXPORTS)
 target_include_directories(game PUBLIC 

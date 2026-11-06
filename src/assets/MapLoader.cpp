@@ -1,6 +1,8 @@
+// src/assets/MapLoader.cpp
 #include "MapLoader.h"
 #include <cstring>
 #include <cstdio>
+#include <fstream>
 
 bool LoadMap(const char* filename, MapData& outData) {
     std::ifstream f(filename, std::ios::binary);
