@@ -123,6 +123,7 @@ add_library(assets SHARED
     src/assets/FileSystem.cpp
     src/assets/TextureCache.cpp
     src/assets/MapLoader.cpp
+    src/assets/Audio.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
 target_include_directories(assets PUBLIC 
@@ -133,6 +134,8 @@ target_link_libraries(assets PUBLIC
     core
     GLEW::GLEW
     nlohmann_json::nlohmann_json
+    SDL2_mixer::SDL2_mixer
+    SDL2::SDL2
 )
 
 # ---------- shader 嵌入 ----------
@@ -224,7 +227,6 @@ add_library(game SHARED
     src/game/Enemy.cpp
     src/game/AStar.cpp
     src/game/Level.cpp
-    src/game/Audio.cpp
 )
 target_compile_definitions(game PRIVATE GAME_EXPORTS)
 target_include_directories(game PUBLIC 
@@ -242,7 +244,6 @@ target_link_libraries(game PUBLIC
     Jolt::Jolt
     glm::glm
     SDL2::SDL2
-    SDL2_mixer::SDL2_mixer
     nlohmann_json::nlohmann_json
 )
 

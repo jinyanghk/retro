@@ -1,8 +1,9 @@
+// src/assets/Audio.h
 #pragma once
-#include "Common.h"
-#include "GameExport.h"
+#include <SDL2/SDL_mixer.h>
+#include "Export.h"
 
-struct GAME_API AudioAssets {
+struct ASSET_API AudioAssets {
     Mix_Chunk* sndShoot = nullptr;
     Mix_Chunk* sndHit = nullptr;
     Mix_Chunk* sndDoor = nullptr;
@@ -10,7 +11,7 @@ struct GAME_API AudioAssets {
 };
 
 // 初始化音频系统并加载所有音效
-GAME_API void InitAudio(AudioAssets& audio);
+ASSET_API void InitAudio(AudioAssets& audio);
 
 // 释放音频资源
-GAME_API void ShutdownAudio(AudioAssets& audio);
+ASSET_API void ShutdownAudio(AudioAssets& audio);
