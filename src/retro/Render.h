@@ -25,6 +25,10 @@ struct RenderAssets {
 
     GLuint modelProgram = 0;
     std::vector<Mesh> zombieModel; // 👈 装载丧尸的网格
+
+    std::unordered_map<std::string, BoneInfo> boneMap; // 👈 存储骨骼映射
+    int boneCounter = 0;                               // 👈 骨骼计数器
+    std::vector<Animation> zombieAnims;
 };
 
 void InitRender(RenderAssets& render, const MapData& mapData);
