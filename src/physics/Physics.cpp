@@ -202,7 +202,8 @@ void MoveKinematicBody(JPH::BodyID id, float x, float y, float z) {
 }
 
 JPH::BodyID CreateEnemyBody(float x, float y, float z) {
-    JPH::BoxShapeSettings shape(JPH::Vec3(20.0f, 30.0f, 20.0f));
+    // 👈 改小半径，从 20 变成 14，总宽 28。这样它就能钻过更窄的缝了
+    JPH::BoxShapeSettings shape(JPH::Vec3(14.0f, 34.0f, 14.0f)); 
     JPH::BodyCreationSettings settings(
         shape.Create().Get(),
         JPH::RVec3(x, y, z),

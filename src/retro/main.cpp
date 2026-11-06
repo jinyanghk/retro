@@ -124,6 +124,75 @@ int main(int argc, char** argv) {
     bool mouseLocked = true;
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
+
+    // ==========================================================
+    // 👈 修复 AI 卡墙：过滤掉悬空或卡在墙里的非法导航节点
+    // ==========================================================
+    std::vector<MapData::NodeData> validNodes;
+    std::vector<uint32_t> remapIndex(mapData.navNodes.size(), -1); // 旧索引 -> 新索引映射
+
+    for (size_t i = 0; i < mapData.navNodes.size(); ++i) {
+        const auto& node = mapData.navNodes[i];
+        glm::vec3 dummyN;
+        
+        // 1. 向下探测地面：从节点上方 64 单位向下打射线
+        float distToFloor = TraceBVH(node.pos + glm::vec3(0, 64, 0), glm::vec3(0, -1, 0), dummyN);
+        
+        // 如果打不到地面，或者地面高度离节点太远（比如 > 80），说明这节点悬空，丢弃！
+        if (distToFloor < 0.0f || distToFloor > 144.0f) { 
+            continue; 
+        }
+
+        // 2. 检查它周围有没有被实体墙壁完全包裹（简单的 4 向探墙）
+        bool valid = true;
+        glm::vec3 dirs[4] = {{1,0,0},{-1,0,0},{0,0,1},{0,0,-1}};
+        int blockedCount = 0;
+        for (auto& d : dirs) {
+            float wallDist = TraceBVH(node.pos + glm::vec3(0, 32, 0), d, dummyN);
+            // 如果每个方向 16 单位内就有墙，说明它卡在极小的角落里
+            if (wallDist > 0.0f && wallDist < 16.0f) blockedCount++;
+        }
+        if (blockedCount >= 3) continue; // 被三面墙堵死，判定为非法节点
+
+        // 把这个节点加入合法列表
+        remapIndex[i] = (uint32_t)validNodes.size();
+        validNodes.push_back(node);
+    }
+
+    // 3. 更新合法节点的 links 索引，并剔除穿墙的非法连线
+    for (auto& node : validNodes) {
+        std::vector<uint32_t> newLinks;
+        for (auto oldLink : node.links) {
+            if (oldLink < remapIndex.size() && remapIndex[oldLink] != -1) {
+                // 👈 核心修复：射线检测两个节点之间有没有墙
+                glm::vec3 targetPos = mapData.navNodes[oldLink].pos;
+                glm::vec3 dir = targetPos - node.pos;
+                float dist = glm::length(dir);
+                
+                if (dist < 0.1f) continue; // 防除零
+                dir = glm::normalize(dir);
+                
+                // 从当前节点往目标节点打射线
+                glm::vec3 hitNormal;
+                float hitDist = TraceBVH(node.pos + glm::vec3(0, 32, 0), dir, hitNormal); // 抬高32单位，避免打到地板
+                
+                // 如果射线没打到东西，或者打到的距离比两个节点之间的距离还远（没被挡住），才保留连线
+                if (hitDist < 0.0f || hitDist > dist - 10.0f) {
+                    newLinks.push_back(remapIndex[oldLink]);
+                } else {
+                    // 被挡住了，这就是一条穿墙的假连线！
+                    // printf("[Nav] Removed illegal link from %zu to %u\n", i, oldLink);
+                }
+            }
+        }
+        node.links = newLinks;
+    }
+
+    // 把过滤后的节点覆盖回去
+    mapData.navNodes = std::move(validNodes);
+    printf("[Nav] Filtered nodes: %zu valid nodes remain.\n", mapData.navNodes.size());
+
+
     std::vector<DoorStateForTrace> doorTrace;
     std::vector<EnemyInfo> enemies;
     auto SpawnAllEnemies = [&]() {
@@ -384,6 +453,7 @@ int main(int argc, char** argv) {
                 mapData.physboxMins, mapData.physboxMaxs, 
                 gravityGun, // 👈 新增
                 audio.sndHit);
+        //printf("Enemy Vel: %.1f, %.1f\n", enemies[0].vel.x, enemies[0].vel.z);
 
         if (player.damageTimer > 0.0f) player.damageTimer -= deltaTime;
         if (player.hp <= 0.0f) {
@@ -467,23 +537,27 @@ int main(int argc, char** argv) {
         ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
         ImGui::Text("Pos: %.1f, %.1f, %.1f", player.pos.x, player.pos.y, player.pos.z);
         ImGui::Text("Grounded: %s", player.isGrounded ? "YES" : "NO");
-        ImGui::Text("Enemies: %zu", enemies.size());
         
-        // 👈 把你的 AI Debug 代码放在这里！
-        if (ImGui::CollapsingHeader("AI Debug", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (!enemies.empty()) {
-                auto& e = enemies[0];
-                ImGui::Text("Enemy Pos: %.1f, %.1f, %.1f", e.pos.x, e.pos.y, e.pos.z);
-                ImGui::Text("Path Nodes: %zu", e.path.size());
-                ImGui::Text("Path Index: %d", e.pathIndex);
-                if (e.pathIndex >= 0 && e.pathIndex < e.path.size()) {
-                    ImGui::Text("Target Node: %.1f, %.1f, %.1f", 
-                        e.path[e.pathIndex].x, e.path[e.pathIndex].y, e.path[e.pathIndex].z);
+        // 👈 新增：丧尸列表控制台
+        if (ImGui::CollapsingHeader("Enemy List", ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (size_t i = 0; i < enemies.size(); ++i) {
+                auto& e = enemies[i];
+                ImGui::PushID((int)i);
+                ImGui::Text("Z%d: State=%d, Stuck=%.1f", (int)i, (int)e.state, e.stuckTimer);
+                ImGui::SameLine();
+                if (ImGui::Button("Kill")) {
+                    e.hp = 0; 
+                    e.state = EnemyState::DEAD; 
                 }
+                ImGui::SameLine();
+                if (ImGui::Button("TP")) {
+                    player.pos = e.pos + glm::vec3(100.0f, 0.0f, 100.0f);
+                }
+                ImGui::PopID();
             }
         }
 
-        ImGui::End(); // 👈 确保 End 在这后面
+        ImGui::End();
 
         int scrW, scrH; SDL_GetWindowSize(window, &scrW, &scrH);
         ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -525,6 +599,48 @@ int main(int argc, char** argv) {
             drawList->AddText(ImGui::GetFont(), 24.0f, ImVec2((scrW - subSize.x) * 0.5f, scrH * 0.55f), IM_COL32(255, 255, 255, 255), subText);
         }
         ImGui::End();
+
+        // ==========================================================
+        // 👈 可视化 AI 调试工具 (3D 投影到 2D 屏幕)
+        // ==========================================================
+        ImDrawList* fgDrawList = ImGui::GetForegroundDrawList();
+        for (const auto& e : enemies) {
+            if (e.state == EnemyState::DEAD) continue;
+
+            // 辅助函数：将世界坐标 3D 投影到屏幕 2D
+            auto WorldToScreen = [&](const glm::vec3& worldPos) {
+                glm::mat4 view = glm::lookAt(player.GetEyePos(), player.GetEyePos() + player.GetForward(), glm::vec3(0, 1, 0));
+                glm::mat4 proj = glm::perspective(glm::radians(85.0f), (float)scrW / (float)scrH, 0.1f, 100000.0f);
+                glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
+                if (clip.w <= 0.0f) return ImVec2(-9999, -9999); // 在相机后面
+                glm::vec3 ndc = glm::vec3(clip) / clip.w;
+                return ImVec2((ndc.x + 1.0f) * 0.5f * scrW, (1.0f - ndc.y) * 0.5f * scrH);
+            };
+
+            // 1. 画丧尸的物理中心（黄色大字）
+            ImVec2 centerScreen = WorldToScreen(e.pos);
+            fgDrawList->AddText(centerScreen, IM_COL32(255, 255, 0, 255), "ZOMBIE");
+
+            // 2. 画 A* 路径（绿色线段）
+            if (!e.path.empty()) {
+                for (size_t i = 0; i < e.path.size() - 1; i++) {
+                    ImVec2 p1 = WorldToScreen(e.path[i]);
+                    ImVec2 p2 = WorldToScreen(e.path[i+1]);
+                    // 避免在屏幕外乱画
+                    if (p1.x > -1000 && p2.x > -1000) {
+                        fgDrawList->AddLine(p1, p2, IM_COL32(0, 255, 0, 255), 2.0f);
+                    }
+                }
+                // 画当前指向的路径节点（红色圆圈）
+                if (e.pathIndex < e.path.size()) {
+                    ImVec2 targetScreen = WorldToScreen(e.path[e.pathIndex]);
+                    if (targetScreen.x > -1000) {
+                        fgDrawList->AddCircle(targetScreen, 6.0f, IM_COL32(255, 0, 0, 255), 12, 2.0f);
+                    }
+                }
+            }
+        }
+
         ImGui::Render();
 
         // OpenGL 绘制

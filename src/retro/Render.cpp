@@ -330,7 +330,11 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         enemyModel = glm::translate(enemyModel, enemy.pos);
         
         // 👈 脚部对齐：如果悬空就减小，陷地就增大
-        enemyModel = glm::translate(enemyModel, glm::vec3(0.0f, -20.0f, 0.0f)); 
+        float yOffset = -10.0f;
+        if (enemy.state == EnemyState::DEAD) {
+            yOffset = 0.0f; // 👈 死人需要更低一点（或者更高一点，你试一下 0.0f 或 -60.0f）
+        }        
+        enemyModel = glm::translate(enemyModel, glm::vec3(0.0f, yOffset, 0.0f)); 
 
         // 朝向：如果丧尸倒退着走，转 180 度
         enemyModel = glm::rotate(enemyModel, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -349,9 +353,16 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
             // 👈 核心：让动画时间随状态和移动速度变化
             float animTime = globalTime;
             if (enemy.state == EnemyState::CHASE) {
-                // 走路动画稍微调快/调慢，防滑步（0.8 是系数，可以自己调）
                 float moveSpeed = glm::length(enemy.vel);
-                animTime *= (moveSpeed / 50.0f) * 0.8f; 
+                // 👈 如果速度存在，但实际上没移动，就不播动画（或者播 Idle）
+                // 不过我们没有上一帧的位置，所以简单点：如果 moveSpeed < 10.0f 就切 Idle
+                if (moveSpeed < 10.0f) {
+                    animTime = globalTime; // 原地播放 Idle 动画
+                    // 但是你的 FindAnimIndex 是根据 state 来的，所以它会拿到 walk
+                    // 这个暂时忽略，先解决物理卡住
+                } else {
+                    animTime *= (moveSpeed / 50.0f) * 0.8f; 
+                }
             } else if (enemy.state == EnemyState::ATTACK) {
                 // 攻击动画：假设攻击间隔 timer，让它不循环播放，而是根据 timer 来
                 animTime = (enemy.attackTimer - 1.0f); // 简单映射

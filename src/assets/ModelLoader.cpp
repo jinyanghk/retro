@@ -170,7 +170,7 @@ std::vector<Mesh> ModelLoader::LoadModel(const std::string& path,
             anim.boneAnimations.push_back(boneAnim);
         }
         outAnimations.push_back(anim);
-        printf("[ModelLoader] Loaded animation: %s (duration: %.2fs)\n", anim.name.c_str(), anim.duration);
+        //printf("[ModelLoader] Loaded animation: %s (duration: %.2fs)\n", anim.name.c_str(), anim.duration);
     }
 
     return meshes;

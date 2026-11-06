@@ -45,10 +45,23 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 break;
                 
             case EnemyState::CHASE:
-                if (distToPlayer < 60.0f) enemy.state = EnemyState::ATTACK;
-                else if (distToPlayer > 1200.0f) enemy.state = EnemyState::IDLE;
-                break;
+            {
+                // 👈 如果水平距离很近，但高度差太大（它在楼下，你在楼上），放弃追击
+                float horizDist = glm::length(glm::vec2(player.pos.x - enemy.pos.x, player.pos.z - enemy.pos.z));
+                float heightDiff = std::abs(player.pos.y - enemy.pos.y);
                 
+                if (distToPlayer < 60.0f && heightDiff < 100.0f) {
+                    enemy.state = EnemyState::ATTACK;
+                } 
+                else if (horizDist < 100.0f && heightDiff > 150.0f) {
+                    // 离得很近，但它在楼下，你在楼上（或者反过来），没路，直接原地发呆
+                    enemy.state = EnemyState::IDLE;
+                }
+                else if (distToPlayer > 1200.0f) {
+                    enemy.state = EnemyState::IDLE;
+                }
+                break;
+            }    
             case EnemyState::ATTACK:
                 if (distToPlayer > 80.0f) enemy.state = EnemyState::CHASE;
                 break;
@@ -77,7 +90,12 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
             glm::vec3 moveTarget = player.pos;
             if (!enemy.path.empty() && enemy.pathIndex >= 0 && enemy.pathIndex < (int)enemy.path.size()) {
                 moveTarget = enemy.path[enemy.pathIndex];
-                
+
+                // 如果丧尸卡住了，直接无视 A*，朝玩家走（寻路降级）
+                if (enemy.stuckTimer > 1.0f) {
+                    moveTarget = player.pos;
+                    moveTarget.y = enemy.pos.y; // 抹平高度差
+                }             
                 glm::vec2 enemy2D(enemy.pos.x, enemy.pos.z);
                 glm::vec2 target2D(moveTarget.x, moveTarget.z);
                 if (glm::length(target2D - enemy2D) < 24.0f) {
@@ -109,7 +127,7 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 player.damageTimer = 0.2f;
                 enemy.attackTimer = 1.0f;
                 if (sndHit) Mix_PlayChannel(-1, sndHit, 0);
-                printf("[AI] Enemy attacked player! HP: %.1f\n", player.hp);
+                //printf("[AI] Enemy attacked player! HP: %.1f\n", player.hp);
             }
         }
         else if (enemy.state == EnemyState::STUNNED) {
@@ -119,12 +137,31 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
 
         // --- 交给物理引擎 ---
         if (!enemy.bodyId.IsInvalid()) {
+            // 1. 取出当前物理速度
             JPH::Vec3 currentVel = body_interface.GetLinearVelocity(enemy.bodyId);
+            float currentVX = currentVel.GetX();
+            float currentVZ = currentVel.GetZ();
+
+            // 2. 如果我们的逻辑速度是 0（比如被卡住），但当前物理速度仍有残留，就保留它（防止瞬间急刹车）
+            if (std::abs(enemy.vel.x) < 0.1f) enemy.vel.x = currentVX;
+            if (std::abs(enemy.vel.z) < 0.1f) enemy.vel.z = currentVZ;
+
+            // 3. 设置速度
             body_interface.SetLinearVelocity(enemy.bodyId, JPH::Vec3(enemy.vel.x, currentVel.GetY(), enemy.vel.z));
+            
+            // 4. 👈 关键：强制唤醒，并让物理引擎不要把它“锁”在地板上
             body_interface.ActivateBody(enemy.bodyId);
             
+            // 5. 读取物理位置，覆盖逻辑位置
             JPH::RVec3 physPos = body_interface.GetCenterOfMassPosition(enemy.bodyId);
-            enemy.pos = glm::vec3((float)physPos.GetX(), (float)physPos.GetY(), (float)physPos.GetZ());
+            glm::vec3 newPos((float)physPos.GetX(), (float)physPos.GetY(), (float)physPos.GetZ());
+            
+            // 6. 👈 防止 Y 轴穿透：如果掉下去了，强行拉回来
+            if (newPos.y < enemy.pos.y - 50.0f) {
+                newPos.y = enemy.pos.y;
+                body_interface.SetPositionAndRotation(enemy.bodyId, JPH::RVec3(newPos.x, newPos.y, newPos.z), JPH::Quat::sIdentity(), JPH::EActivation::Activate);
+            }
+            enemy.pos = newPos;
         }
 
         // --- 推箱子与桶 ---
@@ -242,17 +279,28 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         if (enemy.state == EnemyState::CHASE && (enemy.vel.x != 0 || enemy.vel.z != 0)) {
             if (distMoved < 0.5f) {
                 enemy.stuckTimer += dt;
-                if (enemy.stuckTimer > 1.0f) {
+                if (enemy.stuckTimer > 1.5f) { // 卡住 1.5 秒
+                    // 1. 强行清空路径，逼它下一帧重新寻路
                     enemy.pathTimer = 0.0f;
                     enemy.stuckTimer = 0.0f;
-                    // 👈 暴力脱困：给一个向上+向前的冲量，强行翻上台阶
-                    JPH::Vec3 push = JPH::Vec3(enemy.vel.x * 0.5f, 800.0f, enemy.vel.z * 0.5f);
-                    body_interface.AddImpulse(enemy.bodyId, push);
+
+                    // 2. 👈 核心：给它一个朝向目标（或玩家）的抛物线跳跃
+                    glm::vec3 dir = glm::normalize(glm::vec3(enemy.vel.x, 0.0f, enemy.vel.z));
+                    if (glm::length(dir) < 0.1f) {
+                        // 如果没速度，就朝玩家方向
+                        dir = glm::normalize(glm::vec3(player.pos.x - enemy.pos.x, 0.0f, player.pos.z - enemy.pos.z));
+                    }
+
+                    // 极强的水平向前推力 + 向上的跳跃力
+                    JPH::Vec3 jumpVel(dir.x * 300.0f, 600.0f, dir.z * 300.0f);
+                    body_interface.SetLinearVelocity(enemy.bodyId, jumpVel);
                     body_interface.ActivateBody(enemy.bodyId);
+                    
+                    // printf("[AI] Jumped over obstacle!\n"); // 平时可以注释掉
                 }
             } else {
                 enemy.stuckTimer = 0.0f;
             }
-        }            
+        }       
     }
 }
