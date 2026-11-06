@@ -315,56 +315,57 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // 敌人（丧尸模型）
-    glUseProgram(render.modelProgram);
-    glDisable(GL_CULL_FACE);
+// 敌人（丧尸模型）
+    glUseProgram(render.modelProgram); 
+    glDisable(GL_CULL_FACE);           
     
-    // 查找 Idle 动画
-    int idleIdx = -1;
-    for (size_t i = 0; i < render.zombieAnims.size(); ++i) {
-        if (render.zombieAnims[i].name.find("Idle01") != std::string::npos) {
-            idleIdx = i;
-            break;
-        }
-    }
+    // 获取全局时间（用于驱动动画）
+    float globalTime = (float)SDL_GetTicks() / 1000.0f;
 
     for (auto& enemy : enemies) {
         if (enemy.state == EnemyState::DEAD && enemy.deathTimer > 10.0f) continue;
 
-        // 1. 构造单位矩阵
+        // 1. 基础矩阵（位置修正）
         glm::mat4 enemyModel = glm::mat4(1.0f);
-        
-        // 2. 平移到物理坐标（先放到正确位置）
         enemyModel = glm::translate(enemyModel, enemy.pos);
         
-        // 3. 旋转（把模型正过来）
-        //enemyModel = glm::rotate(enemyModel, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-        
-        // 如果脸朝后，加这行
+        // 👈 脚部对齐：如果悬空就减小，陷地就增大
+        enemyModel = glm::translate(enemyModel, glm::vec3(0.0f, -20.0f, 0.0f)); 
+
+        // 朝向：如果丧尸倒退着走，转 180 度
         enemyModel = glm::rotate(enemyModel, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
-        // 如果发现丧尸只有半截身子（在脚底下），把平移 Z 轴抬高：
-        enemyModel = glm::translate(enemyModel, glm::vec3(0.0f, -10.0f, 0.0f)); 
-
-        // 4. 缩放 (你之前说 30 倍大小合适，但如果你之前那次 1.0 觉得合适，就用 1.0)
-        // 因为不知道你之前的“大小合适”是基于 30.0 还是 1.0，这里先写 1.0，如果太小就改 30.0
-        enemyModel = glm::scale(enemyModel, glm::vec3(1.0f)); 
-
-        // 5. 传给 Shader
         glm::mat4 mvp = projection * view * enemyModel;
         glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
         glUniform1i(glGetUniformLocation(render.modelProgram, "uTex"), 0);
 
-        // 计算动画矩阵
+        // 2. 动画查找与矩阵计算
         std::vector<glm::mat4> boneMatrices(100, glm::mat4(1.0f));
-        if (idleIdx >= 0 && ModelLoader::s_scene) {
-            float currentTime = (float)SDL_GetTicks() / 1000.0f;
-            float animTime = AnimHelper::GetAnimationTime(render.zombieAnims[idleIdx], currentTime);
+        int animIdx = render.FindAnimIndex(enemy.state);
+        
+        if (animIdx >= 0 && animIdx < (int)render.zombieAnims.size() && ModelLoader::s_scene) {
+            const auto& anim = render.zombieAnims[animIdx];
             
+            // 👈 核心：让动画时间随状态和移动速度变化
+            float animTime = globalTime;
+            if (enemy.state == EnemyState::CHASE) {
+                // 走路动画稍微调快/调慢，防滑步（0.8 是系数，可以自己调）
+                float moveSpeed = glm::length(enemy.vel);
+                animTime *= (moveSpeed / 50.0f) * 0.8f; 
+            } else if (enemy.state == EnemyState::ATTACK) {
+                // 攻击动画：假设攻击间隔 timer，让它不循环播放，而是根据 timer 来
+                animTime = (enemy.attackTimer - 1.0f); // 简单映射
+            }
+
+            // 限制在动画时长内
+            float duration = anim.duration;
+            if (duration > 0.0f) animTime = fmod(animTime, duration);
+            else animTime = 0.0f;
+
             AnimHelper::CalculateBoneTransforms(
                 ModelLoader::s_scene->mRootNode, 
                 glm::mat4(1.0f), 
-                render.zombieAnims[idleIdx], 
+                anim, 
                 animTime, 
                 render.boneMap, 
                 boneMatrices
@@ -373,6 +374,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
         glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uBones"), 100, GL_FALSE, glm::value_ptr(boneMatrices[0]));
 
+        // 3. 绘制
         for (const auto& mesh : render.zombieModel) {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, mesh.textureID);

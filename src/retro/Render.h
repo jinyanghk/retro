@@ -29,6 +29,22 @@ struct RenderAssets {
     std::unordered_map<std::string, BoneInfo> boneMap; // 👈 存储骨骼映射
     int boneCounter = 0;                               // 👈 骨骼计数器
     std::vector<Animation> zombieAnims;
+
+    // 👈 新增：根据状态找动画
+    int FindAnimIndex(EnemyState state) const {
+        std::string target;
+        switch (state) {
+            case EnemyState::IDLE:    target = "Idle01"; break;
+            case EnemyState::CHASE:   target = "a_walk1"; break;
+            case EnemyState::ATTACK:  target = "attackA"; break;
+            case EnemyState::STUNNED: target = "flinch1"; break;
+            case EnemyState::DEAD:    target = "slump_a"; break;
+        }
+        for (size_t i = 0; i < zombieAnims.size(); ++i) {
+            if (zombieAnims[i].name.find(target) != std::string::npos) return (int)i;
+        }
+        return 0; // 找不到就默认返回第一个
+    }    
 };
 
 void InitRender(RenderAssets& render, const MapData& mapData);
