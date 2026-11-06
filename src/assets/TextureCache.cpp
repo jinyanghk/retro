@@ -115,3 +115,33 @@ unsigned int TextureCache::GetCubemap(const std::vector<std::string>& facePaths)
     s_cache[cacheKey] = texID;
     return texID;
 }
+
+unsigned int TextureCache::GetTextureByPath(const std::string& fullPath) {
+    auto it = s_cache.find(fullPath);
+    if (it != s_cache.end()) return it->second;
+
+    int w = 0, h = 0, channels = 0;
+    // ⚠️ 模型贴图（FBX）通常不需要翻转，如果出来后上下颠倒，把 true 改成 false
+    stbi_set_flip_vertically_on_load(true);  
+    unsigned char* pixels = stbi_load(fullPath.c_str(), &w, &h, &channels, 4);
+
+    GLuint tex = 0;
+    if (pixels) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        stbi_image_free(pixels);
+        std::cout << "[TextureCache] Loaded model texture: " << fullPath << std::endl;
+    } else {
+        std::cerr << "[TextureCache] Failed to load model texture: " << fullPath << std::endl;
+        tex = MakeCheckerTexture(fullPath); // 加载失败给个棋盘格
+    }
+
+    s_cache[fullPath] = tex;
+    return tex;
+}

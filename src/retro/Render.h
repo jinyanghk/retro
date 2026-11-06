@@ -3,6 +3,7 @@
 #include "MapLoader.h"
 #include "Player.h"
 #include "Weapon.h"
+#include "ModelLoader.h"
 
 struct RenderAssets {
     // 三个独立的着色器程序
@@ -21,6 +22,9 @@ struct RenderAssets {
     GLuint skyboxProgram = 0;
     GLuint skyboxVAO = 0, skyboxVBO = 0;
     GLuint skyboxTex = 0;    
+
+    GLuint modelProgram = 0;
+    std::vector<Mesh> zombieModel; // 👈 装载丧尸的网格
 };
 
 void InitRender(RenderAssets& render, const MapData& mapData);

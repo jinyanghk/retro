@@ -46,6 +46,8 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     render.mapProgram    = link_program(Shaders::game_common_vert, Shaders::game_map_frag);
     render.entityProgram = link_program(Shaders::game_common_vert, Shaders::game_entity_frag);
     render.gunProgram    = link_program(Shaders::game_common_vert, Shaders::game_gun_frag);
+    render.skyboxProgram = link_program(Shaders::skybox_vert, Shaders::skybox_frag);
+    render.modelProgram = link_program(Shaders::entity_model_vert, Shaders::entity_model_frag);
 
     // Box Geometry
     std::vector<float> box_verts = {
@@ -103,10 +105,7 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
         render.materialTexIds[i] =
             TextureCache::GetTexture(mapData.materialGroups[i].name);
     }
-    glBindVertexArray(0);
-
-    // 编译 skybox 程序
-    render.skyboxProgram = link_program(Shaders::skybox_vert, Shaders::skybox_frag);
+    glBindVertexArray(0);  
 
     // 生成立方体顶点数据 (36 个顶点)
     float skyboxVertices[] = {
@@ -139,6 +138,9 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     };
     render.skyboxTex = TextureCache::GetCubemap(faces);
 
+    // 加载丧尸模型
+    std::string modelPath = "models/zombie/classic.fbx";
+    render.zombieModel = ModelLoader::LoadModel(modelPath);
 }
 
 void ShutdownRender(RenderAssets& render) {
@@ -305,30 +307,49 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // 敌人
+    // 敌人（丧尸模型）
+    glUseProgram(render.modelProgram);
+    glDisable(GL_CULL_FACE);
+    
     for (auto& enemy : enemies) {
         if (enemy.state == EnemyState::DEAD && enemy.deathTimer > 10.0f) continue;
-        if (enemy.state == EnemyState::DEAD) {
-            glUniform3f(entColorLoc, 0.2f, 0.1f, 0.1f); 
-        } else if (enemy.state == EnemyState::STUNNED) {
-            glUniform3f(entColorLoc, 1.0f, 1.0f, 0.0f);
-        } else if (enemy.state == EnemyState::ATTACK) {
-            glUniform3f(entColorLoc, 1.0f, 0.0f, 0.0f);
-        } else {
-            glUniform3f(entColorLoc, 0.8f, 0.2f, 0.2f);
-        }
 
-        glm::mat4 enemyModel = glm::translate(glm::mat4(1.0f), enemy.pos);
-        if (enemy.state == EnemyState::DEAD) {
-            if (enemy.bodyId.IsInvalid()) continue;
-            enemyModel = glm::rotate(enemyModel, glm::radians(90.0f), glm::vec3(1,0,0)) * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.radius, enemy.height * 0.5f));
-        } else {
-            enemyModel = enemyModel * glm::scale(glm::mat4(1.0f), glm::vec3(enemy.radius, enemy.height * 0.5f, enemy.radius));
+        // 1. 构造单位矩阵
+        glm::mat4 enemyModel = glm::mat4(1.0f);
+        
+        // 2. 平移到物理坐标（先放到正确位置）
+        enemyModel = glm::translate(enemyModel, enemy.pos);
+        
+        // 3. 旋转（把模型正过来）
+        enemyModel = glm::rotate(enemyModel, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        
+        // 如果脸朝后，加这行
+        // enemyModel = glm::rotate(enemyModel, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+        // 如果发现丧尸只有半截身子（在脚底下），把平移 Z 轴抬高：
+        // enemyModel = glm::translate(enemyModel, glm::vec3(0.0f, 0.0f, 32.0f)); 
+
+        // 4. 缩放 (你之前说 30 倍大小合适，但如果你之前那次 1.0 觉得合适，就用 1.0)
+        // 因为不知道你之前的“大小合适”是基于 30.0 还是 1.0，这里先写 1.0，如果太小就改 30.0
+        enemyModel = glm::scale(enemyModel, glm::vec3(1.0f)); 
+
+        // 5. 传给 Shader
+        glm::mat4 mvp = projection * view * enemyModel;
+        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniform1i(glGetUniformLocation(render.modelProgram, "uTex"), 0);
+
+        // 6. 绘制
+        for (const auto& mesh : render.zombieModel) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, mesh.textureID);
+            glBindVertexArray(mesh.VAO);
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
         }
-        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * enemyModel));
-        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(enemyModel));
-        glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
+
+    // 👈 画完丧尸，切回实体 Shader (给弹孔用)
+    glUseProgram(render.entityProgram);
+    glBindVertexArray(render.boxVAO);
 
     // 弹孔
     glUniform3f(entColorLoc, 0.1f, 0.1f, 0.1f);

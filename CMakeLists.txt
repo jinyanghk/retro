@@ -12,6 +12,7 @@ find_package(GLEW REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(Git REQUIRED)
+find_package(assimp REQUIRED)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
@@ -124,6 +125,7 @@ add_library(assets SHARED
     src/assets/TextureCache.cpp
     src/assets/MapLoader.cpp
     src/assets/Audio.cpp
+    src/assets/ModelLoader.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
 target_include_directories(assets PUBLIC 
@@ -136,6 +138,7 @@ target_link_libraries(assets PUBLIC
     nlohmann_json::nlohmann_json
     SDL2_mixer::SDL2_mixer
     SDL2::SDL2
+    assimp::assimp
 )
 
 # ---------- shader 嵌入 ----------
