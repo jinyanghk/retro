@@ -1,6 +1,7 @@
 // TextureCache.h
 #pragma once
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include "Export.h"
 
@@ -12,6 +13,7 @@ public:
     // 传入材质名，返回 OpenGL 纹理 ID
     // 如果已经加载过，直接返回缓存的 ID
     static unsigned int GetTexture(const std::string& materialName);
+    static unsigned int GetCubemap(const std::vector<std::string>& facePaths);
 
 private:
     static std::unordered_map<std::string, unsigned int> s_cache;

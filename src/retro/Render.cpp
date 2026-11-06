@@ -104,17 +104,54 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
             TextureCache::GetTexture(mapData.materialGroups[i].name);
     }
     glBindVertexArray(0);
+
+    // 编译 skybox 程序
+    render.skyboxProgram = link_program(Shaders::skybox_vert, Shaders::skybox_frag);
+
+    // 生成立方体顶点数据 (36 个顶点)
+    float skyboxVertices[] = {
+        -1.0f,  1.0f, -1.0f,  -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,  -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,  -1.0f, -1.0f, -1.0f,  -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,  -1.0f,  1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,   1.0f,  1.0f, -1.0f,   1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,   1.0f, -1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,   1.0f,  1.0f, -1.0f,   1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,  -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,  -1.0f, -1.0f,  1.0f,   1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,  -1.0f, -1.0f,  1.0f,   1.0f, -1.0f,  1.0f
+    };
+    glGenVertexArrays(1, &render.skyboxVAO);
+    glGenBuffers(1, &render.skyboxVBO);
+    glBindVertexArray(render.skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, render.skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+
+    std::string prefix = "skybox/" + mapData.skyName;
+    std::vector<std::string> faces = {
+        prefix + "rt", prefix + "lf",
+        prefix + "up", prefix + "dn",
+        prefix + "bk", prefix + "ft"
+    };
+    render.skyboxTex = TextureCache::GetCubemap(faces);
+
 }
 
 void ShutdownRender(RenderAssets& render) {
     glDeleteProgram(render.mapProgram);
     glDeleteProgram(render.entityProgram);
     glDeleteProgram(render.gunProgram);
+    glDeleteProgram(render.skyboxProgram);
     glDeleteVertexArrays(1, &render.mapVAO); glDeleteBuffers(1, &render.mapVBO); glDeleteBuffers(1, &render.mapEBO);
     glDeleteVertexArrays(1, &render.boxVAO); glDeleteBuffers(1, &render.boxVBO); glDeleteBuffers(1, &render.boxEBO);
     glDeleteVertexArrays(1, &render.gunVAO); glDeleteBuffers(1, &render.gunVBO); glDeleteBuffers(1, &render.gunEBO);
+    glDeleteVertexArrays(1, &render.skyboxVAO); glDeleteBuffers(1, &render.skyboxVBO);
     if (render.whiteTex) glDeleteTextures(1, &render.whiteTex);
-    //for (GLuint t : render.materialTexIds) if (t) glDeleteTextures(1, &t);
+    if (render.skyboxTex) glDeleteTextures(1, &render.skyboxTex);  
     TextureCache::Shutdown();   // 👈 新增
     render.materialTexIds.clear();
 }
@@ -134,6 +171,28 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glm::mat4 view = glm::lookAt(eyePos, eyePos + player.GetForward(), glm::vec3(0, 1, 0));
     glm::mat4 model = glm::mat4(1.0f);
 
+
+    // 渲染天空盒
+    glDepthFunc(GL_LEQUAL); // 👈 允许 z = 1.0 通过
+    glUseProgram(render.skyboxProgram);
+    
+    // 清空深度缓冲，天空盒永远最底层
+    glDepthMask(GL_FALSE); 
+    
+    glm::mat4 viewNoTranslation = glm::mat4(glm::mat3(view)); // 去掉平移
+    glUniformMatrix4fv(glGetUniformLocation(render.skyboxProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(render.skyboxProgram, "uView"), 1, GL_FALSE, glm::value_ptr(viewNoTranslation));
+    
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, render.skyboxTex);
+    glUniform1i(glGetUniformLocation(render.skyboxProgram, "uSkybox"), 0);
+    
+    glBindVertexArray(render.skyboxVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    
+    glDepthMask(GL_TRUE); // 恢复深度写入
+    glDepthFunc(GL_LESS); // 恢复默认深度测试
+
     // ================== 1. 渲染地图 ==================
     glUseProgram(render.mapProgram);
     glDisable(GL_CULL_FACE);
@@ -148,6 +207,8 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
     glBindVertexArray(render.mapVAO);
     for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
+        // 👈 加一句：跳过 toolsskybox（既然我们有了真天空盒）
+        if (mapData.materialGroups[i].name.find("toolsskybox") != std::string::npos) continue;
         const auto& g = mapData.materialGroups[i];
         if (g.indexCount == 0) continue;
 

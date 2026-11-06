@@ -19,6 +19,7 @@ enum LumpType : uint32_t {
     LUMP_NAVGRID    = 10,
     LUMP_NODEGRAPH  = 11, // v5
     LUMP_MATERIALS  = 12, // v6: 材质分组（渲染分批用）
+    LUMP_SKYNAME    = 13, // 👈 新增
 };
 
 #pragma pack(push, 1)

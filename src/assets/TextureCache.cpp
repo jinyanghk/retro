@@ -6,6 +6,7 @@
 #include "stb_image.h"
 #include <iostream>
 #include <vector>
+#include <string>
 #include <cstdint>
 #include <glm/glm.hpp>
 
@@ -83,4 +84,34 @@ unsigned int TextureCache::GetTexture(const std::string& materialName) {
 
     s_cache[materialName] = tex;
     return tex;
+}
+
+unsigned int TextureCache::GetCubemap(const std::vector<std::string>& facePaths) {
+    std::string cacheKey = "cubemap:" + facePaths[0]; // 用第一张图做键
+    if (s_cache.find(cacheKey) != s_cache.end()) return s_cache[cacheKey];
+
+    GLuint texID;
+    glGenTextures(1, &texID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, texID);
+
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(false); // 👈 Cubemap 不能翻转 Y 轴！
+    for (unsigned int i = 0; i < facePaths.size(); ++i) {
+        std::string fullPath = FileSystem::ResolveMaterial(facePaths[i]);
+        unsigned char* data = stbi_load(fullPath.c_str(), &width, &height, &nrChannels, 4);
+        if (data) {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        } else {
+            std::cerr << "[TextureCache] Cubemap face failed: " << fullPath << std::endl;
+        }
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    s_cache[cacheKey] = texID;
+    return texID;
 }

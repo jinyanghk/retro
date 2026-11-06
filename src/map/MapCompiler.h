@@ -48,6 +48,7 @@ struct MapData {
     std::vector<Entity> entities;
     float spawnPos[3]    = {0.f, 32.f, 0.f};
     float spawnAngles[3] = {0.f, 0.f, 0.f};
+    std::string skyName = "sky_wasteland02"; // 👈 新增
 };
 
 struct MeshBuffers {

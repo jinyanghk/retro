@@ -17,6 +17,10 @@ struct RenderAssets {
     GLuint boxIndexCount = 0;
     std::vector<GLuint> materialTexIds;   // 和 mapData.materialGroups 一一对应
     GLuint whiteTex = 0;
+
+    GLuint skyboxProgram = 0;
+    GLuint skyboxVAO = 0, skyboxVBO = 0;
+    GLuint skyboxTex = 0;    
 };
 
 void InitRender(RenderAssets& render, const MapData& mapData);

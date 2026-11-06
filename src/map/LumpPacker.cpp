@@ -90,6 +90,15 @@ bool PackLumps(const MapData& map,
         AppendLumpRaw(outBuffer, dirs, LUMP_SPAWN, buf);
     }
 
+    // ---- LUMP_SKYNAME ----
+    {
+        std::vector<char> buf;
+        uint32_t len = (uint32_t)map.skyName.size();
+        buf.insert(buf.end(), (char*)&len, (char*)&len + 4);
+        buf.insert(buf.end(), map.skyName.data(), map.skyName.data() + len);
+        AppendLumpRaw(outBuffer, dirs, LUMP_SKYNAME, buf);
+    }   
+
     // ---- LUMP_TRIGGERS ----
     {
         std::vector<TriggerRecord> records;

@@ -24,7 +24,7 @@ bool ParseJson(const char* path, MapData& out) {
         for (const auto& jb : data["brushes"]) {
             Brush b;
             
-            // 👈 新增：优先解析真实的多边形面
+            // 👈 优先解析真实的多边形面
             if (jb.contains("faces") && jb["faces"].is_array()) {
                 for (const auto& jf : jb["faces"]) {
                     BrushFace face;
@@ -103,6 +103,18 @@ bool ParseJson(const char* path, MapData& out) {
         for (const auto& je : data["entities"]) {
             Entity e;
             e.classname = je.value("classname", "");
+            
+            // 👈 新增：拦截 worldspawn 抓取 skyname
+            if (e.classname == "worldspawn") {
+                if (je.contains("properties") && je["properties"].is_object()) {
+                    const auto& props = je["properties"];
+                    if (props.contains("skyname") && props["skyname"].is_string()) {
+                        out.skyName = props["skyname"].get<std::string>();
+                    }
+                }
+                continue; // 抓完就跳过，不把它当普通实体加入 out.entities
+            }
+
             e.origin    = GetVec3(je, "origin",    {0,0,0});
             e.angles    = GetVec3(je, "angles",    {0,0,0});
             e.bboxMins  = GetVec3(je, "bbox_mins", {-32,-32,-32});

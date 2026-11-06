@@ -234,6 +234,18 @@ bool LoadMap(const char* filename, MapData& outData) {
         printf("[MapLoader] Loaded %u navigation nodes, %u links.\n", nodeCount, linkCount);
     }
 
+    // 13) SKYNAME
+    if (auto d = FindLump(LUMP_SKYNAME)) {
+        f.seekg(d->offset);
+        uint32_t len = 0; 
+        f.read((char*)&len, 4);
+        if (len > 0 && len < 256) {
+            outData.skyName.resize(len);
+            f.read(&outData.skyName[0], len);
+            printf("[MapLoader] Skybox name: %s\n", outData.skyName.c_str());
+        }
+    }
+
     printf("Loaded map: Version=%u, Lumps=%u, Entities=%zu\n",
            version, lumpCount, outData.entities.size());
     return true;

@@ -79,6 +79,8 @@ struct ASSET_API MapData {
         uint32_t    indexCount  = 0;
     };
     std::vector<MaterialGroup> materialGroups;    
+
+    std::string skyName = "sky_wasteland02"; // 👈 新增
 };
 
 ASSET_API bool LoadMap(const char* filename, MapData& outData);
