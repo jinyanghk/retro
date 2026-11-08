@@ -322,50 +322,6 @@ int main(int argc, char** argv) {
             player.vel.x = 0.0f; player.vel.z = 0.0f;
         }
 
-        // 👈 核心修复：无论玩家动不动，只要和僵尸重叠，就强行推开
-        for (const auto& e : enemies) {
-            if (e.state == EnemyState::DEAD) continue;
-            
-            // 👈 核心修复：高度差太大，直接跳过，不算重叠
-            if (std::abs(player.pos.y - e.pos.y) > (player.height * 0.5f + e.height * 0.5f + 20.0f)) {
-                continue;
-            }
-            
-            float dist = glm::length(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
-            float minDist = player.radius + e.radius - 2.0f;
-            if (dist < minDist && dist > 0.01f) {
-                glm::vec2 pushDir = glm::normalize(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
-                player.pos.x = e.pos.x + pushDir.x * minDist;
-                player.pos.z = e.pos.z + pushDir.y * minDist;
-                player.vel.x = 0.0f;
-                player.vel.z = 0.0f;
-            }
-        }
-
-        // 检查玩家是否快要撞到僵尸了
-        for (const auto& e : enemies) {
-            if (e.state == EnemyState::DEAD) continue;
-
-            // 👈 加上高度判定
-            if (std::abs(player.pos.y - e.pos.y) > (player.height * 0.5f + e.height * 0.5f + 20.0f)) {
-                continue;
-            }            
-
-            float dist = glm::length(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
-            float minDist = player.radius + e.radius - 2.0f; // -2.0f 是为了留一点点缓冲
-            
-            if (dist < minDist) {
-                // 如果已经重叠了，直接把玩家往外推
-                glm::vec2 pushDir = glm::normalize(glm::vec2(player.pos.x - e.pos.x, player.pos.z - e.pos.z));
-                player.pos.x = e.pos.x + pushDir.x * minDist;
-                player.pos.z = e.pos.z + pushDir.y * minDist;
-                
-                // 并且取消当前的移动意图
-                player.vel.x = 0.0f;
-                player.vel.z = 0.0f;
-            }
-        } 
-
         // 构建门的碰撞状态
         doorTrace.clear();
         doorTrace.reserve(mapData.doors.size());

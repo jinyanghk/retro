@@ -315,11 +315,10 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-// 敌人（丧尸模型）
+    // 敌人（丧尸模型）
     glUseProgram(render.modelProgram); 
     glDisable(GL_CULL_FACE);           
     
-    // 获取全局时间（用于驱动动画）
     float globalTime = (float)SDL_GetTicks() / 1000.0f;
 
     for (auto& enemy : enemies) {
@@ -329,63 +328,46 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glm::mat4 enemyModel = glm::mat4(1.0f);
         enemyModel = glm::translate(enemyModel, enemy.pos);
         
-        // 👈 脚部对齐：如果悬空就减小，陷地就增大
-        float yOffset = -10.0f;
-        if (enemy.state == EnemyState::DEAD) {
-            yOffset = 0.0f; // 👈 死人需要更低一点（或者更高一点，你试一下 0.0f 或 -60.0f）
-        }        
-        enemyModel = glm::translate(enemyModel, glm::vec3(0.0f, yOffset, 0.0f)); 
+        // 👈 强制旋转修正（尝试 -90 或 90，这里用 90）
+        //enemyModel = glm::rotate(enemyModel, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 
-        // 朝向：如果丧尸倒退着走，转 180 度
-        enemyModel = glm::rotate(enemyModel, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        // 👈 新增：强制缩放到正常人类大小
+        enemyModel = glm::scale(enemyModel, glm::vec3(0.01f)); 
 
         glm::mat4 mvp = projection * view * enemyModel;
+       
         glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
         glUniform1i(glGetUniformLocation(render.modelProgram, "uTex"), 0);
 
-        // 2. 动画查找与矩阵计算
         std::vector<glm::mat4> boneMatrices(100, glm::mat4(1.0f));
         int animIdx = render.FindAnimIndex(enemy.state);
         
         if (animIdx >= 0 && animIdx < (int)render.zombieAnims.size() && ModelLoader::s_scene) {
             const auto& anim = render.zombieAnims[animIdx];
-            
-            // 👈 核心：让动画时间随状态和移动速度变化
-            float animTime = globalTime;
+
+            float animTime = 0.0f;
             if (enemy.state == EnemyState::CHASE) {
-                float moveSpeed = glm::length(enemy.vel);
-                // 👈 如果速度存在，但实际上没移动，就不播动画（或者播 Idle）
-                // 不过我们没有上一帧的位置，所以简单点：如果 moveSpeed < 10.0f 就切 Idle
-                if (moveSpeed < 10.0f) {
-                    animTime = globalTime; // 原地播放 Idle 动画
-                    // 但是你的 FindAnimIndex 是根据 state 来的，所以它会拿到 walk
-                    // 这个暂时忽略，先解决物理卡住
-                } else {
-                    animTime *= (moveSpeed / 50.0f) * 0.8f; 
-                }
+                // 固定走路速度，1.0 倍正常速度，可以调 1.2 让它稍微快点
+                animTime = globalTime * 0.8f; 
             } else if (enemy.state == EnemyState::ATTACK) {
-                // 攻击动画：假设攻击间隔 timer，让它不循环播放，而是根据 timer 来
-                animTime = (enemy.attackTimer - 1.0f); // 简单映射
+                if (anim.duration > 0.0f) {
+                    animTime = fmod(enemy.attackAnimTimer, anim.duration);
+                }
+            } else {
+                animTime = globalTime;
             }
+            if (anim.duration > 0.0f) animTime = fmod(animTime, anim.duration);
 
-            // 限制在动画时长内
-            float duration = anim.duration;
-            if (duration > 0.0f) animTime = fmod(animTime, duration);
-            else animTime = 0.0f;
-
-            AnimHelper::CalculateBoneTransforms(
-                ModelLoader::s_scene->mRootNode, 
-                glm::mat4(1.0f), 
-                anim, 
-                animTime, 
-                render.boneMap, 
+            AnimHelper::BuildSkinningMatrices(
+                ModelLoader::s_scene->mRootNode,
+                anim, animTime,
+                render.boneMap,
                 boneMatrices
             );
         }
 
         glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uBones"), 100, GL_FALSE, glm::value_ptr(boneMatrices[0]));
 
-        // 3. 绘制
         for (const auto& mesh : render.zombieModel) {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, mesh.textureID);

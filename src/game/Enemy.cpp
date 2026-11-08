@@ -52,6 +52,8 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 
                 if (distToPlayer < 60.0f && heightDiff < 100.0f) {
                     enemy.state = EnemyState::ATTACK;
+                    enemy.attackTimer = 0.0f; // 👈 重置计时器，让动画从头开始
+                    enemy.attackAnimTimer = 0.0f; // 👈 核心：切到攻击时，动画从 0 开始！
                 } 
                 else if (horizDist < 100.0f && heightDiff > 150.0f) {
                     // 离得很近，但它在楼下，你在楼上（或者反过来），没路，直接原地发呆
@@ -121,11 +123,15 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
             enemy.vel.x = 0.0f;
             enemy.vel.z = 0.0f;
             
+            enemy.attackAnimTimer += dt; // 👈 核心：让动画时间一秒一秒往上走
+
+            // 简单的攻击计时器（每秒扣一次血）
             enemy.attackTimer -= dt;
             if (enemy.attackTimer <= 0.0f) {
                 player.hp -= 10.0f;
                 player.damageTimer = 0.2f;
                 enemy.attackTimer = 1.0f;
+                enemy.attackAnimTimer = 0.0f; // 👈 核心：打完这一下，动画重新从头开始播
                 if (sndHit) Mix_PlayChannel(-1, sndHit, 0);
                 //printf("[AI] Enemy attacked player! HP: %.1f\n", player.hp);
             }
@@ -274,33 +280,6 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
             }
         }
 
-        // --- 卡死检测 ---
-        float distMoved = glm::length(enemy.pos - oldPos); 
-        if (enemy.state == EnemyState::CHASE && (enemy.vel.x != 0 || enemy.vel.z != 0)) {
-            if (distMoved < 0.5f) {
-                enemy.stuckTimer += dt;
-                if (enemy.stuckTimer > 1.5f) { // 卡住 1.5 秒
-                    // 1. 强行清空路径，逼它下一帧重新寻路
-                    enemy.pathTimer = 0.0f;
-                    enemy.stuckTimer = 0.0f;
-
-                    // 2. 👈 核心：给它一个朝向目标（或玩家）的抛物线跳跃
-                    glm::vec3 dir = glm::normalize(glm::vec3(enemy.vel.x, 0.0f, enemy.vel.z));
-                    if (glm::length(dir) < 0.1f) {
-                        // 如果没速度，就朝玩家方向
-                        dir = glm::normalize(glm::vec3(player.pos.x - enemy.pos.x, 0.0f, player.pos.z - enemy.pos.z));
-                    }
-
-                    // 极强的水平向前推力 + 向上的跳跃力
-                    JPH::Vec3 jumpVel(dir.x * 300.0f, 600.0f, dir.z * 300.0f);
-                    body_interface.SetLinearVelocity(enemy.bodyId, jumpVel);
-                    body_interface.ActivateBody(enemy.bodyId);
-                    
-                    // printf("[AI] Jumped over obstacle!\n"); // 平时可以注释掉
-                }
-            } else {
-                enemy.stuckTimer = 0.0f;
-            }
-        }       
+            
     }
 }

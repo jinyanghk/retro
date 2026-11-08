@@ -23,6 +23,28 @@ static bool RayTriangleIntersect(const glm::vec3& orig, const glm::vec3& dir,
     return t > 0.00001f;
 }
 
+// 向上打射线检测天花板
+static float GetCeilingDistance(const glm::vec3& pos, const MeshBuffers& collisionMesh) {
+    glm::vec3 rayOrigin = pos;
+    glm::vec3 rayDir(0, 1, 0);
+    float closestT = 1e9f;
+    
+    for (size_t i = 0; i < collisionMesh.indices.size(); i += 3) {
+        uint32_t i0 = collisionMesh.indices[i+0];
+        uint32_t i1 = collisionMesh.indices[i+1];
+        uint32_t i2 = collisionMesh.indices[i+2];
+        glm::vec3 v0(collisionMesh.verts[i0*3+0], collisionMesh.verts[i0*3+1], collisionMesh.verts[i0*3+2]);
+        glm::vec3 v1(collisionMesh.verts[i1*3+0], collisionMesh.verts[i1*3+1], collisionMesh.verts[i1*3+2]);
+        glm::vec3 v2(collisionMesh.verts[i2*3+0], collisionMesh.verts[i2*3+1], collisionMesh.verts[i2*3+2]);
+        
+        float t;
+        if (RayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2, t)) {
+            if (t < closestT) closestT = t;
+        }
+    }
+    return (closestT < 1e8f) ? closestT : 9999.0f;
+}
+
 void BuildNavGrid(const MapData& map, const MeshBuffers& collisionMesh, NavGrid& outGrid) {
     if (map.brushes.empty()) return;
 
@@ -33,14 +55,13 @@ void BuildNavGrid(const MapData& map, const MeshBuffers& collisionMesh, NavGrid&
         minZ = std::min(minZ, b.mins.z); maxZ = std::max(maxZ, b.maxs.z);
     }
 
-    // 👈 精度提升为 16
-    outGrid.cellSize = 16.0f; 
+    outGrid.cellSize = 16.0f; // 👈 16 单位一格，非常精细
     outGrid.minX = std::floor(minX);
     outGrid.minZ = std::floor(minZ);
     outGrid.cols = (uint32_t)std::ceil((maxX - minX) / outGrid.cellSize);
     outGrid.rows = (uint32_t)std::ceil((maxZ - minZ) / outGrid.cellSize);
     outGrid.walkable.resize(outGrid.cols * outGrid.rows, 0);
-    outGrid.heights.resize(outGrid.cols * outGrid.rows, 0.0f);
+    outGrid.heights.resize(outGrid.cols * outGrid.rows, -9999.0f);
 
     int walkableCount = 0;
 
@@ -49,7 +70,7 @@ void BuildNavGrid(const MapData& map, const MeshBuffers& collisionMesh, NavGrid&
             float cx = outGrid.minX + c * outGrid.cellSize + outGrid.cellSize * 0.5f;
             float cz = outGrid.minZ + r * outGrid.cellSize + outGrid.cellSize * 0.5f;
             
-            // 👈 采样中心点 + 4个角的偏移，防止边缘漏光
+            // 向下采样 5 个点
             float offsets[5][2] = { {0,0}, {-4,-4}, {4,-4}, {-4,4}, {4,4} };
             int validRays = 0;
             float highestHitY = -1e9f;
@@ -85,8 +106,16 @@ void BuildNavGrid(const MapData& map, const MeshBuffers& collisionMesh, NavGrid&
                 }
             }
 
-            // 只要有至少 2 条射线打中地面，就认为这格可走
+            // 如果至少打中 2 条，且高度合理
             if (validRays >= 2 && highestHitY > -500.0f) {
+                glm::vec3 gridPos(cx, highestHitY, cz);
+                
+                // 👈 核心修复 1：检查头顶是否有天花板
+                float ceilingDist = GetCeilingDistance(gridPos, collisionMesh);
+                if (ceilingDist < 64.0f) {
+                    continue; // 头顶太矮，丧尸站不直，不可走
+                }
+
                 int idx = r * outGrid.cols + c;
                 outGrid.walkable[idx] = 1;
                 outGrid.heights[idx] = highestHitY;

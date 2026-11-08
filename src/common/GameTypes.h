@@ -55,6 +55,8 @@ struct EnemyInfo {
     int   pathIndex = 0;
     float pathTimer = 0.0f;
     float stuckTimer = 0.0f;
+
+    float attackAnimTimer = 0.0f; // 👈 新增：专门用来控制攻击动画播放
 };
 
 // ---------------------------------------------------------------------------

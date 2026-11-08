@@ -834,6 +834,25 @@ static void OnImportMap() {
         LogAdd("[MAP] imported");
         g_iSelectedBrush  = -1;
         g_iSelectedEntity = -1;
+
+        // 👈 新增：自动居中相机到所有 Brush 的包围盒中心
+        if (!g_brushes.empty()) {
+            glm::vec3 minPos(1e9f), maxPos(-1e9f);
+            for (const auto& b : g_brushes) {
+                minPos = glm::min(minPos, b.m_vecPos - b.m_vecSize);
+                maxPos = glm::max(maxPos, b.m_vecPos + b.m_vecSize);
+            }
+            glm::vec3 center = (minPos + maxPos) * 0.5f;
+            glm::vec3 size = maxPos - minPos;
+            
+            g_cam.target = center;
+            g_cam.dist   = glm::length(size) * 0.6f; // 拉到能看全图
+            g_cam.yaw    = 45.0f;
+            g_cam.pitch  = -30.0f;
+            
+            printf("[Editor] Auto-centered camera to map bounds. Center=(%.1f, %.1f, %.1f), Size=(%.1f, %.1f, %.1f)\n",
+                   center.x, center.y, center.z, size.x, size.y, size.z);
+        }
     }
 }
 static void OnLoadBvh() {

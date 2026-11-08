@@ -35,9 +35,9 @@ struct RenderAssets {
         std::string target;
         switch (state) {
             case EnemyState::IDLE:    target = "Idle01"; break;
-            case EnemyState::CHASE:   target = "a_walk1"; break;
-            case EnemyState::ATTACK:  target = "attackA"; break;
-            case EnemyState::STUNNED: target = "flinch1"; break;
+            case EnemyState::CHASE:   target = "a_walk2"; break;
+            case EnemyState::ATTACK:  target = "attackD"; break;
+            case EnemyState::STUNNED: target = "physflinch3"; break;
             case EnemyState::DEAD:    target = "slump_a"; break;
         }
         for (size_t i = 0; i < zombieAnims.size(); ++i) {
