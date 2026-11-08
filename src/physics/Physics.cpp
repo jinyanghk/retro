@@ -12,10 +12,15 @@
 #include <Jolt/Physics/Body/MotionProperties.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 
 #include <thread>
 #include <vector>
 #include <cstdint>
+
+// 👈 给 CharacterVirtual 一个基础设置
+static JPH::Ref<JPH::CharacterVirtualSettings> g_enemyCharSettings;
+static JPH::Ref<JPH::Shape> g_enemyShape;
 
 // ============================================================================
 // Jolt 物理层过滤器
@@ -94,6 +99,19 @@ void InitPhysics() {
     g_physics = new JPH::PhysicsSystem();
     g_physics->Init(1024, 0, 1024, 1024, g_bp_layer_interface, g_obj_vs_bp_filter, g_obj_vs_obj_filter);
     g_physics->SetGravity(JPH::Vec3(0.0f, -1200.0f, 0.0f));
+
+    // 👈 初始化敌人碰撞形状（胶囊体）
+    JPH::CapsuleShapeSettings capsuleSettings(17.0f, 14.0f); // 半高17，半径14（总高约62）
+    g_enemyShape = capsuleSettings.Create().Get();
+    
+    g_enemyCharSettings = new JPH::CharacterVirtualSettings();
+    g_enemyCharSettings->mShape = g_enemyShape;
+    g_enemyCharSettings->mMaxSlopeAngle = JPH::DegreesToRadians(50.0f);   // 最大爬坡 50 度
+    g_enemyCharSettings->mMaxStrength = 100.0f;
+    g_enemyCharSettings->mCharacterPadding = 0.02f;
+    g_enemyCharSettings->mPenetrationRecoverySpeed = 1.0f;
+    g_enemyCharSettings->mPredictiveContactDistance = 0.1f;
+    g_enemyCharSettings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -17.0f); // 贴地探测    
 }
 
 void ShutdownPhysics() {
@@ -201,6 +219,7 @@ void MoveKinematicBody(JPH::BodyID id, float x, float y, float z) {
     g_physics->GetBodyInterface().SetPositionAndRotation(id, JPH::RVec3(x, y, z), JPH::Quat::sIdentity(), JPH::EActivation::Activate);
 }
 
+/*
 JPH::BodyID CreateEnemyBody(float x, float y, float z) {
     // 👈 改小半径，从 20 变成 14，总宽 28。这样它就能钻过更窄的缝了
     JPH::BoxShapeSettings shape(JPH::Vec3(14.0f, 34.0f, 14.0f)); 
@@ -220,6 +239,49 @@ JPH::BodyID CreateEnemyBody(float x, float y, float z) {
                             JPH::EAllowedDOFs::TranslationY |
                             JPH::EAllowedDOFs::TranslationZ;
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
+}
+*/
+
+JPH::Ref<JPH::CharacterVirtual> CreateEnemyCharacter(float x, float y, float z) {
+    JPH::Ref<JPH::CharacterVirtual> character = new JPH::CharacterVirtual(
+        g_enemyCharSettings, 
+        JPH::RVec3(x, y, z), 
+        JPH::Quat::sIdentity(), 
+        g_physics
+    );
+    // 👈 启用“贴地”和“自动爬台阶”
+    character->SetUp(JPH::Vec3::sAxisY());
+    return character;
+}
+
+void UpdateEnemyCharacter(JPH::CharacterVirtual* character, 
+                          const glm::vec3& velocity, 
+                          float dt)
+{
+    if (!character) return;
+    
+    // 1. 设置速度
+    character->SetLinearVelocity(JPH::Vec3(velocity.x, 0.0f, velocity.z));
+    
+    // 2. 重力
+    JPH::Vec3 gravity(0, -1200.0f, 0);
+    
+    // 3. 更新设置（贴地 + 爬台阶）
+    JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+    updateSettings.mStickToFloorStepDown = -JPH::Vec3(0, 50.0f, 0);
+    updateSettings.mWalkStairsStepUp = JPH::Vec3(0, 30.0f, 0);
+    
+    // 4. 执行更新（用 MOVING 层，只和地形碰撞）
+    character->ExtendedUpdate(
+        dt,
+        gravity,
+        updateSettings,
+        g_physics->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        g_physics->GetDefaultLayerFilter(Layers::MOVING),
+        {},
+        {},
+        *g_temp_allocator
+    );
 }
 
 void SetBodyToDynamic(JPH::BodyID id) {

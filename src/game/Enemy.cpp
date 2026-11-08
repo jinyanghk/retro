@@ -20,15 +20,6 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         auto& enemy = enemies[eIdx];
         if (enemy.state == EnemyState::DEAD) {
             enemy.deathTimer += dt;
-
-            // 👈 新增：如果刚体还在，就把它销毁
-            if (!enemy.bodyId.IsInvalid()) {
-                body_interface.RemoveBody(enemy.bodyId);
-                body_interface.DestroyBody(enemy.bodyId);
-                enemy.bodyId = JPH::BodyID(); // 置空，防止重复销毁
-                printf("[AI] Enemy body destroyed after death.\n");
-            }
-
             continue;
         }
 
@@ -141,33 +132,12 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
             enemy.vel.z *= 0.9f;
         }
 
-        // --- 交给物理引擎 ---
-        if (!enemy.bodyId.IsInvalid()) {
-            // 1. 取出当前物理速度
-            JPH::Vec3 currentVel = body_interface.GetLinearVelocity(enemy.bodyId);
-            float currentVX = currentVel.GetX();
-            float currentVZ = currentVel.GetZ();
-
-            // 2. 如果我们的逻辑速度是 0（比如被卡住），但当前物理速度仍有残留，就保留它（防止瞬间急刹车）
-            if (std::abs(enemy.vel.x) < 0.1f) enemy.vel.x = currentVX;
-            if (std::abs(enemy.vel.z) < 0.1f) enemy.vel.z = currentVZ;
-
-            // 3. 设置速度
-            body_interface.SetLinearVelocity(enemy.bodyId, JPH::Vec3(enemy.vel.x, currentVel.GetY(), enemy.vel.z));
+        // --- 交给 CharacterVirtual ---
+        if (enemy.character != nullptr) {
+            UpdateEnemyCharacter(enemy.character, enemy.vel, dt);
             
-            // 4. 👈 关键：强制唤醒，并让物理引擎不要把它“锁”在地板上
-            body_interface.ActivateBody(enemy.bodyId);
-            
-            // 5. 读取物理位置，覆盖逻辑位置
-            JPH::RVec3 physPos = body_interface.GetCenterOfMassPosition(enemy.bodyId);
-            glm::vec3 newPos((float)physPos.GetX(), (float)physPos.GetY(), (float)physPos.GetZ());
-            
-            // 6. 👈 防止 Y 轴穿透：如果掉下去了，强行拉回来
-            if (newPos.y < enemy.pos.y - 50.0f) {
-                newPos.y = enemy.pos.y;
-                body_interface.SetPositionAndRotation(enemy.bodyId, JPH::RVec3(newPos.x, newPos.y, newPos.z), JPH::Quat::sIdentity(), JPH::EActivation::Activate);
-            }
-            enemy.pos = newPos;
+            JPH::RVec3 pos = enemy.character->GetPosition();
+            enemy.pos = glm::vec3((float)pos.GetX(), (float)pos.GetY(), (float)pos.GetZ());
         }
 
         // --- 推箱子与桶 ---
@@ -257,13 +227,6 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                     // 1. 秒杀敌人
                     enemy.hp = 0.0f;
                     enemy.state = EnemyState::DEAD;
-                    
-                    // 2. 摧毁敌人的物理刚体
-                    if (!enemy.bodyId.IsInvalid()) {
-                        body_interface.RemoveBody(enemy.bodyId);
-                        body_interface.DestroyBody(enemy.bodyId);
-                        enemy.bodyId = JPH::BodyID(); 
-                    }
                     
                     // 3. 如果是陷阱大铁块，让它停在半空变成静态墙
                     if (isFallingTrap) {

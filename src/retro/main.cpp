@@ -209,7 +209,8 @@ int main(int argc, char** argv) {
             }
             
             e.pos = spawnPos;
-            e.bodyId = CreateEnemyBody(spawnPos.x, spawnPos.y, spawnPos.z); 
+            //e.bodyId = CreateEnemyBody(spawnPos.x, spawnPos.y, spawnPos.z); 
+            e.character = CreateEnemyCharacter(spawnPos.x, spawnPos.y, spawnPos.z);
             enemies.push_back(e);
         }
     };
@@ -661,7 +662,8 @@ int main(int argc, char** argv) {
             for (auto& pos : mapData.zombieSpawns) {
                 EnemyInfo e;
                 e.pos = pos;
-                e.bodyId = CreateEnemyBody(pos.x, pos.y, pos.z); 
+                //e.bodyId = CreateEnemyBody(pos.x, pos.y, pos.z); 
+                e.character = CreateEnemyCharacter(pos.x, pos.y, pos.z);
                 enemies.push_back(e);
             }
 

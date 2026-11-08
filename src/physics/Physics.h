@@ -2,7 +2,9 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
-#include <Jolt/Physics/Body/BodyID.h>
+//#include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>  // 👈 新增
+#include <glm/glm.hpp>
 #include <vector>
 #include <cstdint>
 
@@ -37,7 +39,13 @@ JPH::BodyID CreateBarrelBody(float x, float y, float z);
 void MoveKinematicBody(JPH::BodyID id, float x, float y, float z);
 
 // 创建敌人的 Kinematic 刚体
-JPH::BodyID CreateEnemyBody(float x, float y, float z);
+//JPH::BodyID CreateEnemyBody(float x, float y, float z);
+
+JPH::Ref<JPH::CharacterVirtual> CreateEnemyCharacter(float x, float y, float z);
+// 👈 新增：一步完成更新（含贴地、爬台阶、层过滤）
+void UpdateEnemyCharacter(JPH::CharacterVirtual* character, 
+                          const glm::vec3& velocity, 
+                          float dt);
 
 void SetBodyToDynamic(JPH::BodyID id);
 

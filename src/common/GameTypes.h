@@ -13,7 +13,8 @@
 // Jolt BodyID 是值类型（内含 uint32），可以安全暴露在头文件里。
 // 这里只引最小 Jolt 头，避免把整个 PhysicsSystem 拖进使用方。
 #include <Jolt/Jolt.h>
-#include <Jolt/Physics/Body/BodyID.h>
+//#include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>  // 👈 新增
 
 // ---------------------------------------------------------------------------
 // 爆炸桶
@@ -48,7 +49,8 @@ struct EnemyInfo {
     EnemyState state = EnemyState::IDLE;
     float      stunTimer = 0.0f;
     float      deathTimer = 0.0f;
-    JPH::BodyID bodyId;
+    //JPH::BodyID bodyId;
+    JPH::Ref<JPH::CharacterVirtual> character;  // 👈 新增
 
     // A* 寻路缓存
     std::vector<glm::vec3> path;
