@@ -1,16 +1,23 @@
 #version 330 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec2 aUV;
-layout(location = 2) in ivec4 aBoneIDs;   // 👈 受哪几根骨骼影响（需要转为 int）
-layout(location = 3) in vec4 aWeights;   // 👈 影响的权重
+layout(location = 2) in ivec4 aBoneIDs;
+layout(location = 3) in vec4 aWeights;
+layout(location = 4) in vec3 aNormal;
+layout(location = 5) in vec3 aTangent;
+layout(location = 6) in vec3 aBitangent;
 
 uniform mat4 uMVP;
+uniform mat4 uModel;        // 👈 世界变换（丧尸位置 + 缩放）
 uniform mat4 uBones[100];
 
 out vec2 vUV;
+out vec3 vWorldPos;
+out vec3 vNormal;
+out vec3 vTangent;
+out vec3 vBitangent;
 
 void main() {
-    // 👈 关键修复 1：先构造蒙皮矩阵，再乘顶点
     mat4 skinMatrix = mat4(0.0);
     float totalWeight = 0.0;
     
@@ -22,17 +29,22 @@ void main() {
             totalWeight += weight;
         }
     }
-
-    vec4 skinnedPos;
     if (totalWeight < 0.0001) {
-        // 没有绑定任何骨骼，直接用原始坐标（兜底）
-        skinnedPos = vec4(aPos, 1.0);
+        skinMatrix = mat4(1.0);
     } else {
-        // 归一化权重（防止 >1 或 <1 的误差，参考 HL2 常见权重偏差）
         skinMatrix /= totalWeight;
-        skinnedPos = skinMatrix * vec4(aPos, 1.0);
     }
 
-    gl_Position = uMVP * skinnedPos;
+    vec4 localPos = skinMatrix * vec4(aPos, 1.0);
+    vec4 worldPos = uModel * localPos;
+    vWorldPos = worldPos.xyz;
+
+    // 法线/切线用蒙皮矩阵的旋转部分变换
+    mat3 normalMatrix = mat3(skinMatrix);
+    vNormal    = normalize(normalMatrix * aNormal);
+    vTangent   = normalize(normalMatrix * aTangent);
+    vBitangent = normalize(normalMatrix * aBitangent);
+
+    gl_Position = uMVP * localPos;
     vUV = aUV;
 }

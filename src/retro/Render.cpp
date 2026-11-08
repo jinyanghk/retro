@@ -317,27 +317,31 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
     // 敌人（丧尸模型）
     glUseProgram(render.modelProgram); 
-    glDisable(GL_CULL_FACE);           
-    
+    glDisable(GL_CULL_FACE);
+
+    // 光照 uniform（一次性设置，循环外）
+    glm::vec3 sunDir   = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.5f));
+    glm::vec3 sunColor = glm::vec3(0.55f, 0.65f, 0.85f);  // 冷月光
+    glm::vec3 ambient  = glm::vec3(0.18f, 0.20f, 0.25f);  // 冷暗环境
+
+    glUniform3fv(glGetUniformLocation(render.modelProgram, "uSunDir"),   1, &sunDir[0]);
+    glUniform3fv(glGetUniformLocation(render.modelProgram, "uSunColor"), 1, &sunColor[0]);
+    glUniform3fv(glGetUniformLocation(render.modelProgram, "uAmbient"),  1, &ambient[0]);
+    glUniform3fv(glGetUniformLocation(render.modelProgram, "uCameraPos"),1, &eyePos[0]);
+
     float globalTime = (float)SDL_GetTicks() / 1000.0f;
 
     for (auto& enemy : enemies) {
         if (enemy.state == EnemyState::DEAD && enemy.deathTimer > 10.0f) continue;
 
-        // 1. 基础矩阵（位置修正）
         glm::mat4 enemyModel = glm::mat4(1.0f);
         enemyModel = glm::translate(enemyModel, enemy.pos);
-        
-        // 👈 强制旋转修正（尝试 -90 或 90，这里用 90）
-        //enemyModel = glm::rotate(enemyModel, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
-        // 👈 新增：强制缩放到正常人类大小
         enemyModel = glm::scale(enemyModel, glm::vec3(0.01f)); 
 
         glm::mat4 mvp = projection * view * enemyModel;
        
-        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
-        glUniform1i(glGetUniformLocation(render.modelProgram, "uTex"), 0);
+        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"),   1, GL_FALSE, glm::value_ptr(mvp));
+        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(enemyModel));  // 👈 新增
 
         std::vector<glm::mat4> boneMatrices(100, glm::mat4(1.0f));
         int animIdx = render.FindAnimIndex(enemy.state);
@@ -347,12 +351,9 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
             float animTime = 0.0f;
             if (enemy.state == EnemyState::CHASE) {
-                // 固定走路速度，1.0 倍正常速度，可以调 1.2 让它稍微快点
-                animTime = globalTime * 0.8f; 
+                animTime = globalTime;   // 用你 commit 时的版本
             } else if (enemy.state == EnemyState::ATTACK) {
-                if (anim.duration > 0.0f) {
-                    animTime = fmod(enemy.attackAnimTimer, anim.duration);
-                }
+                if (anim.duration > 0.0f) animTime = fmod(enemy.attackAnimTimer, anim.duration);
             } else {
                 animTime = globalTime;
             }
@@ -369,8 +370,16 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uBones"), 100, GL_FALSE, glm::value_ptr(boneMatrices[0]));
 
         for (const auto& mesh : render.zombieModel) {
+            // 漫反射
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, mesh.textureID);
+            glUniform1i(glGetUniformLocation(render.modelProgram, "uTex"), 0);
+
+            // 👈 法线贴图
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, mesh.normalMapID ? mesh.normalMapID : render.whiteTex);
+            glUniform1i(glGetUniformLocation(render.modelProgram, "uNormalMap"), 1);
+
             glBindVertexArray(mesh.VAO);
             glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
         }

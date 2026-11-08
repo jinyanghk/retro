@@ -64,7 +64,9 @@ std::vector<Mesh> ModelLoader::LoadModel(const std::string& path,
     
     // 注意：这里把 aiProcess_FlipUVs 关掉，因为在骨骼动画里有时候会导致上下颠倒
     s_scene = s_importer.ReadFile(path, 
-        aiProcess_Triangulate | aiProcess_GenSmoothNormals);
+        aiProcess_Triangulate 
+        | aiProcess_GenSmoothNormals
+        | aiProcess_CalcTangentSpace);  // 👈 新增
     
     if (!s_scene || s_scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !s_scene->mRootNode) {
         std::cerr << "[ModelLoader] Assimp error: " << s_importer.GetErrorString() << std::endl;
@@ -89,6 +91,20 @@ std::vector<Mesh> ModelLoader::LoadModel(const std::string& path,
             } else {
                 v.uv = glm::vec2(0.0f);
             }
+
+            // 👈 新增：法线、切线、副切线
+            if (aMesh->HasNormals()) {
+                v.normal = glm::vec3(aMesh->mNormals[j].x, aMesh->mNormals[j].y, aMesh->mNormals[j].z);
+            } else {
+                v.normal = glm::vec3(0, 1, 0);
+            }
+            if (aMesh->HasTangentsAndBitangents()) {
+                v.tangent   = glm::vec3(aMesh->mTangents[j].x,   aMesh->mTangents[j].y,   aMesh->mTangents[j].z);
+                v.bitangent = glm::vec3(aMesh->mBitangents[j].x, aMesh->mBitangents[j].y, aMesh->mBitangents[j].z);
+            } else {
+                v.tangent   = glm::vec3(1, 0, 0);
+                v.bitangent = glm::vec3(0, 0, 1);
+            }            
             
             // 默认没有任何骨骼影响
             v.boneIDs = glm::ivec4(-1);
@@ -110,6 +126,10 @@ std::vector<Mesh> ModelLoader::LoadModel(const std::string& path,
         if (aMesh->mMaterialIndex >= 0) {
             std::string texPath = dir + "Zombie_Classic_sheet.png"; 
             mesh.textureID = TextureCache::GetTextureByPath(texPath);
+
+            // 👈 新增：法线贴图
+            std::string normalPath = dir + "Zombie_Classic_sheet_normal.png";
+            mesh.normalMapID = TextureCache::GetTextureByPath(normalPath);            
         }
 
         glGenVertexArrays(1, &mesh.VAO);
@@ -124,18 +144,27 @@ std::vector<Mesh> ModelLoader::LoadModel(const std::string& path,
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
-        // 绑定顶点属性 (stride 现在是 Vertex 结构体的大小)
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
         
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, uv));
         
-        glEnableVertexAttribArray(2); // Bone IDs
+        glEnableVertexAttribArray(2); // Bone IDs（整数）
         glVertexAttribIPointer(2, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, boneIDs));
         
         glEnableVertexAttribArray(3); // Weights
         glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
+
+        // 👈 新增：法线/切线/副切线
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+        
+        glEnableVertexAttribArray(5);
+        glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, tangent));
+        
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, bitangent));
 
         mesh.indexCount = indices.size();
         meshes.push_back(mesh);
