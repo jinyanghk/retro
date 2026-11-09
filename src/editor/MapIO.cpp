@@ -31,18 +31,30 @@ bool ExportMapJson(const std::string& path)
         jb["halfSize"] = Vec3ToJson(b.m_vecSize);
         jb["angles"]   = Vec3ToJson(b.m_angRot);
 
-        json verts = json::array();
-        for (const auto& v : b.m_vertices) verts.push_back(Vec3ToJson(v));
-        jb["vertices"] = verts;
+        // 注意：不要写 jb["vertices"]，map.exe 不读它
 
         json faces = json::array();
         for (int f = 0; f < (int)b.m_faces.size(); f++) {
             const auto& face = b.m_faces[f];
             json jf;
-            jf["indices"]  = json::array({face.m_nVertexIndices[0], face.m_nVertexIndices[1],
-                                          face.m_nVertexIndices[2], face.m_nVertexIndices[3]});
+            
+            // 1. 正常导出 normal 和 material
             jf["normal"]   = Vec3ToJson(face.m_vecNormal);
             jf["material"] = face.m_szMaterial;
+            
+            // 2. 根据 indices 提取出实际的 3D 顶点坐标（map.exe 需要这个）
+            json face_verts = json::array();
+            for (int k = 0; k < 4; k++) {
+                int idx = face.m_nVertexIndices[k];
+                if (idx >= 0 && idx < (int)b.m_vertices.size()) {
+                    face_verts.push_back(Vec3ToJson(b.m_vertices[idx]));
+                }
+            }
+            jf["vertices"] = face_verts;
+            
+            jf["uaxis"] = face.m_szUAxis;
+            jf["vaxis"] = face.m_szVAxis;
+            
             faces.push_back(jf);
         }
         jb["faces"] = faces;
@@ -50,6 +62,7 @@ bool ExportMapJson(const std::string& path)
     }
     root["brushes"] = brushes;
 
+    // 实体部分保持不变
     json entities = json::array();
     for (const auto& e : g_entities) {
         json je;
@@ -57,22 +70,19 @@ bool ExportMapJson(const std::string& path)
         je["origin"]    = Vec3ToJson(e.m_vecPos);
         je["angles"]    = Vec3ToJson(e.m_angRot);
         je["type"]      = (int)e.m_iType;
-        je["bbox_mins"]  = Vec3ToJson(e.m_vecBBoxMins);   // ★ 新增
-        je["bbox_maxs"]  = Vec3ToJson(e.m_vecBBoxMaxs);   // ★ 新增
+        je["bbox_mins"]  = Vec3ToJson(e.m_vecBBoxMins);
+        je["bbox_maxs"]  = Vec3ToJson(e.m_vecBBoxMaxs);
 
-        // 1. 先写标准属性
         json props = json::object();
         for (const auto& kv : e.m_properties) props[kv.first] = kv.second;
         je["properties"] = props;
 
-        // 2. 再写自定义属性
         json customs = json::object();
         for (const auto& kv : e.m_customProperties) {
             customs[kv.first] = kv.second;
         }
         je["customs"] = customs;
 
-        // 🔥 新增：导出 I/O 连接
         json connections = json::array();
         for (const auto& conn : e.m_connections) {
             json jo;
@@ -94,7 +104,7 @@ bool ExportMapJson(const std::string& path)
         char b[256]; snprintf(b, sizeof(b), "[MAP] FAILED to open %s", path.c_str()); LogAdd(b);
         return false;
     }
-    f << root;//.dump(2);
+    f << root;
     f.close();
 
     char b[256]; snprintf(b, sizeof(b), "[MAP] exported %s (%zu brushes, %zu entities)",
@@ -132,11 +142,11 @@ bool ImportMapJson(const std::string& path)
             CBrush b;
             b.m_szMaterial = jb.value("material", "DEV/DEV_MEASUREGENERIC01");
             
-            // 安全读取 position, halfSize, angles
             b.m_vecPos  = jb.contains("position") ? ParseVec3(jb["position"]) : glm::vec3(0.0f);
             b.m_vecSize = jb.contains("halfSize") ? ParseVec3(jb["halfSize"]) : glm::vec3(1.0f);
             b.m_angRot  = jb.contains("angles")   ? ParseVec3(jb["angles"])   : glm::vec3(0.0f);
             
+            // 1. 优先读 brush 级别的 vertices（如果你编辑器里自己生成的）
             b.m_vertices.clear();
             if (jb.contains("vertices")) {
                 for (const auto& v : jb["vertices"]) b.m_vertices.push_back(ParseVec3(v));
@@ -144,32 +154,58 @@ bool ImportMapJson(const std::string& path)
             
             b.m_faces.resize(6);
             int fi = 0;
+            
+            // 2. 读 faces
             if (jb.contains("faces") && jb["faces"].is_array()) {
                 for (const auto& jf : jb["faces"]) {
                     if (fi >= 6) break;
-                    // 安全读取 indices
+                    
+                    // 2.1 如果 faces 里有 vertices，优先用它构建 m_vertices
+                    if (jf.contains("vertices") && jf["vertices"].is_array()) {
+                        for (const auto& v : jf["vertices"]) {
+                            b.m_vertices.push_back(ParseVec3(v));
+                        }
+                    }
+                    
+                    // 2.2 读取 indices
                     if (jf.contains("indices") && jf["indices"].is_array() && jf["indices"].size() >= 4) {
                         for (int k = 0; k < 4; k++)
                             b.m_faces[fi].m_nVertexIndices[k] = jf["indices"][k].get<int>();
                     } else {
-                        // 缺数据兜底，给 0 1 2 3，避免崩
-                        b.m_faces[fi].m_nVertexIndices[0] = 0;
-                        b.m_faces[fi].m_nVertexIndices[1] = 1;
-                        b.m_faces[fi].m_nVertexIndices[2] = 2;
-                        b.m_faces[fi].m_nVertexIndices[3] = 3;
+                        // 如果没 indices，用 default 顺序（0,1,2,3），并假定 vertices 是刚刚平铺进去的
+                        int base = (fi * 4);
+                        for (int k = 0; k < 4; k++) {
+                            b.m_faces[fi].m_nVertexIndices[k] = base + k;
+                        }
                     }
+                    
                     b.m_faces[fi].m_vecNormal  = jf.contains("normal") ? ParseVec3(jf["normal"]) : glm::vec3(0.0f, 1.0f, 0.0f);
                     b.m_faces[fi].m_szMaterial = jf.value("material", b.m_szMaterial);
+
+                    // 👈 新增这两行
+                    b.m_faces[fi].m_szUAxis = jf.value("uaxis", "[1 0 0 0] 1");
+                    b.m_faces[fi].m_szVAxis = jf.value("vaxis", "[0 1 0 0] 1");
+
                     fi++;
                 }
             }
             
-            // 如果原来的逻辑会导致崩溃，这里可以做个保护：
-            if (b.m_vertices.size() == 8 && fi > 0) {
-                b.RecalcFaceNormals();
-            } else {
-                b.RebuildPrimitiveMesh(); 
+            // 3. 兜底：如果没有任何 vertices，就自动生成 AABB 的 8 个顶点
+            if (b.m_vertices.empty()) {
+                glm::vec3 h = b.m_vecSize;
+                b.m_vertices = {
+                    b.m_vecPos + glm::vec3(-h.x, -h.y, -h.z),
+                    b.m_vecPos + glm::vec3( h.x, -h.y, -h.z),
+                    b.m_vecPos + glm::vec3( h.x,  h.y, -h.z),
+                    b.m_vecPos + glm::vec3(-h.x,  h.y, -h.z),
+                    b.m_vecPos + glm::vec3(-h.x, -h.y,  h.z),
+                    b.m_vecPos + glm::vec3( h.x, -h.y,  h.z),
+                    b.m_vecPos + glm::vec3( h.x,  h.y,  h.z),
+                    b.m_vecPos + glm::vec3(-h.x,  h.y,  h.z),
+                };
             }
+            
+            b.RecalcFaceNormals();
             g_brushes.push_back(b);
         }
     }
@@ -179,14 +215,15 @@ bool ImportMapJson(const std::string& path)
             CEntity e;
             e.m_szName = je.value("classname", "info_player_start");
             
-            // 安全读取实体字段
             e.m_vecPos = je.contains("origin") ? ParseVec3(je["origin"]) : glm::vec3(0.0f);
             e.m_angRot = je.contains("angles") ? ParseVec3(je["angles"]) : glm::vec3(0.0f);
             e.m_iType  = (EntityType)je.value("type", (int)ENTITY_MODEL);
 
             if (je.contains("bbox_mins") && je.contains("bbox_maxs")) {
-                e.m_vecBBoxMins = ParseVec3(je["bbox_mins"]);
-                e.m_vecBBoxMaxs = ParseVec3(je["bbox_maxs"]);
+                glm::vec3 rel_mins = ParseVec3(je["bbox_mins"]);
+                glm::vec3 rel_maxs = ParseVec3(je["bbox_maxs"]);
+                e.m_vecBBoxMins = e.m_vecPos + rel_mins;
+                e.m_vecBBoxMaxs = e.m_vecPos + rel_maxs;
             }
 
             if (je.contains("properties") && je["properties"].is_object()) {
@@ -210,8 +247,7 @@ bool ImportMapJson(const std::string& path)
                     e.m_connections.push_back(conn);
                 }
             }
-                        
-            // 如果 bbox 没从 json 里读到，走 UpdateEntityBBox
+            
             if (!je.contains("bbox_mins")) UpdateEntityBBox(e);
             g_entities.push_back(e);
         }

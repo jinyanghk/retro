@@ -15,6 +15,8 @@ struct BrushFace_t {
     glm::vec3   m_vecNormal = glm::vec3(0, 0, 1);
     int         m_nVertexIndices[4] = {0,0,0,0};
     std::string m_szMaterial;   // 空 = 继承 brush 的 m_szMaterial
+    std::string m_szUAxis = "[1 0 0 0] 1";  // 👈 新增
+    std::string m_szVAxis = "[0 1 0 0] 1";  // 👈 新增
 };
 
 // 权威数据：8 顶点 + 6 面。m_vecPos / m_vecSize 是派生量（AABB 中心 / 半尺寸）

@@ -303,6 +303,14 @@ static void DrawBrushWireframe(const glm::mat4& viewProj)
 
 static void DrawEntityBBoxes(const glm::mat4& viewProj)
 {
+    glBindVertexArray(g_lineVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, g_lineVBO);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glDisableVertexAttribArray(2);
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+
     GLuint prog = EnsureLineColorProg();
     glUseProgram(prog);
     GLint uVP = glGetUniformLocation(prog, "uVP");

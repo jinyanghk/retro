@@ -9,6 +9,7 @@ def parse_vmf(path):
         lines = f.readlines()
 
     solids = []
+    solids_bbox = []  # 👈 新增：每块 solid 的 AABB
     entities = []
     stack = [] 
     current_solid_sides = []
@@ -34,6 +35,19 @@ def parse_vmf(path):
             elif block_name == 'solid':
                 if len(current_solid_sides) >= 4:
                     solids.append(current_solid_sides)
+                    # 计算该 solid 的 bbox
+                    all_pts = []
+                    for s in current_solid_sides:
+                        if 'p1' in s: all_pts.append(s['p1'])
+                        if 'p2' in s: all_pts.append(s['p2'])
+                        if 'p3' in s: all_pts.append(s['p3'])
+                    if all_pts:
+                        xs = [p[0] for p in all_pts]
+                        ys = [p[1] for p in all_pts]
+                        zs = [p[2] for p in all_pts]
+                        solids_bbox.append(((min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))))
+                    else:
+                        solids_bbox.append(None)
                 current_solid_sides = []
             elif block_name == 'entity':
                 if 'classname' in current_entity:
@@ -70,7 +84,19 @@ def parse_vmf(path):
             o_str = e.get('origin', '0 0 0')
             parts = o_str.split()
             o = [float(x) for x in parts] if len(parts) == 3 else [0.0, 0.0, 0.0]
-            result_entities.append({'kv': e, 'origin': o})
+            
+            # 👈 新增：解析 model "*N" 对应的 solid bbox
+            bbox = None
+            model_str = e.get('model', '')
+            if model_str.startswith('*'):
+                try:
+                    idx = int(model_str[1:]) - 1  # VMF 的 model 编号从 1 开始
+                    if 0 <= idx < len(solids_bbox):
+                        bbox = solids_bbox[idx]
+                except ValueError:
+                    pass
+            
+            result_entities.append({'kv': e, 'origin': o, 'bbox': bbox})
 
     return solids, result_entities
 
@@ -106,11 +132,9 @@ def brush_faces(sides):
     
     all_verts = None
     try:
-        # 如果内部点算错，会直接抛出异常。我们先尝试标准求交
         hs = HalfspaceIntersection(halfspaces, interior)
         all_verts = hs.intersections
     except Exception as e:
-        # 👈 如果失败，用 linprog 找可行域内的点再试一次
         try:
             A = halfspaces[:, :3]
             b = -halfspaces[:, 3]
@@ -118,10 +142,9 @@ def brush_faces(sides):
             if res.success:
                 hs = HalfspaceIntersection(halfspaces, res.x)
                 all_verts = hs.intersections
-        except Exception as e2:
-            pass # 彻底失败
+        except Exception:
+            pass
     
-    # 如果求交彻底失败，回退到 AABB 防止丢块
     if all_verts is None or len(all_verts) < 4:
         xs = [s['p1'][0] for s in valid_sides if 'p1' in s]
         ys = [s['p1'][1] for s in valid_sides if 'p1' in s]
@@ -129,7 +152,6 @@ def brush_faces(sides):
         if not xs: return []
         mn = (min(xs), min(ys), min(zs))
         mx = (max(xs), max(ys), max(zs))
-        # 用 8 个点构造 AABB
         all_verts = np.array([
             (mn[0], mn[1], mn[2]), (mx[0], mn[1], mn[2]),
             (mx[0], mx[1], mn[2]), (mn[0], mx[1], mn[2]),
@@ -192,11 +214,8 @@ def to_my_json(solids, entities, out_path):
         default_mat = faces[0]['material']
         def conv(v): return [v[0], v[2], -v[1]] # Z-up -> Y-up
         
-        # 👈 新增：转换轴向量字符串
         def convert_axis_str(axis_str):
-            # 解析类似 "[1 0 0 0] 0.25"
             if not axis_str: return "[1 0 0 0] 1"
-            import re
             m = re.match(r'\[([^\]]+)\]\s*(.*)', axis_str)
             if not m: return axis_str
             vec_str = m.group(1)
@@ -204,7 +223,6 @@ def to_my_json(solids, entities, out_path):
             
             parts = [float(x) for x in vec_str.split()]
             if len(parts) == 4:
-                # 转换 x y z（第4个是 shift，不动）
                 nx, ny, nz = parts[0], parts[2], -parts[1]
                 new_vec_str = f"{nx:.6f} {ny:.6f} {nz:.6f} {parts[3]:.6f}"
                 return f"[{new_vec_str}] {scale_str}"
@@ -216,20 +234,59 @@ def to_my_json(solids, entities, out_path):
                 'normal': [f['normal'][0], f['normal'][2], -f['normal'][1]],
                 'material': f['material'],
                 'vertices': [conv(v) for v in f['vertices']],
-                'uaxis': convert_axis_str(f['uaxis']), # 👈 修改这里
-                'vaxis': convert_axis_str(f['vaxis']), # 👈 修改这里
+                'uaxis': convert_axis_str(f['uaxis']),
+                'vaxis': convert_axis_str(f['vaxis']),
             })
 
+        #out['brushes'].append({
+        #    'position': [float(x) for x in center],
+        #    'halfSize': [float(x) for x in half],
+        #    'material': default_mat,
+        #    'faces': json_faces,
+        #})
+        # 👈 改成使用 conv 转换中心点：
         out['brushes'].append({
-            'position': [float(x) for x in center],
-            'halfSize': [float(x) for x in half],
+            'position': conv(center),   # 把中心点从 Z-up 转成 Y-up
+            'halfSize': [half[0], half[2], half[1]], # 👈 注意 halfSize 的 XYZ 也要转，Y和Z互换
             'material': default_mat,
             'faces': json_faces,
-        })
+        })        
 
     primary_spawn_added = False
     for e in entities:
         cn = e['kv'].get('classname', '')
+        
+        # 👈 新增：计算 Y-up 的 bbox（相对实体原点）
+        def get_y_up_bbox(e):
+            if not e.get('bbox'): return None
+            mn, mx = e['bbox']
+            o = e['origin']
+            # VMF 的 mins/maxs 减去 origin，得到相对偏移
+            rel_mins = [mn[0]-o[0], mn[1]-o[1], mn[2]-o[2]]
+            rel_maxs = [mx[0]-o[0], mx[1]-o[1], mx[2]-o[2]]
+            # Z-up -> Y-up：X 不变，Y=Z，Z=-Y
+            y_up_mins = [rel_mins[0], rel_mins[2], -rel_maxs[1]]
+            y_up_maxs = [rel_maxs[0], rel_maxs[2], -rel_mins[1]]
+            return y_up_mins, y_up_maxs
+        
+        def get_default_bbox(classname):
+            # 没找到 brush 时的默认值
+            if classname in ('info_player_start', 'npc_zombie'):
+                return [-16, 0, -16], [16, 72, 16]
+            elif classname == 'func_door':
+                return [-32, -64, -8], [32, 64, 8]
+            elif classname == 'trigger_multiple':
+                return [-32, -32, -32], [32, 32, 32]
+            else:
+                return [-8, -8, -8], [8, 8, 8]
+        
+        # 尝试从 brush 读 bbox，失败则用默认
+        bbox_result = get_y_up_bbox(e)
+        if bbox_result is None:
+            bbox_mins, bbox_maxs = get_default_bbox(cn)
+        else:
+            bbox_mins, bbox_maxs = bbox_result
+
         if cn == 'info_player_start':
             targetname = e['kv'].get('targetname', '')
             if targetname == 'primary' or not primary_spawn_added:
@@ -237,6 +294,9 @@ def to_my_json(solids, entities, out_path):
                 out['entities'].append({
                     'classname': cn,
                     'origin': [o[0], o[2], -o[1]],
+                    'angles': [0.0, 0.0, 0.0],
+                    'bbox_mins': bbox_mins,
+                    'bbox_maxs': bbox_maxs,
                     'properties': {},
                     'customs': {},
                     'connections': [],
@@ -246,9 +306,20 @@ def to_my_json(solids, entities, out_path):
             
         if cn in ('info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'light', 'light_spot'):
             o = e['origin']
+            # 读取 angles（HL2 的 angles 是 yaw pitch roll 的 Z-up 格式）
+            angles_str = e['kv'].get('angles', '0 0 0')
+            try:
+                a_parts = [float(x) for x in angles_str.split()]
+                angles = [a_parts[0], a_parts[2], -a_parts[1]] if len(a_parts) == 3 else [0.0, 0.0, 0.0]
+            except ValueError:
+                angles = [0.0, 0.0, 0.0]
+            
             out['entities'].append({
                 'classname': cn,
                 'origin': [o[0], o[2], -o[1]],
+                'angles': angles,
+                'bbox_mins': bbox_mins,
+                'bbox_maxs': bbox_maxs,
                 'properties': {k: v for k, v in e['kv'].items() if k in ('targetname', 'target', 'speed', 'lip', '_light', '_distance')},
                 'customs': {},
                 'connections': [],

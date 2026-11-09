@@ -20,7 +20,12 @@ void UpdateEntityBBox(CEntity& ent)
         return;
     }
 
-    // 默认 GameDatabase 逻辑
+    // 👈 如果 bbox 已经是从 JSON 读到的（不是默认值 0），就不要重新算
+    if (glm::length(ent.m_vecBBoxMins) > 0.01f || glm::length(ent.m_vecBBoxMaxs) > 0.01f) {
+        return;  // 已经算过了
+    }
+
+    // 否则走 GameDatabase
     glm::vec3 mins, maxs;
     if (GameDatabase::Instance().GetBBox(ent.m_szName, mins, maxs)) {
         ent.m_vecBBoxMins = ent.m_vecPos + mins;
