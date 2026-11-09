@@ -1,8 +1,9 @@
 #include "GameDatabase.h"
 #include "FileSystem.h"
 
-#include <nlohmann/json.hpp>
+#include <map> // for gcc13 + nlohmann_json
 #include <cstdio>
+#include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 

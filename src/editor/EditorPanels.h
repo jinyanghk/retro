@@ -32,5 +32,6 @@ void SetCompileAndRunHandler(void (*pfn)());
 void SetLoadBvhHandler(void (*pfn)());
 void OpenCompileOptionsWindow();
 void DrawCompileOptionsWindow();
+void DrawMaterialBrowserWindow();
 
 #endif

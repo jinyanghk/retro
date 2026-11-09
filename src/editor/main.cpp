@@ -41,6 +41,76 @@
 #include <windows.h>
 #endif
 
+// ----temporary only ----
+#include <filesystem>
+#include <unordered_map>
+#include <algorithm>
+#include <fstream>
+
+namespace fs = std::filesystem;
+
+// 👈 全局材质名列表（带路径，比如 "nature/red_grass"）
+std::vector<std::string> g_allMaterials;
+
+// 👈 材质名 → 完整文件路径（用于 TextureCache 加载）
+std::unordered_map<std::string, std::string> g_materialPathMap;
+
+// 👈 材质名 → GLuint 缩略图缓存
+std::unordered_map<std::string, GLuint> g_matThumbCache;
+
+static void ScanMaterialsRecursive(const std::string& rootDir) {
+    g_allMaterials.clear();
+    g_materialPathMap.clear();
+    g_matThumbCache.clear();
+
+    if (!fs::exists(rootDir)) {
+        printf("[Editor] Materials directory '%s' not found!\n", rootDir.c_str());
+        return;
+    }
+
+    int count = 0;
+    for (auto& p : fs::recursive_directory_iterator(rootDir)) {
+        if (!p.is_regular_file()) continue;
+        if (p.path().extension() != ".png") continue;
+        if (p.path().filename().string() == "normal_map.png") continue; // 跳过法线贴图之类
+
+        // 1. 计算相对路径（比如 "nature/red_grass"）
+        std::string relative = fs::relative(p.path(), rootDir).generic_string();
+        relative = relative.substr(0, relative.size() - 4); // 去掉 ".png"
+
+        // 2. 存进全局列表
+        g_allMaterials.push_back(relative);
+        // 3. 存完整路径（用于后续加载）
+        g_materialPathMap[relative] = p.path().generic_string();
+        count++;
+    }
+
+    // 4. 按字母排序，方便查找
+    std::sort(g_allMaterials.begin(), g_allMaterials.end());
+
+    printf("[Editor] Scanned %d materials from %s\n", count, rootDir.c_str());
+}
+
+// 👈 根据材质名获取纹理 ID（带缓存）
+GLuint GetMaterialThumb(const std::string& matName) {
+    auto it = g_matThumbCache.find(matName);
+    if (it != g_matThumbCache.end()) return it->second;
+
+    // 优先用完整路径加载，不行就交给 TextureCache
+    GLuint texId = 0;
+    auto pathIt = g_materialPathMap.find(matName);
+    if (pathIt != g_materialPathMap.end()) {
+        texId = TextureCache::GetTextureByPath(pathIt->second);
+    }
+    if (!texId) {
+        // 兜底：直接交给 TextureCache
+        texId = TextureCache::GetTexture(matName);
+    }
+    g_matThumbCache[matName] = texId;
+    return texId;
+}
+// -----------------------
+
 // ---------------------------------------------------------------------------
 // 相机 (Y-up)
 // ---------------------------------------------------------------------------
@@ -1158,6 +1228,8 @@ int main(int argc, char** argv)
                 << Version::CMAKE_BUILD_TYPE << std::endl;
 
     FileSystem::Init(".");
+    // temporary only
+    ScanMaterialsRecursive("./materials");  // 👈 扫描素材目录
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-map") == 0 && i + 1 < argc) {
@@ -1295,6 +1367,7 @@ int main(int argc, char** argv)
         //DrawConsolePanel();
         //DrawScenePanel();
         DrawCompileOptionsWindow();
+        DrawMaterialBrowserWindow();
 
         if (panelRes.bRequestNew) {
             UndoStack::Instance().PushSnapshot("New Brush");

@@ -31,6 +31,106 @@ void SetCompileAndRunHandler(void (*pfn)()) { s_pfnCompileAndRun = pfn; }
 void SetLoadBvhHandler(void (*pfn)()) { s_pfnLoadBvh = pfn; }
 
 // ---------------------------------------------------------------------------
+#include <GL/glew.h>
+// 👈 声明 main.cpp 里的全局变量
+extern std::vector<std::string> g_allMaterials;
+extern GLuint GetMaterialThumb(const std::string& matName);
+
+// 👈 全局状态
+static bool   g_bShowMaterialBrowser = false;
+static std::string* g_pTargetMaterial = nullptr; // 当前正在编辑的材质指针
+static char   g_matBrowserFilter[128] = "";
+static std::string g_selectedMaterialTemp;  // 用于中转
+
+// 👈 在主循环（ImGui::NewFrame 之后）调用
+void DrawMaterialBrowserWindow() {
+    if (!g_bShowMaterialBrowser) return;
+
+    ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Material Browser", &g_bShowMaterialBrowser)) {
+        // 1. 顶部搜索栏
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##MatFilter", "Filter materials...", g_matBrowserFilter, sizeof(g_matBrowserFilter));
+        ImGui::Separator();
+
+        // 2. 筛选逻辑
+        std::string filterLower = g_matBrowserFilter;
+        std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
+
+        // 3. 网格布局
+        float thumbSize = 128.0f; // 👈 大缩略图
+        float padding = 8.0f;
+        float cellSize = thumbSize + padding * 2;
+        float availWidth = ImGui::GetContentRegionAvail().x;
+        int columns = std::max(1, (int)(availWidth / cellSize));
+
+        if (ImGui::BeginChild("##MatGridScroll", ImVec2(0, 0), true)) {
+            int colCount = 0;
+            ImGuiListClipper clipper;
+            
+            // 过滤后的结果（暂存指针）
+            std::vector<const std::string*> filtered;
+            for (auto& m : g_allMaterials) {
+                std::string lower = m;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                if (filterLower.empty() || lower.find(filterLower) != std::string::npos) {
+                    filtered.push_back(&m);
+                }
+            }
+
+            clipper.Begin((int)filtered.size());
+            // 这里为了网格布局，每行算一个 clipper 元素
+            clipper.Begin(((int)filtered.size() + columns - 1) / columns);
+            
+            while (clipper.Step()) {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {
+                    for (int col = 0; col < columns; col++) {
+                        int idx = row * columns + col;
+                        if (idx >= (int)filtered.size()) break;
+                        
+                        const std::string& mat = *filtered[idx];
+                        GLuint texId = GetMaterialThumb(mat);
+                        
+                        ImGui::PushID(idx);
+                        ImGui::BeginGroup();
+                        
+                        // 画缩略图按钮
+                        if (ImGui::ImageButton(mat.c_str(), (ImTextureID)(intptr_t)texId, ImVec2(thumbSize, thumbSize))) {
+                            // 点击了材质
+                            if (g_pTargetMaterial) {
+                                UndoStack::Instance().PushSnapshot("Material Change");
+                                *g_pTargetMaterial = mat;
+                            }
+                            g_bShowMaterialBrowser = false;
+                        }
+                        
+                        // 显示名字（限制宽度避免撑爆）
+                        float textWidth = ImGui::CalcTextSize(mat.c_str()).x;
+                        if (textWidth > cellSize - padding) {
+                            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + cellSize - padding);
+                            ImGui::TextWrapped("%s", mat.c_str());
+                            ImGui::PopTextWrapPos();
+                        } else {
+                            ImGui::TextUnformatted(mat.c_str());
+                        }
+                        
+                        ImGui::EndGroup();
+                        
+                        // 如果是同一行，继续 SameLine
+                        if (col < columns - 1 && idx + 1 < (int)filtered.size()) {
+                            ImGui::SameLine();
+                        }
+                        ImGui::PopID();
+                    }
+                }
+            }
+            ImGui::EndChild();
+        }
+    }
+    ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
 void DrawMenuBar()
 {
     if (ImGui::BeginMainMenuBar())
@@ -421,6 +521,7 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
         }
 
         ImGui::Separator();
+/*
         ImGui::Text("Material (brush-level):");
         std::string mat = b.m_szMaterial;
         if (InputTextString("##BrushMat", mat)) {
@@ -438,9 +539,37 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Face Material");
             b.m_faces[g_iSelectedFace].m_szMaterial = fm;
         }
+*/        
+        ImGui::Text("Material (brush-level):");
+        
+        // 1. 给按钮指定一个唯一 ID（用 Brush 索引）
+        char btnId[64];
+        snprintf(btnId, sizeof(btnId), "##BrushMatBtn%d", *pSelBrush);
+        
+        // 2. 显示的文字是材质名（空的话显示占位符）
+        const char* displayText = b.m_szMaterial.empty() ? "<empty>" : b.m_szMaterial.c_str();
+        
+        if (ImGui::Button((std::string(displayText) + btnId).c_str(), ImVec2(200, 0))) {
+            g_selectedMaterialTemp = b.m_szMaterial; 
+            g_bShowMaterialBrowser = true;
+            g_pTargetMaterial = &g_selectedMaterialTemp; 
+        }
+        
+        // 3. 检查浏览器是否修改了材质
+        if (b.m_szMaterial != g_selectedMaterialTemp) {
+            UndoStack::Instance().PushSnapshot("Brush Material");
+            b.m_szMaterial = g_selectedMaterialTemp;
+            for (int f = 0; f < 6; f++) {
+                b.m_faces[f].m_szMaterial = g_selectedMaterialTemp;
+            }
+        }
+
         if (ImGui::Button("Reset to inherit")) {
-            UndoStack::Instance().PushSnapshot("Face Material");
-            b.m_faces[g_iSelectedFace].m_szMaterial.clear();
+            UndoStack::Instance().PushSnapshot("Brush Material");
+            b.m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
+            for (int f = 0; f < 6; f++) {
+                b.m_faces[f].m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
+            }
         }
 
         ImGui::Separator();

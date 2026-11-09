@@ -27,21 +27,35 @@ sudo apt install nlohmann-json3-dev \
                  python3-scipy
 ```
 
+DO NOT USE ninja on ubuntu, only build Release, it needs to match jolt
+
+```sh
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make core
+make assets
+make physics
+make game
+make editor
+make map
+make retro
+```
+
 #### Jolt Physics
 
 on linux, jolt physics must be build from source
-
-https://jrouwe.github.io/JoltPhysics/md__build_2_r_e_a_d_m_e.html
 
 ```sh
 git clone https://github.com/jrouwe/JoltPhysics.git
 cd JoltPhysics
 cd Build
-sudo chmod +x cmake_ninja.sh
-./cmake_ninja.sh
-cd Ninja_MultiConfig
-cmake –build . –config Release
-sudo cmake –install . –config Release
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+      -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+      ..
+make
+sudo make install
 ```
 
 ### windows

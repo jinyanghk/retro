@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map> // for gcc13 + nlohmann_json
 #include <nlohmann/json.hpp>
 #include <glm/glm.hpp>
 #include "MapFormat.h"

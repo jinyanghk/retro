@@ -5,6 +5,7 @@
 #include "Log.h"
 #include "FileSystem.h"
 
+#include <map> // for gcc13 + nlohmann_json
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <cstdio>
@@ -21,7 +22,7 @@ static json Vec3ToJson(const glm::vec3& v)
 bool ExportMapJson(const std::string& path)
 {
     json root;
-    root["format"] = "retro_map_v1";
+    //root["format"] = "retro_map_v1";
 
     json brushes = json::array();
     for (const auto& b : g_brushes) {
