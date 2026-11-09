@@ -26,6 +26,7 @@
 #include "Log.h"
 #include "FileSystem.h"
 #include "MapLoader.h"
+#include "TextureCache.h" // 👈 引入
 #include "shaders_generated.h"
 
 #include <cstdio>
@@ -34,6 +35,7 @@
 #include <vector>
 #include <string>
 #include <iostream>
+#include <unordered_map>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -212,6 +214,8 @@ static void InitGL()
     glBindVertexArray(0);
 
     ResizeFBO(g_fboW, g_fboH);
+
+    TextureCache::Init();
 }
 
 // ---------------------------------------------------------------------------
@@ -240,26 +244,51 @@ static void DrawBrushes(const glm::mat4& viewProj)
 
     glUseProgram(g_brushProg);
     GLint uMVP = glGetUniformLocation(g_brushProg, "uMVP");
+    GLint uTex = glGetUniformLocation(g_brushProg, "uTex");
+    glUniform1i(uTex, 0);
+
+    // 1. 按材质分组
+    std::unordered_map<std::string, std::vector<float>> matVertices;
 
     for (const auto& b : g_brushes) {
         if (b.m_vertices.size() < 8 || b.m_faces.size() < 6) continue;
-        std::vector<float> vbuf;
+        
         for (int f = 0; f < 6; f++) {
             const auto& face = b.m_faces[f];
             int i0 = face.m_nVertexIndices[0];
             int i1 = face.m_nVertexIndices[1];
             int i2 = face.m_nVertexIndices[2];
             int i3 = face.m_nVertexIndices[3];
-            auto push = [&](int idx, float u, float v) {
+            
+            // 优先用面材质，否则用 Brush 材质
+            std::string mat = face.m_szMaterial.empty() ? b.m_szMaterial : face.m_szMaterial;
+            if (mat.empty()) mat = "DEV/DEV_MEASUREGENERIC01";
+
+            auto& buf = matVertices[mat];
+            auto push = [&](int idx) {
                 const glm::vec3& p = b.m_vertices[idx];
-                vbuf.insert(vbuf.end(), { p.x, p.y, p.z, face.m_vecNormal.x, face.m_vecNormal.y, face.m_vecNormal.z, u, v });
+                buf.insert(buf.end(), { 
+                    p.x, p.y, p.z, 
+                    face.m_vecNormal.x, face.m_vecNormal.y, face.m_vecNormal.z,
+                    0.0f, 0.0f // UV 留空，靠 Shader 三平面投影
+                });
             };
-            push(i0, 0,0); push(i1, 1,0); push(i2, 1,1);
-            push(i0, 0,0); push(i2, 1,1); push(i3, 0,1);
+            push(i0); push(i1); push(i2);
+            push(i0); push(i2); push(i3);
         }
-        glBindVertexArray(g_brushVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, g_brushVBO);
+    }
+
+    // 2. 逐材质绘制
+    glBindVertexArray(g_brushVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, g_brushVBO);
+    
+    for (auto& kv : matVertices) {
+        const std::string& matName = kv.first;
+        const std::vector<float>& vbuf = kv.second;
+        if (vbuf.empty()) continue;
+
         glBufferData(GL_ARRAY_BUFFER, vbuf.size()*sizeof(float), vbuf.data(), GL_STREAM_DRAW);
+        
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
         glEnableVertexAttribArray(1);
@@ -268,6 +297,12 @@ static void DrawBrushes(const glm::mat4& viewProj)
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(6*sizeof(float)));
 
         glUniformMatrix4fv(uMVP, 1, GL_FALSE, glm::value_ptr(viewProj));
+        
+        // 绑定贴图（用 TextureCache 获取）
+        GLuint texId = TextureCache::GetTexture(matName);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texId);
+
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(vbuf.size()/8));
     }
     glBindVertexArray(0);
@@ -1315,6 +1350,7 @@ int main(int argc, char** argv)
         g_iLastMouseY = g_iMouseY;
     }
 
+    TextureCache::Shutdown();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
