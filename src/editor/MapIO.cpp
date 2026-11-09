@@ -11,7 +11,7 @@
 
 using json = nlohmann::json;
 
-std::string currentMap = "map.json";
+std::string currentMap = "";
 
 static json Vec3ToJson(const glm::vec3& v)
 {

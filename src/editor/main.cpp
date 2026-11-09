@@ -830,7 +830,7 @@ static void OnExportMap() {
     if (ExportMapJson(currentMap)) LogAdd("[MAP] exported");
 }
 static void OnImportMap() {
-    if (ImportMapJson(currentMap)) {
+    if (ImportMapJson(currentMap+".json")) {
         LogAdd("[MAP] imported");
         g_iSelectedBrush  = -1;
         g_iSelectedEntity = -1;
@@ -901,7 +901,7 @@ static void OnLoadBvh() {
            g_cam.target.x, g_cam.target.y, g_cam.target.z, g_cam.dist);
 }
 static void OnCompileAndRun() {
-    if (!ExportMapJson(currentMap)) { LogAdd("[COMPILE] export FAILED"); return; }
+    if (!ExportMapJson(currentMap+".json")) { LogAdd("[COMPILE] export FAILED"); return; }
     
     // 根据平台决定执行命令
 #ifdef _WIN32

@@ -1,6 +1,6 @@
 #include "Level.h"
 
-std::string currentMap = "map1.bvh";
+std::string currentMap = "";
 std::string nextMap = "";
 bool pendingMapSwitch = false;
 

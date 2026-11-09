@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_Init("#version 330");
 
     MapData mapData;
-    if (!LoadMap(currentMap.c_str(), mapData)) return 1;
+    if (!LoadMap((currentMap+".bvh").c_str(), mapData)) return 1;
 
     std::vector<BulletHole> bulletHoles;
     std::vector<CollisionTri> collisionTris;
@@ -622,7 +622,7 @@ int main(int argc, char** argv) {
             // 2. 加载新地图
             currentMap = nextMap;
             mapData = MapData(); 
-            if (!LoadMap(currentMap.c_str(), mapData)) {
+            if (!LoadMap((currentMap+".bvh").c_str(), mapData)) {
                 printf("[ERROR] Failed to load map: %s\n", currentMap.c_str());
                 running = false;
                 break;
