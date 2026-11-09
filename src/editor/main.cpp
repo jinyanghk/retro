@@ -856,8 +856,7 @@ static void OnImportMap() {
     }
 }
 static void OnLoadBvh() {
-    const char* path = "d1_town_02a.bvh";  // 或者用 ImGui 文件对话框
-    if (!LoadMap(path, g_loadedMapData)) {
+    if (!LoadMap((currentMap+".bvh").c_str(), g_loadedMapData)) {
         LogAdd("[EDITOR] Failed to load BVH");
         return;
     }
@@ -890,34 +889,29 @@ static void OnLoadBvh() {
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
     glBindVertexArray(0);
-
-    // 👈 绝对强制：强行把相机塞到地图内部（这是我们从编辑器看到的地图中心）
-    g_cam.target = glm::vec3(-2500.0f, -1000.0f, -2500.0f); 
-    g_cam.dist   = 1000.0f;
-    g_cam.yaw    = 45.0f;
-    g_cam.pitch  = -15.0f;
-    
-    printf("[Editor] Camera forced to: target=(%.1f, %.1f, %.1f), dist=%.1f\n",
-           g_cam.target.x, g_cam.target.y, g_cam.target.z, g_cam.dist);
 }
 static void OnCompileAndRun() {
     if (!ExportMapJson(currentMap+".json")) { LogAdd("[COMPILE] export FAILED"); return; }
     
     // 根据平台决定执行命令
 #ifdef _WIN32
-    const char* cmdMap = "map.exe";
-    const char* cmdGame = "game.exe";
+    std::string cmdMap = "map.exe";
+    std::string cmdGame = "retro.exe";
 #else
-    const char* cmdMap = "./map";
-    const char* cmdGame = "./game";
+    std::string cmdMap = "./map";
+    std::string cmdGame = "./retro";
 #endif
 
-    int ret = system(cmdMap);
+    cmdMap+=" -n -b -i "+currentMap+".json -o "+currentMap+".bvh";
+    printf("[Editor]%s\n", cmdMap.c_str());
+    int ret = system(cmdMap.c_str());
     char b[128]; 
     snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdMap, ret);
     LogAdd(b);
-    
-    ret = system(cmdGame);
+
+    cmdGame+=" +map "+currentMap;
+    printf("[Editor]%s\n", cmdGame.c_str());
+    ret = system(cmdGame.c_str());
     snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdGame, ret);
     LogAdd(b);
 }

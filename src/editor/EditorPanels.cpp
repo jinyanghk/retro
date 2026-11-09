@@ -39,7 +39,7 @@ void DrawMenuBar()
             //if (ImGui::MenuItem("Open"))  { if (s_pfnImportMap) s_pfnImportMap(); }
             if (ImGui::MenuItem("Save")) { if (s_pfnExportMap) s_pfnExportMap(); }
             //ImGui::Separator();
-            //if (ImGui::MenuItem("Compile & Run"))   { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
+            if (ImGui::MenuItem("Compile & Run"))   { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
             //if (ImGui::MenuItem("Compile Options...")) OpenCompileOptionsWindow();
             if (ImGui::MenuItem("Load BVH")) { if (s_pfnLoadBvh) s_pfnLoadBvh(); }         
             ImGui::Separator();
