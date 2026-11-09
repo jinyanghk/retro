@@ -17,29 +17,21 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-assimp
 ```
 
+```sh
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Debug -G Ninja
+ninja
+```
+
 ### linux ubuntu/debian
 
-
+#### deps
 ```sh
 sudo apt install nlohmann-json3-dev \
                  libglew-dev \
                  libassimp-dev \
                  python3-scipy
-```
-
-DO NOT USE ninja on ubuntu, only build Release, it needs to match jolt
-
-```sh
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make core
-make assets
-make physics
-make game
-make editor
-make map
-make retro
 ```
 
 #### Jolt Physics
@@ -58,6 +50,16 @@ make
 sudo make install
 ```
 
+#### build retro
+DO NOT USE ninja on ubuntu, only build Release, it needs to match jolt
+
+```sh
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make
+```
+
 ### windows
 
 install vcpkg
@@ -67,44 +69,4 @@ git clone https://github.com/microsoft/vcpkg.git
 cd vcpkg; .\bootstrap-vcpkg.bat
 $env:VCPKG_ROOT = "C:\path\to\vcpkg"
 $env:PATH = "$env:VCPKG_ROOT;$env:PATH"
-```
-
-## Posix Config & Build
-
-```sh
-mkdir build
-cd build
-cmake .. -G Ninja
-ninja
-```
-
-## Windows Config & Build
-
-```bat
-cmake -B build -S . -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="[path_to_vcpkg]/scripts/buildsystems/vcpkg.cmake"
-
-cmake --build build
-```
-
-## python
-
-
-
-```sh
-cd ~
-
-# 创建名为 .venv 的虚拟环境
-python3 -m venv .venv
-
-# 激活环境（激活后终端提示符前面会出现 (.venv)）
-source .venv/bin/activate
-
-# 升级 pip 确保能拉到最新包
-python -m pip install --upgrade pip
-
-# 安装 Valve 文件解析库（推荐 valve-parsers，维护较新）[citation:4]
-pip install valve-parsers
-
-# 安装 VTF 转图片的库（底层依赖 Pillow）[citation:3][citation:11]
-pip install vtf2img
 ```
