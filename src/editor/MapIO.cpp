@@ -70,8 +70,9 @@ bool ExportMapJson(const std::string& path)
         je["origin"]    = Vec3ToJson(e.m_vecPos);
         je["angles"]    = Vec3ToJson(e.m_angRot);
         je["type"]      = (int)e.m_iType;
-        je["bbox_mins"]  = Vec3ToJson(e.m_vecBBoxMins);
-        je["bbox_maxs"]  = Vec3ToJson(e.m_vecBBoxMaxs);
+        // 👈 存世界坐标，但写进 JSON 时转回相对坐标
+        je["bbox_mins"]  = Vec3ToJson(e.m_vecBBoxMins - e.m_vecPos);
+        je["bbox_maxs"]  = Vec3ToJson(e.m_vecBBoxMaxs - e.m_vecPos);
 
         json props = json::object();
         for (const auto& kv : e.m_properties) props[kv.first] = kv.second;

@@ -870,7 +870,7 @@ static void BuildDefaultScene()
 // 回调
 // ---------------------------------------------------------------------------
 static void OnExportMap() {
-    if (ExportMapJson(currentMap)) LogAdd("[MAP] exported");
+    if (ExportMapJson(currentMap+".json")) LogAdd("[MAP] exported");
 }
 static void OnImportMap() {
     if (ImportMapJson(currentMap+".json")) {
