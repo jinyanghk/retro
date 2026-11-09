@@ -1008,10 +1008,10 @@ static void OnCompileAndRun() {
     
     // 根据平台决定执行命令
 #ifdef _WIN32
-    std::string cmdMap = "map.exe";
+    std::string cmdMap = "bvh.exe";
     std::string cmdGame = "retro.exe";
 #else
-    std::string cmdMap = "./map";
+    std::string cmdMap = "./bvh";
     std::string cmdGame = "./retro";
 #endif
 
@@ -1019,13 +1019,13 @@ static void OnCompileAndRun() {
     printf("[Editor]%s\n", cmdMap.c_str());
     int ret = system(cmdMap.c_str());
     char b[128]; 
-    snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdMap, ret);
+    snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdMap.c_str(), ret);
     LogAdd(b);
 
     cmdGame+=" +map "+currentMap;
     printf("[Editor]%s\n", cmdGame.c_str());
     ret = system(cmdGame.c_str());
-    snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdGame, ret);
+    snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdGame.c_str(), ret);
     LogAdd(b);
 }
 

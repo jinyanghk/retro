@@ -14,10 +14,6 @@ find_package(nlohmann_json REQUIRED)
 find_package(Git REQUIRED)
 find_package(assimp REQUIRED)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
-endif()
-
 # 针对 MSYS2 / MinGW-w64，屏蔽 DLL 导出的属性重定义警告
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wno-attributes)
@@ -199,8 +195,8 @@ target_link_libraries(editor PRIVATE
     assets
 )
 
-# ---------- map ----------
-add_executable(map
+# ---------- bvh map ----------
+add_executable(bvh
     src/map/main.cpp
     src/map/JsonParser.cpp
     src/map/BrushBuilder.cpp
@@ -209,12 +205,12 @@ add_executable(map
     src/map/NavGridBuilder.cpp
     src/map/NodeGraphBuilder.cpp
 )
-target_include_directories(map PRIVATE 
+target_include_directories(bvh PRIVATE 
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_CURRENT_BINARY_DIR}
 )
-target_link_libraries(map PRIVATE 
+target_link_libraries(bvh PRIVATE 
     nlohmann_json::nlohmann_json
     core
     geometry

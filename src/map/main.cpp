@@ -11,8 +11,8 @@ int main(int argc, char** argv) {
      // 👈 解析命令行参数：默认关闭光照烘焙和 Node Graph
     bool genNavGrid = false;
     bool doLightBake = false;
-    std::string inPath = "map.json";
-    std::string outPath = "map.bvh";
+    std::string inPath = "";
+    std::string outPath = "";
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--nav") == 0 || std::strcmp(argv[i], "-n") == 0) {

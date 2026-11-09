@@ -32,7 +32,7 @@ bool ExportMapJson(const std::string& path)
         jb["halfSize"] = Vec3ToJson(b.m_vecSize);
         jb["angles"]   = Vec3ToJson(b.m_angRot);
 
-        // 注意：不要写 jb["vertices"]，map.exe 不读它
+        // 注意：不要写 jb["vertices"]，bvh.exe 不读它
 
         json faces = json::array();
         for (int f = 0; f < (int)b.m_faces.size(); f++) {
@@ -43,7 +43,7 @@ bool ExportMapJson(const std::string& path)
             jf["normal"]   = Vec3ToJson(face.m_vecNormal);
             jf["material"] = face.m_szMaterial;
             
-            // 2. 根据 indices 提取出实际的 3D 顶点坐标（map.exe 需要这个）
+            // 2. 根据 indices 提取出实际的 3D 顶点坐标（bvh.exe 需要这个）
             json face_verts = json::array();
             for (int k = 0; k < 4; k++) {
                 int idx = face.m_nVertexIndices[k];
