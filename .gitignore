@@ -1,4 +1,6 @@
 build
+build-msvc
+build-msys2
 vcpkg_installed
 
 *.o

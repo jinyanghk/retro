@@ -66,7 +66,32 @@ install vcpkg
 
 ```bat
 git clone https://github.com/microsoft/vcpkg.git
-cd vcpkg; .\bootstrap-vcpkg.bat
-$env:VCPKG_ROOT = "C:\path\to\vcpkg"
-$env:PATH = "$env:VCPKG_ROOT;$env:PATH"
+
+cd vcpkg
+bootstrap-vcpkg.bat
+
+set VCPKG_ROOT="C:\Users\46172\Desktop\vcpkg"
+set PATH="%VCPKG_ROOT%;%PATH%
+
+```
+
+install sdl_mixer
+
+https://github.com/libsdl-org/SDL_mixer/releases
+
+```bat
+set MSVC_ROOT=C:\Users\46172\AppData\Local\Programs\portable-msvc\msvc
+set SDK_VER=10.0.28000.0
+
+set LIB=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
+set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%INCLUDE%
+set PATH=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64;%MSVC_ROOT%\Windows Kits\10\bin\%SDK_VER%\x64;%PATH%
+
+cmake -B build-msvc -G Ninja
+cmake --build build-msvc -j
+```
+
+```bat
+-DSDL2_mixer_DIR="C:/Users/46172/Desktop/SDL2_mixer-2.8.0/lib/cmake/SDL2_mixer"
+
 ```
