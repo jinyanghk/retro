@@ -70,7 +70,7 @@ git clone https://github.com/microsoft/vcpkg.git
 cd vcpkg
 bootstrap-vcpkg.bat
 
-set VCPKG_ROOT="C:\Users\46172\Desktop\vcpkg"
+set VCPKG_ROOT="C:\Users\%USERNAME%\Desktop\vcpkg"
 set PATH="%VCPKG_ROOT%;%PATH%
 
 ```
@@ -80,7 +80,7 @@ install sdl_mixer
 https://github.com/libsdl-org/SDL_mixer/releases
 
 ```bat
-set MSVC_ROOT=C:\Users\46172\AppData\Local\Programs\portable-msvc\msvc
+set MSVC_ROOT=C:\Users\%USERNAME%\AppData\Local\Programs\portable-msvc\msvc
 set SDK_VER=10.0.28000.0
 
 set LIB=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
@@ -92,6 +92,6 @@ cmake --build build-msvc -j
 ```
 
 ```bat
--DSDL2_mixer_DIR="C:/Users/46172/Desktop/SDL2_mixer-2.8.0/lib/cmake/SDL2_mixer"
+-DSDL2_mixer_DIR="C:/Users/%USERNAME%/Desktop/SDL2_mixer-2.8.0/lib/cmake/SDL2_mixer"
 
 ```

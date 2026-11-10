@@ -41,6 +41,7 @@ static bool   g_bShowMaterialBrowser = false;
 static std::string* g_pTargetMaterial = nullptr; // 当前正在编辑的材质指针
 static char   g_matBrowserFilter[128] = "";
 static std::string g_selectedMaterialTemp;  // 用于中转
+static std::string g_selectedFaceMaterialTemp; // 给 Face 级别用 👈 新增
 
 // 👈 在主循环（ImGui::NewFrame 之后）调用
 void DrawMaterialBrowserWindow() {
@@ -521,32 +522,11 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
         }
 
         ImGui::Separator();
-/*
+      
         ImGui::Text("Material (brush-level):");
-        std::string mat = b.m_szMaterial;
-        if (InputTextString("##BrushMat", mat)) {
-            if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Material");
-            b.m_szMaterial = mat;
-        }
 
-        ImGui::Separator();
-        ImGui::Text("Per-face materials:");
-        const char* faceNames[6] = {"+Z","-Z","+X","-X","+Y","-Y"};
-        if (g_iSelectedFace < 0 || g_iSelectedFace >= 6) g_iSelectedFace = 0;
-        ImGui::Combo("Face", &g_iSelectedFace, faceNames, 6);
-        std::string fm = b.m_faces[g_iSelectedFace].m_szMaterial;
-        if (InputTextString("##FaceMat", fm)) {
-            if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Face Material");
-            b.m_faces[g_iSelectedFace].m_szMaterial = fm;
-        }
-*/        
-        ImGui::Text("Material (brush-level):");
-        
-        // 1. 给按钮指定一个唯一 ID（用 Brush 索引）
         char btnId[64];
         snprintf(btnId, sizeof(btnId), "##BrushMatBtn%d", *pSelBrush);
-        
-        // 2. 显示的文字是材质名（空的话显示占位符）
         const char* displayText = b.m_szMaterial.empty() ? "<empty>" : b.m_szMaterial.c_str();
         
         if (ImGui::Button((std::string(displayText) + btnId).c_str(), ImVec2(200, 0))) {
@@ -555,7 +535,7 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
             g_pTargetMaterial = &g_selectedMaterialTemp; 
         }
         
-        // 3. 检查浏览器是否修改了材质
+        // 👈 只有 Brush 临时变量变了，才改 Brush 材质和所有面材质
         if (b.m_szMaterial != g_selectedMaterialTemp) {
             UndoStack::Instance().PushSnapshot("Brush Material");
             b.m_szMaterial = g_selectedMaterialTemp;
@@ -564,12 +544,43 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
             }
         }
 
-        if (ImGui::Button("Reset to inherit")) {
+        if (ImGui::Button("Reset to inherit##BrushMat")) {
             UndoStack::Instance().PushSnapshot("Brush Material");
             b.m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
             for (int f = 0; f < 6; f++) {
                 b.m_faces[f].m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
             }
+        }
+
+        // --- 面材质 ---
+        ImGui::Separator();
+        ImGui::Text("Per-face materials:");
+        const char* faceNames[6] = {"+Z(顶)","-Z(底)","+X(右)","-X(左)","+Y(后)","-Y(前)"};
+        if (g_iSelectedFace < 0 || g_iSelectedFace >= 6) g_iSelectedFace = 0;
+        ImGui::Combo("Face", &g_iSelectedFace, faceNames, 6);
+
+        std::string& faceMat = b.m_faces[g_iSelectedFace].m_szMaterial;
+
+        char faceBtnLabel[512];
+        snprintf(faceBtnLabel, sizeof(faceBtnLabel), "%s##FaceMatBtn%d_%d", 
+                 faceMat.empty() ? "<inherit>" : faceMat.c_str(), *pSelBrush, g_iSelectedFace);
+
+        // 👈 点按钮时，把 faceMat 赋给面级别的临时变量
+        if (ImGui::Button(faceBtnLabel, ImVec2(200, 0))) {
+            g_selectedFaceMaterialTemp = faceMat; // 用新的临时变量
+            g_bShowMaterialBrowser = true;
+            g_pTargetMaterial = &g_selectedFaceMaterialTemp; 
+        }
+
+        // 👈 只有面临时变量变了，才改当前面的材质（绝对不去动 Brush 级别）
+        if (faceMat != g_selectedFaceMaterialTemp) {
+            UndoStack::Instance().PushSnapshot("Face Material");
+            faceMat = g_selectedFaceMaterialTemp;
+        }
+
+        if (ImGui::Button("Reset to inherit##FaceMat")) {
+            UndoStack::Instance().PushSnapshot("Face Material");
+            faceMat.clear(); 
         }
 
         ImGui::Separator();
