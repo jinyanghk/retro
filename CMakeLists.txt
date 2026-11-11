@@ -122,6 +122,7 @@ add_library(assets SHARED
     src/assets/MapLoader.cpp
     src/assets/Audio.cpp
     src/assets/ModelLoader.cpp
+    src/assets/WeaponModel.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
 target_include_directories(assets PUBLIC 

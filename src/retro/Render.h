@@ -4,6 +4,7 @@
 #include "Player.h"
 #include "Weapon.h"
 #include "ModelLoader.h"
+#include "WeaponModel.h"
 
 struct RenderAssets {
     // 三个独立的着色器程序
@@ -29,6 +30,8 @@ struct RenderAssets {
     std::unordered_map<std::string, BoneInfo> boneMap; // 👈 存储骨骼映射
     int boneCounter = 0;                               // 👈 骨骼计数器
     std::vector<Animation> zombieAnims;
+
+    WeaponModelData weaponModel;
 
     // 👈 新增：根据状态找动画
     int FindAnimIndex(EnemyState state) const {

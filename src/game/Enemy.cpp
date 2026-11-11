@@ -109,6 +109,36 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 enemy.vel.x = 0.0f;
                 enemy.vel.z = 0.0f;
             }
+
+            // --- 丧尸避让逻辑 ---
+            glm::vec3 separation(0.0f);
+            int neighborCount = 0;
+            for (size_t j = 0; j < enemies.size(); j++) {
+                if (eIdx == j) continue; // 跳过自己
+                auto& other = enemies[j];
+                if (other.state == EnemyState::DEAD) continue;
+
+                glm::vec3 diff = enemy.pos - other.pos;
+                diff.y = 0.0f; // 只在水平面避让
+                float dist = glm::length(diff);
+
+                // 如果距离小于 40 单位（大概两个身位），产生排斥
+                if (dist < 40.0f && dist > 0.1f) {
+                    // 排斥力随距离减少而增加
+                    separation += glm::normalize(diff) * (40.0f - dist);
+                    neighborCount++;
+                }
+            }
+
+            if (neighborCount > 0) {
+                // 把排斥力加权到移动方向上
+                moveDir += glm::normalize(separation) * 0.8f; 
+                moveDir = glm::normalize(moveDir);
+            }
+
+            // 然后再设置速度
+            enemy.vel.x = moveDir.x * 150.0f;
+            enemy.vel.z = moveDir.z * 150.0f;            
         } 
         else if (enemy.state == EnemyState::ATTACK) {
             enemy.vel.x = 0.0f;

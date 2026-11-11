@@ -149,6 +149,8 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     render.zombieAnims.clear();
     render.zombieModel = ModelLoader::LoadModel(modelPath, render.boneMap, render.boneCounter, render.zombieAnims);
     printf("[Render] Loaded model with %d bones.\n", render.boneCounter);
+
+    render.weaponModel = LoadWeaponModel("models/weapon/scene.gltf");
 }
 
 void ShutdownRender(RenderAssets& render) {
@@ -399,6 +401,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     }
 
     // ================== 3. 渲染武器 ==================
+/*
     glUseProgram(render.gunProgram);
     glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
     
@@ -444,5 +447,71 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     if (weapon.recoilTimer > 0.05f) { 
         glUniform3f(gunColorLoc, 1.0f, 0.8f, 0.2f); 
         DrawGunPart(glm::vec3(0.0f, 0.02f, -0.6f), glm::vec3(0.04f, 0.04f, 0.04f));
+    }
+*/
+    // 在渲染枪的循环之前
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+// ================== 3. 渲染武器 ==================
+    glUseProgram(render.gunProgram);
+    glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
+    
+    // 👈 补上 recoil 和基础位置定义
+    float recoilOffset = 0.0f, recoilPitch = 0.0f;
+    if (weapon.recoilTimer > 0.0f) {
+        float progress = weapon.recoilTimer / weapon.recoilDuration;
+        recoilOffset = progress * -0.05f;
+        recoilPitch = progress * 10.0f;
+    }
+    
+    // 1. 基础位置（调整枪在屏幕上的左下/中下位置）
+    glm::mat4 gunBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.2f, -0.3f, -0.8f + recoilOffset));
+
+    // 2. 核心朝向（如果枪是侧躺或反的，在这里加旋转）
+    // 常见调整：
+    // 如果枪口朝左：rotate(-90, Y)
+    // 如果枪口朝上：rotate(90, X)
+    // 如果枪口朝你：rotate(180, Y)
+    gunBase = glm::rotate(gunBase, glm::radians(-80.0f), glm::vec3(0, 1, 0)); // 👈 调整 Y 轴旋转
+    gunBase = glm::rotate(gunBase, glm::radians(0.0f), glm::vec3(1, 0, 0)); // 👈 调整 X 轴俯仰
+    gunBase = glm::rotate(gunBase, glm::radians(0.0f), glm::vec3(0, 0, 1)); // 👈 调整 Z 轴翻滚
+
+    // 3. 后坐力/晃动（保留你原有的效果）
+    gunBase = glm::rotate(gunBase, glm::radians(recoilPitch), glm::vec3(1, 0, 0));
+    gunBase = glm::rotate(gunBase, glm::radians(-5.0f), glm::vec3(0, 1, 0));
+    // 4. 缩放（如果你的枪太大或太小，改这个数）
+    gunBase = glm::scale(gunBase, glm::vec3(0.08f)); 
+
+    // 绑定贴图单元（重要）
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, render.whiteTex); // 兜底白图
+    glUniform1i(glGetUniformLocation(render.gunProgram, "uTex"), 0);
+    
+    // 设置颜色为纯白，不覆盖贴图颜色
+    glUniform3f(glGetUniformLocation(render.gunProgram, "uColor"), 1.0f, 1.0f, 1.0f);
+
+    // 传入相机的世界坐标
+    //glm::vec3 eyePos = player.GetEyePos(); // 或者 cameraPos
+    glUniform3fv(glGetUniformLocation(render.gunProgram, "uCameraPos"), 1, glm::value_ptr(eyePos));
+    
+    // 传入一个简单的光照方向（模拟环境光或者月光）
+    glm::vec3 lightDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.5f));
+    glUniform3fv(glGetUniformLocation(render.gunProgram, "uLightDir"), 1, glm::value_ptr(lightDir));
+    
+    // 光源颜色
+    glm::vec3 lightColor = glm::vec3(1.0f, 0.95f, 0.9f); // 暖白
+    glUniform3fv(glGetUniformLocation(render.gunProgram, "uLightColor"), 1, glm::value_ptr(lightColor));
+
+    // 渲染枪械模型
+    for (const auto& mesh : render.weaponModel.meshes) {
+        glm::mat4 mvp = gunProj * gunBase;
+        glUniformMatrix4fv(glGetUniformLocation(render.gunProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniformMatrix4fv(glGetUniformLocation(render.gunProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(gunBase));
+        
+        // 绑定该 mesh 的贴图（如果没有，用兜底白图）
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, mesh.textureID ? mesh.textureID : render.whiteTex);
+        
+        glBindVertexArray(mesh.VAO);
+        glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
     }
 }
