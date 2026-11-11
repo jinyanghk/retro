@@ -1,6 +1,7 @@
 #include "GameDatabase.h"
 #include "FileSystem.h"
 
+#include <sstream>   // 👈 必须显式加这一行
 #include <map> // for gcc13 + nlohmann_json
 #include <cstdio>
 #include <nlohmann/json.hpp>

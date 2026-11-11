@@ -1,7 +1,12 @@
 #pragma once
 
+#ifdef _MSC_VER
+#include "SDL.h"
+#include "SDL_mixer.h"
+#else
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_mixer.h>
+#include "SDL2/SDL_mixer.h"
+#endif
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

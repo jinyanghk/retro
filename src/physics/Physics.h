@@ -8,45 +8,47 @@
 #include <vector>
 #include <cstdint>
 
+#include "Export.h"
+
 // 初始化 Jolt
-void InitPhysics();
+PHYSICS_API void InitPhysics();
 // 关闭 Jolt 并清理内存
-void ShutdownPhysics();
+PHYSICS_API void ShutdownPhysics();
 
 // 获取全局物理系统和接口
-JPH::PhysicsSystem& GetPhysicsSystem();
-JPH::BodyInterface& GetBodyInterface();
+PHYSICS_API JPH::PhysicsSystem& GetPhysicsSystem();
+PHYSICS_API JPH::BodyInterface& GetBodyInterface();
 
 // 更新物理世界
-void UpdatePhysics(float deltaTime);
+PHYSICS_API void UpdatePhysics(float deltaTime);
 
 // 注册静态地图碰撞网格
-void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_t>& indices, uint32_t nv, uint32_t ni);
+PHYSICS_API void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_t>& indices, uint32_t nv, uint32_t ni);
 
 // 创建玩家 Kinematic 刚体
-JPH::BodyID CreatePlayerBody(float x, float y, float z);
+PHYSICS_API JPH::BodyID CreatePlayerBody(float x, float y, float z);
 
 // 创建动态物理箱子
-JPH::BodyID CreatePhysBox(float x, float y, float z, float hx, float hy, float hz);
+PHYSICS_API JPH::BodyID CreatePhysBox(float x, float y, float z, float hx, float hy, float hz);
 
 // 创建门（Kinematic）
-JPH::BodyID CreateDoorBody(float x, float y, float z, float hx, float hy, float hz);
+PHYSICS_API JPH::BodyID CreateDoorBody(float x, float y, float z, float hx, float hy, float hz);
 
 // 创建爆炸桶（Dynamic）
-JPH::BodyID CreateBarrelBody(float x, float y, float z);
+PHYSICS_API JPH::BodyID CreateBarrelBody(float x, float y, float z);
 
 // 移动 Kinematic 刚体
-void MoveKinematicBody(JPH::BodyID id, float x, float y, float z);
+PHYSICS_API void MoveKinematicBody(JPH::BodyID id, float x, float y, float z);
 
 // 创建敌人的 Kinematic 刚体
 //JPH::BodyID CreateEnemyBody(float x, float y, float z);
 
-JPH::Ref<JPH::CharacterVirtual> CreateEnemyCharacter(float x, float y, float z);
+PHYSICS_API JPH::Ref<JPH::CharacterVirtual> CreateEnemyCharacter(float x, float y, float z);
 // 👈 新增：一步完成更新（含贴地、爬台阶、层过滤）
-void UpdateEnemyCharacter(JPH::CharacterVirtual* character, 
+PHYSICS_API void UpdateEnemyCharacter(JPH::CharacterVirtual* character, 
                           const glm::vec3& velocity, 
                           float dt);
 
-void SetBodyToDynamic(JPH::BodyID id);
+PHYSICS_API void SetBodyToDynamic(JPH::BodyID id);
 
-JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float hz);
+PHYSICS_API JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float hz);

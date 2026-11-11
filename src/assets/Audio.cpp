@@ -1,5 +1,6 @@
 // src/assets/Audio.cpp
 #include "Audio.h"
+#include <stdio.h>
 
 void InitAudio(AudioAssets& audio) {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {

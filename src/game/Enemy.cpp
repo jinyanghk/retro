@@ -13,11 +13,12 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                    const std::vector<glm::vec3>& physboxMaxs,
                    const GravityGunState& gravityGun, // 👈 新增
                    Mix_Chunk* sndHit) {
-    
+    printf("[Enemy] Enter UpdateEnemies, count=%zu\n", enemies.size()); fflush(stdout);
     glm::vec3 dummyNormal;
 
     for (size_t eIdx = 0; eIdx < enemies.size(); eIdx++) {
         auto& enemy = enemies[eIdx];
+        printf("[Enemy] Processing enemy %zu, state=%d\n", eIdx, (int)enemy.state); fflush(stdout);
         if (enemy.state == EnemyState::DEAD) {
             enemy.deathTimer += dt;
             continue;
@@ -73,7 +74,9 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
         if (enemy.state == EnemyState::CHASE) {
             enemy.pathTimer -= dt;
             if (enemy.pathTimer <= 0.0f) {
+                printf("[Enemy] Before FindPath for enemy %zu\n", eIdx); fflush(stdout);
                 enemy.path = FindPath(mapData, enemy.pos, player.pos);
+                printf("[Enemy] After FindPath for enemy %zu, path size=%zu\n", eIdx, enemy.path.size()); fflush(stdout);
                 if (enemy.path.empty() || enemy.pathIndex >= (int)enemy.path.size()) {
                     enemy.pathIndex = 0;
                 }
@@ -164,13 +167,52 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
 
         // --- 交给 CharacterVirtual ---
         if (enemy.character != nullptr) {
-            UpdateEnemyCharacter(enemy.character, enemy.vel, dt);
+            printf("[Enemy] Before ExtendedUpdate for enemy %zu\n", eIdx); fflush(stdout);
+            // --- 手动驱动丧尸位置（绕开 Jolt 的物理碰撞查询）---
+            if (enemy.character != nullptr) {
+                glm::vec3 newPos = enemy.pos;
+                
+                // 1. 水平方向移动
+                newPos.x += enemy.vel.x * dt;
+                newPos.z += enemy.vel.z * dt;
+                
+                // 2. 用 TraceBVH 向下探地
+                glm::vec3 hitNormal;
+                float floorDist = TraceBVH(
+                    newPos + glm::vec3(0, 64, 0), 
+                    glm::vec3(0, -1, 0), 
+                    hitNormal);
+                if (floorDist > 0.0f && floorDist < 200.0f) {
+                    newPos.y = newPos.y + 64.0f - floorDist + 17.0f; // 17 = 胶囊体半高
+                }
+                
+                // 3. 用 TraceBVH 向前探测墙壁（防止穿墙）
+                glm::vec3 moveDir(enemy.vel.x, 0.0f, enemy.vel.z);
+                if (glm::length(moveDir) > 0.1f) {
+                    moveDir = glm::normalize(moveDir);
+                    float wallDist = TraceBVH(
+                        enemy.pos + glm::vec3(0, 17, 0), 
+                        moveDir, 
+                        hitNormal);
+                    if (wallDist > 0.0f && wallDist < 32.0f) {
+                        // 前方 32 单位内有墙，停止移动
+                        newPos.x = enemy.pos.x;
+                        newPos.z = enemy.pos.z;
+                    }
+                }
+                
+                // 4. 直接设置位置（不经过 Jolt 碰撞）
+                enemy.character->SetPosition(JPH::RVec3(newPos.x, newPos.y, newPos.z));
+                enemy.pos = newPos;
+            }
+            printf("[Enemy] After ExtendedUpdate for enemy %zu\n", eIdx); fflush(stdout);
             
             JPH::RVec3 pos = enemy.character->GetPosition();
             enemy.pos = glm::vec3((float)pos.GetX(), (float)pos.GetY(), (float)pos.GetZ());
         }
 
         // --- 推箱子与桶 ---
+        printf("[Enemy] Before push boxes for enemy %zu\n", eIdx); fflush(stdout);
         glm::vec3 enemyVelH(enemy.vel.x, 0.0f, enemy.vel.z);
         float enemySpeedH = glm::length(enemyVelH);
         if (enemySpeedH > 0.01f) {
@@ -227,7 +269,9 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 }
             }
         }
+        printf("[Enemy] After push boxes for enemy %zu\n", eIdx); fflush(stdout);
 
+        printf("[Enemy] Before collision check for enemy %zu\n", eIdx); fflush(stdout);
         // ==========================================================
         // 👈 统一物理撞击检测（重力枪砸 / 机关掉落）
         // ==========================================================
@@ -272,7 +316,8 @@ void UpdateEnemies(std::vector<EnemyInfo>& enemies, PlayerState& player, float d
                 }
             }
         }
-
+        printf("[Enemy] After collision check for enemy %zu\n", eIdx); fflush(stdout);
             
     }
+    printf("[Enemy] Exit UpdateEnemies\n"); fflush(stdout);
 }

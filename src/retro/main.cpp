@@ -12,10 +12,21 @@
 #include "Level.h"
 #include "FileSystem.h"
 
+#include <exception>
+#include <cstdlib>
+
+void MyTerminate() {
+    printf("[CRASH] Unhandled exception, terminating.\n");
+    fflush(stdout);
+    std::abort();
+}
+
 int main(int argc, char** argv) {
     std::cout << "branch: " << Version::GIT_BRANCH 
                 << ", commit: " << Version::GIT_HASH << ", " 
                 << Version::CMAKE_BUILD_TYPE << std::endl;
+
+    std::set_terminate(MyTerminate);
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "+map") == 0 && i + 1 < argc) {
@@ -85,7 +96,9 @@ int main(int argc, char** argv) {
     RenderAssets render;
     InitRender(render, mapData);
 
+    printf("[Main] Before InitPhysics\n"); fflush(stdout);
     InitPhysics();
+    printf("[Main] After InitPhysics\n"); fflush(stdout);
     JPH::BodyInterface& body_interface = GetBodyInterface();
     CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices, mapData.cnv, mapData.cni);
 
@@ -234,6 +247,8 @@ int main(int argc, char** argv) {
     Uint32 lastTime = SDL_GetTicks();
 
     while (running) {
+        printf("[Loop] Frame start\n");  // 👈 加这行
+        fflush(stdout);
         Uint32 currentTime = SDL_GetTicks();
         float deltaTime = (currentTime - lastTime) / 1000.0f;
         if (deltaTime > 0.05f) deltaTime = 0.05f;
@@ -333,7 +348,9 @@ int main(int argc, char** argv) {
         }
 
         // 模块更新
+        printf("[Loop] Before UpdatePlayer\n"); fflush(stdout);
         UpdatePlayer(player, deltaTime, physboxIds, barrels, doorTrace, body_interface, player_body, mapData.physboxMins, mapData.physboxMaxs);
+        printf("[Loop] After UpdatePlayer\n"); fflush(stdout);
         PlayerPushEntities(player, deltaTime, body_interface, physboxIds, barrels, mapData.physboxMins, mapData.physboxMaxs);
 
         // 👈 新增：更新屏幕震动衰减
@@ -405,12 +422,13 @@ int main(int argc, char** argv) {
             }
         }
 
+        printf("[Loop] Before UpdateEnemies\n"); fflush(stdout);
         UpdateEnemies(enemies, player, deltaTime, body_interface, mapData, 
                 physboxIds, barrels, doorTrace, 
                 mapData.physboxMins, mapData.physboxMaxs, 
                 gravityGun, // 👈 新增
                 audio.sndHit);
-        //printf("Enemy Vel: %.1f, %.1f\n", enemies[0].vel.x, enemies[0].vel.z);
+        printf("[Loop] After UpdateEnemies\n"); fflush(stdout);
 
         if (player.damageTimer > 0.0f) player.damageTimer -= deltaTime;
         if (player.hp <= 0.0f) {
@@ -429,7 +447,9 @@ int main(int argc, char** argv) {
 
         UpdateGravityGun(player, gravityGun, bGrabPressed, bThrowPressed, deltaTime, body_interface, physboxIds, doorTrace, enemies, barrels, audio.sndDoor, audio.sndShoot);
 
+        printf("[Loop] Before UpdatePhysics\n"); fflush(stdout);
         UpdatePhysics(deltaTime);
+        printf("[Loop] After UpdatePhysics\n"); fflush(stdout);
 
         // ==========================================================
         // 门与开关交互（按 E 开门）
@@ -606,7 +626,9 @@ int main(int argc, char** argv) {
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        printf("[Loop] Before RenderFrame\n"); fflush(stdout);
         RenderFrame(render, player, weapon, gravityGun, body_interface, mapData, physboxIds, barrels, doorBodies, enemies, bulletHoles, scrW, scrH);
+        printf("[Loop] After RenderFrame\n"); fflush(stdout);
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -695,19 +717,28 @@ int main(int argc, char** argv) {
             }
         }
 
+        printf("[Loop] Before SwapWindow\n"); fflush(stdout);
         SDL_GL_SwapWindow(window);
+        printf("[Loop] After SwapWindow\n"); fflush(stdout);
     }
+    printf("[Main] Exiting while loop\n"); fflush(stdout);
 
     for (auto id : physboxIds) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); }
+    printf("[Main] Cleaned physbox\n"); fflush(stdout);
     for (auto id : doorBodies) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); }
+    printf("[Main] Cleaned door\n"); fflush(stdout);
 
     ShutdownRender(render);
+    printf("[Main] Render shutdown done\n"); fflush(stdout);
     ShutdownAudio(audio);
     ShutdownPhysics();
+    printf("[Main] All shutdown done\n"); fflush(stdout);
 
     ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext(); SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window); 
     SDL_Quit();
+    printf("[Main] Exiting...\n");
+    fflush(stdout);
     return 0;
 }

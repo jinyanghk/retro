@@ -10,9 +10,29 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/MotionProperties.h>
+// 形状
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
-#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/Shape/PlaneShape.h>
+#include <Jolt/Physics/Collision/Shape/TaperedCapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/TaperedCylinderShape.h>
+#include <Jolt/Physics/Collision/Shape/CompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
+#include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
+
+// 约束
+#include <Jolt/Physics/Constraints/SixDOFConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
 
 #include <thread>
 #include <vector>
@@ -44,7 +64,7 @@ public:
     }
     virtual JPH::uint GetNumBroadPhaseLayers() const override { return BroadPhaseLayers::NUM_LAYERS; }
     virtual JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override { return mObjectToBroadPhase[inLayer]; }
-    virtual const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override {
+    virtual const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const {
         switch ((JPH::BroadPhaseLayer::Type)inLayer) {
             case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::NON_MOVING: return "NON_MOVING";
             case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::MOVING:     return "MOVING";
@@ -88,39 +108,86 @@ static ObjectVsBroadPhaseLayerFilterImpl g_obj_vs_bp_filter;
 static ObjectLayerPairFilterImpl g_obj_vs_obj_filter;
 
 void InitPhysics() {
+    printf("[Jolt] InitPhysics: enter\n"); fflush(stdout);
+
+    printf("[Jolt] 1. RegisterDefaultAllocator\n"); fflush(stdout);
     JPH::RegisterDefaultAllocator();
+
+    printf("[Jolt] 2. new Factory\n"); fflush(stdout);
     JPH::Factory::sInstance = new JPH::Factory();
-    JPH::RegisterTypes();
 
+    printf("[Jolt] 3. Manual Register Types\n"); fflush(stdout);
+    // 👈 直接用 JPH_RTTI 宏，这是 Jolt 内部的注册方式
+    // 已有
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::BoxShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::CapsuleShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::MeshShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::SphereShapeSettings));
+
+    // 👈 补全：BroadPhase 碰撞查询需要的额外形状
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::PlaneShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::CylinderShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::ConvexHullShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::CompoundShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::StaticCompoundShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::MutableCompoundShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::HeightFieldShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::TaperedCapsuleShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::TaperedCylinderShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::RotatedTranslatedShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::ScaledShapeSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::OffsetCenterOfMassShapeSettings));
+
+    // 约束（虽然现在没用到，但有些物理查询会依赖）
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::SixDOFConstraintSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::FixedConstraintSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::DistanceConstraintSettings));
+    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::PointConstraintSettings));
+    
+    // 注册 PhysicalMaterial（有些旧版本需要这个）
+    // JPH::Factory::sInstance->Register(JPH_RTTI(JPH::PhysicsMaterial));
+
+    printf("[Jolt] 4. new TempAllocator\n"); fflush(stdout);
     g_temp_allocator = new JPH::TempAllocatorImpl(10 * 1024 * 1024);
-    g_job_system = new JPH::JobSystemThreadPool(
-        JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
 
+    printf("[Jolt] 5. new JobSystemThreadPool\n"); fflush(stdout);
+    g_job_system = new JPH::JobSystemThreadPool(
+        JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, 1);  // 👈 改成 1
+
+    printf("[Jolt] 6. new PhysicsSystem\n"); fflush(stdout);
     g_physics = new JPH::PhysicsSystem();
+
+    printf("[Jolt] 7. PhysicsSystem Init\n"); fflush(stdout);
     g_physics->Init(1024, 0, 1024, 1024, g_bp_layer_interface, g_obj_vs_bp_filter, g_obj_vs_obj_filter);
+
+    printf("[Jolt] 8. SetGravity\n"); fflush(stdout);
     g_physics->SetGravity(JPH::Vec3(0.0f, -1200.0f, 0.0f));
 
-    // 👈 初始化敌人碰撞形状（胶囊体）
-    JPH::CapsuleShapeSettings capsuleSettings(17.0f, 14.0f); // 半高17，半径14（总高约62）
+    printf("[Jolt] 9. CapsuleShapeSettings\n"); fflush(stdout);
+    JPH::CapsuleShapeSettings capsuleSettings(17.0f, 14.0f);
     g_enemyShape = capsuleSettings.Create().Get();
     
+    printf("[Jolt] 10. CharacterVirtualSettings\n"); fflush(stdout);
     g_enemyCharSettings = new JPH::CharacterVirtualSettings();
     g_enemyCharSettings->mShape = g_enemyShape;
-    g_enemyCharSettings->mMaxSlopeAngle = JPH::DegreesToRadians(50.0f);   // 最大爬坡 50 度
+    g_enemyCharSettings->mMaxSlopeAngle = JPH::DegreesToRadians(50.0f);
     g_enemyCharSettings->mMaxStrength = 100.0f;
     g_enemyCharSettings->mCharacterPadding = 0.02f;
     g_enemyCharSettings->mPenetrationRecoverySpeed = 1.0f;
     g_enemyCharSettings->mPredictiveContactDistance = 0.1f;
-    g_enemyCharSettings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -17.0f); // 贴地探测    
+    g_enemyCharSettings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -17.0f);
+
+    printf("[Jolt] 11. InitPhysics Done!\n"); fflush(stdout);
 }
 
 void ShutdownPhysics() {
-    delete g_physics;
-    delete g_job_system;
-    delete g_temp_allocator;
-    JPH::UnregisterTypes();
-    delete JPH::Factory::sInstance;
-    JPH::Factory::sInstance = nullptr;
+    printf("[Jolt] ShutdownPhysics\n"); fflush(stdout);
+    delete g_physics;        g_physics = nullptr;
+    delete g_job_system;     g_job_system = nullptr;
+    delete g_temp_allocator; g_temp_allocator = nullptr;
+    
+    // 注意：UnregisterTypes / delete Factory / nullptr 已经挪到静态析构函数里，
+    // 这里千万不能再删，否则会发生二次释放（double free）。
 }
 
 JPH::PhysicsSystem& GetPhysicsSystem() { return *g_physics; }
@@ -138,13 +205,58 @@ void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_
         printf("[Physics] WARNING: CreateStaticMesh called with empty data (nv=%u, ni=%u), skipping.\n", nv, ni);
         return;
     }
+
+    // 👈 加诊断：检查顶点里有没有 NaN
+    int nanCount = 0;
+    for (uint32_t i = 0; i < nv * 3; i++) {
+        if (std::isnan(verts[i])) nanCount++;
+    }
+    if (nanCount > 0) {
+        printf("[Physics] WARNING: %d NaN vertices in mesh! This will crash Jolt.\n", nanCount);
+    }
+
+    // 👈 加诊断：检查索引是否越界
+    int oobCount = 0;
+    for (uint32_t i = 0; i < ni; i++) {
+        if (indices[i] >= nv) oobCount++;
+    }
+    if (oobCount > 0) {
+        printf("[Physics] WARNING: %d out-of-bounds indices in mesh! This will crash Jolt.\n", oobCount);
+    }
+
     JPH::VertexList vertices;
     vertices.reserve(nv);
     for (uint32_t i = 0; i < nv; i++) {
         vertices.push_back(JPH::Float3(verts[i*3+0], verts[i*3+1], verts[i*3+2]));
     }
+
     JPH::IndexedTriangleList triangles;
     triangles.reserve(ni / 3);
+
+    // 👈 过滤退化三角形：面积接近 0 的三角形会让 Jolt 的 NarrowPhase 崩溃
+    int degenerateCount = 0;
+    for (uint32_t i = 0; i + 2 < ni; i += 3) {
+        uint32_t a = indices[i], b = indices[i+1], c = indices[i+2];
+        if (a >= nv || b >= nv || c >= nv) continue;
+        
+        glm::vec3 va(verts[a*3], verts[a*3+1], verts[a*3+2]);
+        glm::vec3 vb(verts[b*3], verts[b*3+1], verts[b*3+2]);
+        glm::vec3 vc(verts[c*3], verts[c*3+1], verts[c*3+2]);
+        
+        // 叉积长度 = 平行四边形面积，接近 0 说明三点共线
+        glm::vec3 cross = glm::cross(vb - va, vc - va);
+        float area2 = glm::length(cross);
+        if (area2 < 1e-4f) {
+            degenerateCount++;
+            continue;  // 👈 跳过退化三角形
+        }
+        
+        triangles.push_back(JPH::IndexedTriangle(a, b, c, 0));
+    }
+    if (degenerateCount > 0) {
+        printf("[Physics] Filtered %d degenerate triangles\n", degenerateCount);
+    }
+
     for (uint32_t i = 0; i + 2 < ni; i += 3) {
         triangles.push_back(JPH::IndexedTriangle(indices[i], indices[i+1], indices[i+2], 0));
     }
@@ -252,36 +364,6 @@ JPH::Ref<JPH::CharacterVirtual> CreateEnemyCharacter(float x, float y, float z) 
     // 👈 启用“贴地”和“自动爬台阶”
     character->SetUp(JPH::Vec3::sAxisY());
     return character;
-}
-
-void UpdateEnemyCharacter(JPH::CharacterVirtual* character, 
-                          const glm::vec3& velocity, 
-                          float dt)
-{
-    if (!character) return;
-    
-    // 1. 设置速度
-    character->SetLinearVelocity(JPH::Vec3(velocity.x, 0.0f, velocity.z));
-    
-    // 2. 重力
-    JPH::Vec3 gravity(0, -1200.0f, 0);
-    
-    // 3. 更新设置（贴地 + 爬台阶）
-    JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
-    updateSettings.mStickToFloorStepDown = -JPH::Vec3(0, 50.0f, 0);
-    updateSettings.mWalkStairsStepUp = JPH::Vec3(0, 30.0f, 0);
-    
-    // 4. 执行更新（用 MOVING 层，只和地形碰撞）
-    character->ExtendedUpdate(
-        dt,
-        gravity,
-        updateSettings,
-        g_physics->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
-        g_physics->GetDefaultLayerFilter(Layers::MOVING),
-        {},
-        {},
-        *g_temp_allocator
-    );
 }
 
 void SetBodyToDynamic(JPH::BodyID id) {

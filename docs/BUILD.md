@@ -62,36 +62,53 @@ make
 
 ### windows
 
-install vcpkg
-
+#### Jolt Physics
 ```bat
-git clone https://github.com/microsoft/vcpkg.git
-
-cd vcpkg
-bootstrap-vcpkg.bat
-
-set VCPKG_ROOT="C:\Users\%USERNAME%\Desktop\vcpkg"
-set PATH="%VCPKG_ROOT%;%PATH%
-
+git clone https://github.com/jrouwe/JoltPhysics.git
+cd JoltPhysics
+cd Build
+cmake -B Build-MSVC ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+  -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF ^
+  -DINTERPROCEDURAL_OPTIMIZATION=OFF ^
+  -DJPH_USE_DX12=OFF ^
+  -DJPH_USE_VK=OFF ^
+  -DJPH_USE_MTL=OFF ^
+  -DJPH_USE_CPU_COMPUTE=ON
+cmake --build Build-MSVC --config Release
 ```
 
-install sdl_mixer
+### assimp
+
+```bat
+cd assimp
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Releas -DASSIMP_BUILD_TESTS=OFF -DASSIMP_BUILD_ASSIMP_TOOLS=OFF
+cmake --build build
+```
+
+
+download sld sdl_mixer
 
 https://github.com/libsdl-org/SDL_mixer/releases
 
 ```bat
 set MSVC_ROOT=C:\Users\%USERNAME%\AppData\Local\Programs\portable-msvc\msvc
 set SDK_VER=10.0.28000.0
+set MSVC_VER=14.51.36231
 
 set LIB=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
-set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%INCLUDE%
+set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\shared;%INCLUDE%
 set PATH=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64;%MSVC_ROOT%\Windows Kits\10\bin\%SDK_VER%\x64;%PATH%
 
-cmake -B build-msvc -G Ninja
-cmake --build build-msvc -j
+set PATH=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\bin\Hostx64\x64;%MSVC_ROOT%\Windows Kits\10\bin\%SDK_VER%\x64;%PATH%
+set LIB=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
+set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\shared;%INCLUDE%
+
 ```
 
 ```bat
--DSDL2_mixer_DIR="C:/Users/%USERNAME%/Desktop/SDL2_mixer-2.8.0/lib/cmake/SDL2_mixer"
-
+set PATH=C:\Users\%USERNAME%\AppData\Local\Programs\python-3.14.10-embed-amd64;%PATH%
+cmake -B build-msvc -G "NMake Makefiles"
+cmake --build build-msvc
 ```

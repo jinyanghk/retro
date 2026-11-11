@@ -4,7 +4,11 @@
 #include "TextureCache.h"     // 👈 新增
 #include "AnimationHelper.h"
 
+#ifdef _MSC_VER
+#include "SDL.h"
+#else
 #include <SDL2/SDL.h>
+#endif
 
 #include <cstdio>
 #include <vector>

@@ -28,16 +28,20 @@ public:
     // 🔥 全局配置：是否隐藏未连线的实体
     bool m_bHideUnconnected = true;
 
+    // 👈 先定义静态数组
+    static const char* s_inputNames[];
+    static const char* s_outputNames[];
+
     const GraphEditor::Template mTemplates[1] = {
         {
             IM_COL32(160, 160, 180, 255), // header
             IM_COL32(100, 100, 140, 255), // background
             IM_COL32(110, 110, 150, 255), // header hover
             1,                            // input slots
-            (const char*[]){"In"},        // input names
+            s_inputNames,                 // 👈 用静态数组
             nullptr,                      // input colors
             1,                            // output slots
-            (const char*[]){"Out"},       // output names
+            s_outputNames,                // 👈 用静态数组
             nullptr                       // output colors
         }
     };
@@ -269,6 +273,9 @@ void Rebuild() {
     const size_t GetLinkCount() override { return mLinks.size(); }
     const GraphEditor::Link GetLink(GraphEditor::LinkIndex index) override { return mLinks[index]; }
 };
+// 👈 在类外定义
+const char* EditorGraph::s_inputNames[] = { "In" };
+const char* EditorGraph::s_outputNames[] = { "Out" };
 
 static EditorGraph g_graph;
 static GraphEditor::Options g_options;
