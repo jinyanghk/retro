@@ -18,7 +18,7 @@ static int GetClosestNode(const MapData& map, const glm::vec3& pos) {
         float d = glm::distance(pos, map.navNodes[i].pos);
         if (d < bestDist) { bestDist = d; best = (int)i; }
     }
-    printf("[AStar] GetClosestNode: best=%d\n", best); fflush(stdout);
+    //printf("[AStar] GetClosestNode: best=%d\n", best); fflush(stdout);
     return best;
 }
 

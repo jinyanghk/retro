@@ -5,7 +5,7 @@
 #else
 #include "SDL2/SDL_mixer.h"
 #endif
-#include "Export.h"
+#include "AssetExport.h"
 
 struct ASSET_API AudioAssets {
     Mix_Chunk* sndShoot = nullptr;

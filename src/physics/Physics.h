@@ -8,7 +8,7 @@
 #include <vector>
 #include <cstdint>
 
-#include "Export.h"
+#include "PhyExport.h"
 
 // 初始化 Jolt
 PHYSICS_API void InitPhysics();

@@ -9,7 +9,7 @@
 #include <glm/glm.hpp>
 #include <vector>
 
-#include "Export.h"
+#include "PhyExport.h"
 
 // Jolt 完整依赖（Trace.cpp 里用 GetShape()->GetWorldSpaceBounds / JPH::AABox）
 #include <Jolt/Jolt.h>

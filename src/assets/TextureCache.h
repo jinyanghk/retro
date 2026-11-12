@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include "Export.h"
+#include "AssetExport.h"
 
 class ASSET_API TextureCache {
 public:

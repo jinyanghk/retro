@@ -9,7 +9,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 
-#include "Export.h"
+#include "AssetExport.h"
 
 struct ASSET_API Vertex {
     glm::vec3 position;

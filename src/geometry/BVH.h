@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <glm/glm.hpp>
 
-#include "Export.h"
+#include "GeoExport.h"
 
 struct CollisionTri {
     glm::vec3 v0, v1, v2;

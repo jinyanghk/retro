@@ -3,7 +3,7 @@
 #include <vector>
 #include <GL/glew.h>
 #include <glm/glm.hpp>
-#include "Export.h"
+#include "AssetExport.h"
 
 struct ASSET_API WeaponMesh {
     unsigned int VAO = 0, VBO = 0, EBO = 0;

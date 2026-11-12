@@ -7,7 +7,7 @@
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 #include "MapFormat.h"
-#include "Export.h"
+#include "AssetExport.h"
 
 struct ASSET_API MapData {
     // 几何（v3: stride 9 = pos3 + normal3 + color3）
