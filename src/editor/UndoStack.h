@@ -1,6 +1,5 @@
-// UndoStack.h
-#ifndef APP_UNDO_STACK_H
-#define APP_UNDO_STACK_H
+// src/editor/UndoStack.h
+#pragma once
 
 #include <string>
 #include <vector>
@@ -38,5 +37,3 @@ private:
     std::vector<EditorSnapshot> m_undoStack;
     std::vector<EditorSnapshot> m_redoStack;
 };
-
-#endif

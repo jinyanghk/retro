@@ -1,5 +1,5 @@
-#ifndef MATH_COMPAT_H
-#define MATH_COMPAT_H
+// src/editor/math_compat.h
+#pragma once
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -60,5 +60,3 @@ inline bool WorldToScreen(const glm::vec3& world,
     sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)h;
     return true;
 }
-
-#endif

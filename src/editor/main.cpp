@@ -1328,7 +1328,7 @@ int main(int argc, char** argv)
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-    g_window = SDL_CreateWindow("retro editor", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    g_window = SDL_CreateWindow("Retro Editor", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                  g_winW, g_winH, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     g_glContext = SDL_GL_CreateContext(g_window);
     SDL_GL_MakeCurrent(g_window, g_glContext);

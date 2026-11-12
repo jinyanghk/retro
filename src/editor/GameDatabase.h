@@ -1,5 +1,5 @@
-#ifndef GAME_DATABASE_H
-#define GAME_DATABASE_H
+// src/editor/GameDatabase.h
+#pragma once
 
 #include <glm/glm.hpp>
 #include <string>
@@ -46,5 +46,3 @@ private:
     GameDatabase() = default;
     std::map<std::string, GdbClass> m_classes;
 };
-
-#endif

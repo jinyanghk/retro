@@ -74,6 +74,11 @@ download win x64 vc pre-built
 * https://github.com/libsdl-org/SDL/releases
 * https://github.com/nigels-com/glew/releases
 
+download source
+
+* https://github.com/g-truc/glm/releases
+* https://github.com/nlohmann/json/releases (only need json.h)
+
 ### [portable msvc](/misc/portable-msvc.py)
 
 ```bat

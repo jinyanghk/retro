@@ -1,5 +1,5 @@
-#ifndef SCENE_GLOBALS_H
-#define SCENE_GLOBALS_H
+// src/editor/SceneGlobals.h
+#pragma once
 
 #include <glm/glm.hpp>
 #include <vector>
@@ -54,5 +54,3 @@ extern bool  g_bShowGizmo;
 extern bool  g_bXRayGizmo;
 extern bool  g_bAutoSaveEnabled;
 extern bool  g_bBlockToolActive;
-
-#endif

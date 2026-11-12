@@ -1,5 +1,5 @@
-#ifndef UI_EDITOR_PANELS_H
-#define UI_EDITOR_PANELS_H
+// src/editor/EditorPanels.h
+#pragma once
 
 #include <string>
 #include "Entity.h"
@@ -33,5 +33,3 @@ void SetLoadBvhHandler(void (*pfn)());
 void OpenCompileOptionsWindow();
 void DrawCompileOptionsWindow();
 void DrawMaterialBrowserWindow();
-
-#endif

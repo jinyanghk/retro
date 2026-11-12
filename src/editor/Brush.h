@@ -1,5 +1,5 @@
-#ifndef SCENE_BRUSH_H
-#define SCENE_BRUSH_H
+// src/editor/Brush.h
+#pragma once
 
 #include <glm/glm.hpp>
 #include <string>
@@ -52,5 +52,3 @@ float TraceBrushes(const std::vector<CBrush>& brushes,
 glm::vec3 GetFaceCenter(const CBrush& b, int faceIdx);
 // edge 中点
 glm::vec3 GetEdgeCenter(const CBrush& b, int edgeIdx);
-
-#endif

@@ -1,5 +1,5 @@
-#ifndef EDITOR_LAYOUT_H
-#define EDITOR_LAYOUT_H
+// src/editor/EditorLayout.h
+#pragma once
 
 #include "imgui.h"
 
@@ -18,5 +18,3 @@ namespace EditorLayout
     void SetLayoutMode(LayoutMode mode);
     LayoutMode GetLayoutMode();
 }
-
-#endif // EDITOR_LAYOUT_H
