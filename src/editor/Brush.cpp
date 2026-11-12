@@ -1,5 +1,5 @@
 #include "Brush.h"
-
+#include "BVH.h"
 #include "math_compat.h"
 
 #include <cmath>
@@ -89,4 +89,35 @@ glm::vec3 GetEdgeCenter(const CBrush& b, int edgeIdx)
 {
     return (b.m_vertices[kEdgeVertexIndices[edgeIdx][0]] +
             b.m_vertices[kEdgeVertexIndices[edgeIdx][1]]) * 0.5f;
+}
+
+float TraceBrushes(const std::vector<CBrush>& brushes,
+                   const glm::vec3& origin, const glm::vec3& dir,
+                   glm::vec3& outNormal)
+{
+    float bestT = 1e30f;
+    bool hit = false;
+    for (const auto& b : brushes) {
+        if (b.m_vertices.size() < 8 || b.m_faces.size() < 6) continue;
+        float tmin, tmax;
+        if (!RayAABB(origin, dir, b.GetBBoxMins(), b.GetBBoxMaxs(), tmin, tmax)) continue;
+        if (tmin > bestT) continue;
+        for (int f = 0; f < 6; f++) {
+            const auto& face = b.m_faces[f];
+            const int* q = face.m_nVertexIndices;
+            CollisionTri tris[2] = {
+                { b.m_vertices[q[0]], b.m_vertices[q[1]], b.m_vertices[q[2]], face.m_vecNormal },
+                { b.m_vertices[q[0]], b.m_vertices[q[2]], b.m_vertices[q[3]], face.m_vecNormal },
+            };
+            for (int t = 0; t < 2; t++) {
+                float thit; glm::vec3 n;
+                if (RaycastTriangle(origin, dir, tris[t], thit, n) && thit < bestT) {
+                    bestT = thit;
+                    outNormal = n;
+                    hit = true;
+                }
+            }
+        }
+    }
+    return hit ? bestT : -1.0f;
 }

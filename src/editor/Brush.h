@@ -43,6 +43,11 @@ struct CBrush {
 extern const int kFaceVertexIndices[6][4];
 // edge(12) → 2 个顶点索引
 extern const int kEdgeVertexIndices[12][2];
+// 射线-所有 Brush 求交（Editor 里不依赖 BVH，改 brush 立即生效）
+// 返回最近命中距离；未命中返回 -1
+float TraceBrushes(const std::vector<CBrush>& brushes,
+                   const glm::vec3& origin, const glm::vec3& dir,
+                   glm::vec3& outNormal);
 // face 中心
 glm::vec3 GetFaceCenter(const CBrush& b, int faceIdx);
 // edge 中点

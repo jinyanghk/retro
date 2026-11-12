@@ -28,6 +28,7 @@
 #include "MapLoader.h"
 #include "TextureCache.h" // 👈 引入
 #include "shaders_generated.h"
+#include "BVH.h"
 
 #include <cstdio>
 #include <cstring>
@@ -600,6 +601,7 @@ static bool ScreenPointInAABBWorld(const glm::vec3& worldMin, const glm::vec3& w
     }
     return mx >= minX - padding && mx <= maxX + padding && my >= minY - padding && my <= maxY + padding;
 }
+
 static int PickBrush(const glm::mat4& view, const glm::mat4& proj, int w, int h, int mx, int my)
 {
     for (int i = (int)g_brushes.size()-1; i >= 0; i--) {
@@ -611,6 +613,66 @@ static int PickBrush(const glm::mat4& view, const glm::mat4& proj, int w, int h,
     }
     return -1;
 }
+
+// ============================================================
+// 👈 第 2 刀：射线拾取（替换屏幕 AABB）
+// ============================================================
+static bool ScreenToWorldRay(const glm::mat4& view, const glm::mat4& proj,
+                             int w, int h, int mx, int my,
+                             glm::vec3& outOrigin, glm::vec3& outDir)
+{
+    float ndcX = (2.0f * mx) / w - 1.0f;
+    float ndcY = 1.0f - (2.0f * my) / h;
+    glm::mat4 invVP = glm::inverse(proj * view);
+    glm::vec4 nearP = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+    glm::vec4 farP  = invVP * glm::vec4(ndcX, ndcY,  1.0f, 1.0f);
+    if (fabsf(nearP.w) < 1e-6f || fabsf(farP.w) < 1e-6f) return false;
+    glm::vec3 nearW = glm::vec3(nearP) / nearP.w;
+    glm::vec3 farW  = glm::vec3(farP)  / farP.w;
+    outOrigin = nearW;
+    outDir = glm::normalize(farW - nearW);
+    return true;
+}
+
+static int PickBrushRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir)
+{
+    int best = -1; float bestT = 1e30f;
+    for (size_t i = 0; i < g_brushes.size(); i++) {
+        const auto& b = g_brushes[i];
+        if (b.m_vertices.size() < 8 || b.m_faces.size() < 6) continue;
+        float tmin, tmax;
+        if (!RayAABB(rayOrigin, rayDir, b.GetBBoxMins(), b.GetBBoxMaxs(), tmin, tmax)) continue;
+        if (tmin > bestT) continue;
+        for (int f = 0; f < 6; f++) {
+            const auto& face = b.m_faces[f];
+            const int* q = face.m_nVertexIndices;
+            CollisionTri tris[2] = {
+                { b.m_vertices[q[0]], b.m_vertices[q[1]], b.m_vertices[q[2]], face.m_vecNormal },
+                { b.m_vertices[q[0]], b.m_vertices[q[2]], b.m_vertices[q[3]], face.m_vecNormal },
+            };
+            for (int t = 0; t < 2; t++) {
+                float thit; glm::vec3 n;
+                if (RaycastTriangle(rayOrigin, rayDir, tris[t], thit, n) && thit < bestT) {
+                    bestT = thit; best = (int)i;
+                }
+            }
+        }
+    }
+    return best;
+}
+
+static int PickEntityRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir)
+{
+    int best = -1; float bestT = 1e30f;
+    for (size_t i = 0; i < g_entities.size(); i++) {
+        float tmin, tmax;
+        if (RayAABB(rayOrigin, rayDir, g_entities[i].m_vecBBoxMins, g_entities[i].m_vecBBoxMaxs, tmin, tmax)) {
+            if (tmin >= 0.0f && tmin < bestT) { bestT = tmin; best = (int)i; }
+        }
+    }
+    return best;
+}
+
 static int PickEntity(const glm::mat4& view, const glm::mat4& proj, int w, int h, int mx, int my)
 {
     for (int i = (int)g_entities.size()-1; i >= 0; i--) {
@@ -1076,14 +1138,29 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     DrawGrid(vp);
     DrawBrushes(vp);
     DrawBrushWireframe(vp);
-if (g_bLoadedBvh && g_bvhVAO != 0) {
-    glUseProgram(g_brushProg);
-    GLint uMVP = glGetUniformLocation(g_brushProg, "uMVP");
-    glUniformMatrix4fv(uMVP, 1, GL_FALSE, glm::value_ptr(vp));
-    glBindVertexArray(g_bvhVAO);
-    glDrawElements(GL_TRIANGLES, (GLsizei)g_loadedMapData.indices.size(), GL_UNSIGNED_INT, 0);
-    glBindVertexArray(0);
-}    
+    if (g_bLoadedBvh && g_bvhVAO != 0) {
+        glUseProgram(g_brushProg);
+        GLint uMVP = glGetUniformLocation(g_brushProg, "uMVP");
+        glUniformMatrix4fv(uMVP, 1, GL_FALSE, glm::value_ptr(vp));
+        glBindVertexArray(g_bvhVAO);
+        glDrawElements(GL_TRIANGLES, (GLsizei)g_loadedMapData.indices.size(), GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+    // ========== 选中 Brush 高亮（黄色 x-ray 线框）==========
+    if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+        const auto& b = g_brushes[g_iSelectedBrush];
+        std::vector<float> buf;
+        buf.reserve(12 * 2 * 6);
+        for (int e = 0; e < 12; e++) {
+            const auto& p0 = b.m_vertices[kEdgeVertexIndices[e][0]];
+            const auto& p1 = b.m_vertices[kEdgeVertexIndices[e][1]];
+            buf.insert(buf.end(), {p0.x,p0.y,p0.z, 1.0f,1.0f,0.0f});
+            buf.insert(buf.end(), {p1.x,p1.y,p1.z, 1.0f,1.0f,0.0f});
+        }
+        glDisable(GL_DEPTH_TEST);
+        DrawColorLines(buf, vp);
+        glEnable(GL_DEPTH_TEST);
+    }    
     DrawEntityBBoxes(vp);
 
     // =========================================================
@@ -1164,13 +1241,17 @@ if (g_bLoadedBvh && g_bvhVAO != 0) {
         }
         else
         {
-            // 先选 Entity，再选 Brush
-            int e = PickEntity(view, proj, vpW, vpH, localMouseX, localMouseY);
-            if (e >= 0) {
-                g_iSelectedEntity = e;
+            // 👈 第 2 刀：射线拾取（谁近选谁）
+            glm::vec3 rayO, rayD;
+            int bi = -1, ei = -1;
+            if (ScreenToWorldRay(view, proj, vpW, vpH, localMouseX, localMouseY, rayO, rayD)) {
+                bi = PickBrushRay(rayO, rayD);
+                ei = PickEntityRay(rayO, rayD);
+            }
+            if (ei >= 0) {
+                g_iSelectedEntity = ei;
                 g_iSelectedBrush  = -1;
             } else {
-                int bi = PickBrush(view, proj, vpW, vpH, localMouseX, localMouseY);
                 g_iSelectedBrush  = bi;
                 g_iSelectedEntity = -1;
             }
