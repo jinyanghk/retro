@@ -1,8 +1,8 @@
-# How to Build
+# Build
 
-## Install Dependencies
+## msys2 ucrt64
 
-### msys2 ucrt64
+### deps
 
 ```sh
 pacman -S   mingw-w64-ucrt-x86_64-toolchain \
@@ -17,6 +17,8 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-assimp
 ```
 
+### use cmake + ninja
+
 ```sh
 mkdir build
 cd build
@@ -24,17 +26,19 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug -G Ninja
 ninja
 ```
 
-### linux ubuntu/debian
+## Ubuntu
 
-#### deps
+### deps
 ```sh
 sudo apt install nlohmann-json3-dev \
                  libglew-dev \
+                 libsdl2-dev \
+                 libsdl2-mixer-dev \
                  libassimp-dev \
                  python3-scipy
 ```
 
-#### Jolt Physics
+### Jolt Physics
 
 on linux, jolt physics must be build from source
 
@@ -50,7 +54,7 @@ make
 sudo make install
 ```
 
-#### build retro
+### use cmake + make
 DO NOT USE ninja on ubuntu, only build Release, it needs to match jolt
 
 ```sh
@@ -60,9 +64,41 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make
 ```
 
-### windows
+## windows
 
-#### Jolt Physics
+### deps
+
+download win x64 vc pre-built
+
+* https://github.com/libsdl-org/SDL_mixer/releases
+* https://github.com/libsdl-org/SDL/releases
+* https://github.com/nigels-com/glew/releases
+
+### [portable msvc](/misc/portable-msvc.py)
+
+```bat
+set MSVC_ROOT=C:\Users\%USERNAME%\AppData\Local\Programs\portable-msvc\msvc
+set SDK_VER=10.0.28000.0
+set MSVC_VER=14.51.36231
+
+set LIB=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
+set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\shared;%INCLUDE%
+set PATH=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64;%MSVC_ROOT%\Windows Kits\10\bin\%SDK_VER%\x64;%PATH%
+
+set PATH=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\bin\Hostx64\x64;%MSVC_ROOT%\Windows Kits\10\bin\%SDK_VER%\x64;%PATH%
+set LIB=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
+set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\shared;%INCLUDE%
+
+```
+
+### portable python
+
+```bat
+set PATH=C:\Users\%USERNAME%\AppData\Local\Programs\python-3.14.10-embed-amd64;%PATH%
+```
+
+### Jolt Physics
+
 ```bat
 git clone https://github.com/jrouwe/JoltPhysics.git
 cd JoltPhysics
@@ -87,28 +123,9 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Releas -DASSIMP_BUILD_TESTS=OFF -DASSIMP_
 cmake --build build
 ```
 
-
-download sld sdl_mixer
-
-https://github.com/libsdl-org/SDL_mixer/releases
+### use cmake + nmake
 
 ```bat
-set MSVC_ROOT=C:\Users\%USERNAME%\AppData\Local\Programs\portable-msvc\msvc
-set SDK_VER=10.0.28000.0
-set MSVC_VER=14.51.36231
-
-set LIB=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
-set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\shared;%INCLUDE%
-set PATH=%MSVC_ROOT%\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64;%MSVC_ROOT%\Windows Kits\10\bin\%SDK_VER%\x64;%PATH%
-
-set PATH=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\bin\Hostx64\x64;%MSVC_ROOT%\Windows Kits\10\bin\%SDK_VER%\x64;%PATH%
-set LIB=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\lib\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\um\x64;%MSVC_ROOT%\Windows Kits\10\Lib\%SDK_VER%\ucrt\x64;%LIB%
-set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\include;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\ucrt;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\um;%MSVC_ROOT%\Windows Kits\10\Include\%SDK_VER%\shared;%INCLUDE%
-
-```
-
-```bat
-set PATH=C:\Users\%USERNAME%\AppData\Local\Programs\python-3.14.10-embed-amd64;%PATH%
 cmake -B build-msvc -G "NMake Makefiles"
 cmake --build build-msvc
 ```
