@@ -18,5 +18,5 @@ misc/*.bvh
 
 __pycache__
 
-assets
-deps
+/assets
+/deps
