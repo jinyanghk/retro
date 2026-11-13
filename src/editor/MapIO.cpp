@@ -176,15 +176,21 @@ bool ImportMapJson(const std::string& path)
                     } else {
                         // 如果没 indices，用 default 顺序（0,1,2,3），并假定 vertices 是刚刚平铺进去的
                         int base = (fi * 4);
+                        // 👈 安全防护：如果顶点不足 4 个，强行补足或者修正索引
+                        int currentVerts = (int)b.m_vertices.size();
                         for (int k = 0; k < 4; k++) {
-                            b.m_faces[fi].m_nVertexIndices[k] = base + k;
+                            int idx = base + k;
+                            // 如果算出来的索引越界了，就指回最后一个有效的顶点
+                            if (idx >= currentVerts) {
+                                idx = (currentVerts > 0) ? currentVerts - 1 : 0;
+                            }
+                            b.m_faces[fi].m_nVertexIndices[k] = idx;
                         }
                     }
                     
                     b.m_faces[fi].m_vecNormal  = jf.contains("normal") ? ParseVec3(jf["normal"]) : glm::vec3(0.0f, 1.0f, 0.0f);
                     b.m_faces[fi].m_szMaterial = jf.value("material", b.m_szMaterial);
 
-                    // 👈 新增这两行
                     b.m_faces[fi].m_szUAxis = jf.value("uaxis", "[1 0 0 0] 1");
                     b.m_faces[fi].m_szVAxis = jf.value("vaxis", "[0 1 0 0] 1");
 
