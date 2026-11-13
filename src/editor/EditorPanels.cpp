@@ -171,6 +171,15 @@ void DrawMenuBar()
             if (ImGui::MenuItem("Reset Layout"))
                 EditorLayout::ResetDefaultLayout();
 
+            ImGui::Separator();
+            // 👈 新增：控制 Nav 显示的全局变量，需要通过 extern 声明
+            ImGui::MenuItem("Show Nav Nodes", nullptr, &g_bShowNav);
+
+            if (ImGui::MenuItem("Check Nav Collisions")) {
+                extern void CheckNavCollisions();
+                CheckNavCollisions();
+            }
+
             ImGui::EndMenu();
         }        
         ImGui::EndMainMenuBar();

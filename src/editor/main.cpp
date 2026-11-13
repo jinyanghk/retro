@@ -182,6 +182,19 @@ static MapData g_loadedMapData;
 static bool g_bLoadedBvh = false;
 static GLuint g_bvhVAO = 0, g_bvhVBO = 0, g_bvhEBO = 0;
 
+static std::vector<MapData::NodeData> g_editorNavNodes;
+
+struct BadNavLink {
+    glm::vec3 start, end;
+};
+
+struct BadNavNode {
+    glm::vec3 pos;
+};
+
+static std::vector<BadNavLink> g_badNavLinks;
+static std::vector<BadNavNode> g_badNavNodes;
+
 // ---------------------------------------------------------------------------
 // GL 辅助与 FBO
 // ---------------------------------------------------------------------------
@@ -1036,11 +1049,8 @@ static void OnLoadBvh() {
         return;
     }
     g_bLoadedBvh = true;
-    LogAdd("[EDITOR] Loaded BVH");
-    printf("[Editor] verts=%zu indices=%zu groups=%zu\n",
-           g_loadedMapData.verts.size(),
-           g_loadedMapData.indices.size(),
-           g_loadedMapData.materialGroups.size());
+    g_editorNavNodes = g_loadedMapData.navNodes;
+    printf("[Editor] Loaded %zu nav nodes.\n", g_editorNavNodes.size());
 
     // 上传 VBO
     if (g_bvhVAO == 0) {
@@ -1089,6 +1099,49 @@ static void OnCompileAndRun() {
     ret = system(cmdGame.c_str());
     snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdGame.c_str(), ret);
     LogAdd(b);
+}
+
+void CheckNavCollisions()
+{
+    g_badNavLinks.clear();
+    g_badNavNodes.clear();
+
+    printf("[NavCheck] Checking %zu nodes and links...\n", g_editorNavNodes.size());
+
+    for (size_t i = 0; i < g_editorNavNodes.size(); i++) {
+        const auto& n = g_editorNavNodes[i];
+
+        // 1. 悬空点检测：从节点向下打射线
+        glm::vec3 downDir(0, -1, 0);
+        glm::vec3 hitNormal;
+        float floorDist = TraceBrushes(g_brushes, n.pos + glm::vec3(0, 32, 0), downDir, hitNormal);
+        
+        // 如果探测不到地面，或者地面离节点太远，说明悬空
+        if (floorDist < 0.0f || floorDist > 80.0f) {
+            g_badNavNodes.push_back({ n.pos });
+        }
+
+        // 2. 穿墙线检测
+        for (uint32_t li : n.links) {
+            if (li >= g_editorNavNodes.size()) continue;
+            const auto& t = g_editorNavNodes[li];
+            
+            glm::vec3 dir = t.pos - n.pos;
+            float dist = glm::length(dir);
+            if (dist < 0.1f) continue; 
+            dir = glm::normalize(dir);
+
+            // 从节点 A 向节点 B 打射线
+            float hitDist = TraceBrushes(g_brushes, n.pos + glm::vec3(0, 32, 0), dir, hitNormal);
+            
+            // 如果射线打到了墙，而且墙距离小于两节点距离，说明穿墙了
+            if (hitDist > 0.0f && hitDist < dist - 8.0f) {
+                g_badNavLinks.push_back({ n.pos, t.pos });
+            }
+        }
+    }
+
+    printf("[NavCheck] Found %zu floating nodes, %zu blocked links.\n", g_badNavNodes.size(), g_badNavLinks.size());
 }
 
 // ---------------------------------------------------------------------------
@@ -1201,6 +1254,64 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
             }
             DrawVertexPoints(pts, vp);
         }
+    }
+
+    // ========== 渲染 Nav Nodes 和 Links ==========
+    if (g_bShowNav && !g_editorNavNodes.empty()) {
+        std::vector<float> pointBuf, linkBuf, badLinkBuf, badPointBuf;
+
+        for (size_t i = 0; i < g_editorNavNodes.size(); i++) {
+            const auto& n = g_editorNavNodes[i];
+            pointBuf.insert(pointBuf.end(), {n.pos.x, n.pos.y, n.pos.z, 0.2f, 1.0f, 0.2f}); // 绿点
+
+            for (uint32_t li : n.links) {
+                if (li >= g_editorNavNodes.size()) continue;
+                const auto& t = g_editorNavNodes[li];
+                linkBuf.insert(linkBuf.end(), {n.pos.x, n.pos.y, n.pos.z, 0.2f, 0.6f, 0.2f}); // 绿线
+                linkBuf.insert(linkBuf.end(), {t.pos.x, t.pos.y, t.pos.z, 0.2f, 0.6f, 0.2f});
+            }
+        }
+
+        // 加入错误连线（红色）
+        for (const auto& bl : g_badNavLinks) {
+            badLinkBuf.insert(badLinkBuf.end(), {bl.start.x, bl.start.y, bl.start.z, 1.0f, 0.0f, 0.0f});
+            badLinkBuf.insert(badLinkBuf.end(), {bl.end.x, bl.end.y, bl.end.z, 1.0f, 0.0f, 0.0f});
+        }
+        // 加入悬空点（黄色）
+        for (const auto& bn : g_badNavNodes) {
+            badPointBuf.insert(badPointBuf.end(), {bn.pos.x, bn.pos.y, bn.pos.z, 1.0f, 1.0f, 0.0f});
+        }
+
+        auto DrawPrimitive = [&](const std::vector<float>& buf, GLenum mode, float pointSize, float lineWidth) {
+            if (buf.empty()) return;
+            GLuint prog = EnsureLineColorProg();
+            glUseProgram(prog);
+            glUniformMatrix4fv(glGetUniformLocation(prog, "uVP"), 1, GL_FALSE, glm::value_ptr(vp));
+            glBindVertexArray(g_lineVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, g_lineVBO);
+            glBufferData(GL_ARRAY_BUFFER, buf.size()*sizeof(float), buf.data(), GL_STREAM_DRAW);
+            glEnableVertexAttribArray(0); glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)0);
+            glEnableVertexAttribArray(1); glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)(3*sizeof(float)));
+            
+            glLineWidth(lineWidth);
+            if (mode == GL_POINTS) {
+                glEnable(GL_PROGRAM_POINT_SIZE);
+                glPointSize(pointSize);
+            }
+            
+            glDisable(GL_DEPTH_TEST); // 穿透
+            glDrawArrays(mode, 0, (GLsizei)(buf.size()/6));
+            glEnable(GL_DEPTH_TEST);
+            glBindVertexArray(0);
+            glLineWidth(1.0f);
+        };
+
+        DrawPrimitive(linkBuf, GL_LINES, 0, 1.5f);    // 绿线
+        DrawPrimitive(pointBuf, GL_POINTS, 6.0f, 0);  // 绿点
+        
+        // 如果点了体检，这些会显示出来
+        DrawPrimitive(badLinkBuf, GL_LINES, 0, 2.0f);    // 毒线（红色粗线）
+        DrawPrimitive(badPointBuf, GL_POINTS, 12.0f, 0); // 悬空点（黄色大点）
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

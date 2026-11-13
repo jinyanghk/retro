@@ -404,58 +404,9 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // ================== 3. 渲染武器 ==================
-/*
-    glUseProgram(render.gunProgram);
-    glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
-    
-    float recoilOffset = 0.0f, recoilPitch = 0.0f;
-    if (weapon.recoilTimer > 0.0f) {
-        float progress = weapon.recoilTimer / weapon.recoilDuration;
-        recoilOffset = progress * 0.08f;
-        recoilPitch = progress * 10.0f;
-    }
-    glm::mat4 gunBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.25f, -0.25f, -0.7f + recoilOffset));
-    gunBase = glm::rotate(gunBase, glm::radians(recoilPitch), glm::vec3(1, 0, 0));
-    gunBase = glm::rotate(gunBase, glm::radians(-5.0f), glm::vec3(0, 1, 0));
-
-    GLint gunColorLoc = glGetUniformLocation(render.gunProgram, "uColor");
-    GLint gunMvpLoc   = glGetUniformLocation(render.gunProgram, "uMVP");
-    GLint gunModelLoc = glGetUniformLocation(render.gunProgram, "uModel");
-
-    auto DrawGunPart = [&](glm::vec3 offset, glm::vec3 scale) {
-        glm::mat4 partModel = glm::translate(gunBase, offset) * glm::scale(glm::mat4(1.0f), scale);
-        glm::mat4 partMvp = gunProj * partModel;
-        glUniformMatrix4fv(gunMvpLoc, 1, GL_FALSE, glm::value_ptr(partMvp));
-        glUniformMatrix4fv(gunModelLoc, 1, GL_FALSE, glm::value_ptr(partModel));
-        glBindVertexArray(render.boxVAO);
-        glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
-    };
-
-    glUniform3f(gunColorLoc, 0.25f, 0.25f, 0.28f);
-
-    // 枪管（圆柱体）
-    glm::mat4 barrelModel = glm::translate(gunBase, glm::vec3(0.0f, 0.02f, -0.3f)) * glm::scale(glm::mat4(1.0f), glm::vec3(0.008f, 0.008f, 0.4f));
-    glUniformMatrix4fv(gunMvpLoc, 1, GL_FALSE, glm::value_ptr(gunProj * barrelModel));
-    glUniformMatrix4fv(gunModelLoc, 1, GL_FALSE, glm::value_ptr(barrelModel));
-    glBindVertexArray(render.gunVAO);
-    glDrawElements(GL_TRIANGLES, render.gunIndexCount, GL_UNSIGNED_INT, 0);
-
-    glBindVertexArray(render.boxVAO);
-    DrawGunPart(glm::vec3(0.0f, 0.0f, -0.05f), glm::vec3(0.035f, 0.05f, 0.25f));
-    DrawGunPart(glm::vec3(0.0f, -0.08f, 0.02f), glm::vec3(0.02f, 0.08f, 0.04f));
-    DrawGunPart(glm::vec3(0.0f, -0.06f, 0.1f), glm::vec3(0.025f, 0.06f, 0.03f));
-    DrawGunPart(glm::vec3(0.0f, 0.05f, -0.3f), glm::vec3(0.005f, 0.015f, 0.02f));
-    
-    // 枪口火焰
-    if (weapon.recoilTimer > 0.05f) { 
-        glUniform3f(gunColorLoc, 1.0f, 0.8f, 0.2f); 
-        DrawGunPart(glm::vec3(0.0f, 0.02f, -0.6f), glm::vec3(0.04f, 0.04f, 0.04f));
-    }
-*/
     // 在渲染枪的循环之前
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-// ================== 3. 渲染武器 ==================
+    // ================== 3. 渲染武器 ==================
     glUseProgram(render.gunProgram);
     glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
     

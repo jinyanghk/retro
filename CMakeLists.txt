@@ -18,6 +18,11 @@ else()
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
+# 针对 MSYS2 / MinGW-w64，屏蔽 DLL 导出的属性重定义警告
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-attributes)
+endif()
+
 # ==========================================
 # 依赖查找与路径设置
 # ==========================================

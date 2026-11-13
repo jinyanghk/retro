@@ -54,3 +54,5 @@ extern bool  g_bShowGizmo;
 extern bool  g_bXRayGizmo;
 extern bool  g_bAutoSaveEnabled;
 extern bool  g_bBlockToolActive;
+
+extern bool g_bShowNav;
