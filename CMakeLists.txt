@@ -13,7 +13,7 @@ if(MSVC)
     endif()
     # 强制使用动态运行库 /MD（与 Release 的 Jolt.lib 匹配）
     add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)    
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 else()
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
@@ -149,6 +149,7 @@ target_include_directories(physics PUBLIC src/common src/geometry)
 if(MSVC)
     target_include_directories(physics PUBLIC ${JOLT_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
     target_link_libraries(physics PUBLIC core geometry ${JOLT_LIBRARY} ${SDL2_MIXER_LIBRARY})
+    target_compile_definitions(physics PRIVATE JPH_PROFILE_ENABLED JPH_DEBUG_RENDERER JPH_OBJECT_STREAM)
 else()
     target_link_libraries(physics PUBLIC core geometry glm::glm Jolt::Jolt SDL2_mixer::SDL2_mixer)
 endif()
@@ -233,9 +234,9 @@ target_include_directories(game PUBLIC src/game src/common src/physics ${CMAKE_C
 
 if(MSVC)
     target_include_directories(game PUBLIC ${JOLT_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(game PUBLIC core geometry physics assets imgui ${JOLT_LIBRARY} ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY})
+    target_link_libraries(game PUBLIC core geometry physics assets imgui ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY})
 else()
-    target_link_libraries(game PUBLIC core geometry physics assets imgui Jolt::Jolt glm::glm SDL2::SDL2 nlohmann_json::nlohmann_json)
+    target_link_libraries(game PUBLIC core geometry physics assets imgui glm::glm SDL2::SDL2 nlohmann_json::nlohmann_json)
 endif()
 
 # ---------- retro ----------

@@ -40,15 +40,11 @@ PHYSICS_API JPH::BodyID CreateBarrelBody(float x, float y, float z);
 // 移动 Kinematic 刚体
 PHYSICS_API void MoveKinematicBody(JPH::BodyID id, float x, float y, float z);
 
-// 创建敌人的 Kinematic 刚体
-//JPH::BodyID CreateEnemyBody(float x, float y, float z);
-
-PHYSICS_API JPH::Ref<JPH::CharacterVirtual> CreateEnemyCharacter(float x, float y, float z);
-// 👈 新增：一步完成更新（含贴地、爬台阶、层过滤）
-PHYSICS_API void UpdateEnemyCharacter(JPH::CharacterVirtual* character, 
-                          const glm::vec3& velocity, 
-                          float dt);
-
 PHYSICS_API void SetBodyToDynamic(JPH::BodyID id);
 
 PHYSICS_API JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float hz);
+
+// 👈 新的 CharacterVirtual 句柄接口
+PHYSICS_API int CreateEnemyCharacter(float x, float y, float z);
+PHYSICS_API glm::vec3 UpdateEnemyCharacter(int charId, const glm::vec3& vel, float dt, bool& outGrounded);
+PHYSICS_API void DestroyEnemyCharacter(int charId);

@@ -18,6 +18,13 @@ void CleanupCurrentLevel(JPH::BodyInterface& body_interface,
     physboxIds.clear();
     for (auto id : doorBodies) { if(!id.IsInvalid()) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); } }
     doorBodies.clear();
+
+    for (auto& e : enemies) {
+        if (e.charId >= 0) {
+            DestroyEnemyCharacter(e.charId);
+            e.charId = -1;
+        }
+    }
     enemies.clear();
     if(!player_body.IsInvalid()) { body_interface.RemoveBody(player_body); body_interface.DestroyBody(player_body); }
     

@@ -209,8 +209,15 @@ int main(int argc, char** argv) {
     std::vector<DoorStateForTrace> doorTrace;
     std::vector<EnemyInfo> enemies;
     auto SpawnAllEnemies = [&]() {
+        for (auto& e : enemies) {
+            if (e.charId >= 0) {
+                DestroyEnemyCharacter(e.charId);
+                e.charId = -1;
+            }
+        }
         enemies.clear();
-        for(auto& pos : mapData.zombieSpawns) {
+
+        for (auto& pos : mapData.zombieSpawns) {
             EnemyInfo e;
             glm::vec3 spawnPos = pos;
             
@@ -222,8 +229,7 @@ int main(int argc, char** argv) {
             }
             
             e.pos = spawnPos;
-            //e.bodyId = CreateEnemyBody(spawnPos.x, spawnPos.y, spawnPos.z); 
-            e.character = CreateEnemyCharacter(spawnPos.x, spawnPos.y, spawnPos.z);
+            e.charId = CreateEnemyCharacter(spawnPos.x, spawnPos.y, spawnPos.z);
             enemies.push_back(e);
         }
     };
@@ -423,7 +429,7 @@ int main(int argc, char** argv) {
         }
 
         //printf("[Loop] Before UpdateEnemies\n"); fflush(stdout);
-        UpdateEnemies(enemies, player, deltaTime, body_interface, mapData, 
+                UpdateEnemies(enemies, player, deltaTime, body_interface, mapData, 
                 physboxIds, barrels, doorTrace, 
                 mapData.physboxMins, mapData.physboxMaxs, 
                 gravityGun, // 👈 新增
@@ -684,8 +690,7 @@ int main(int argc, char** argv) {
             for (auto& pos : mapData.zombieSpawns) {
                 EnemyInfo e;
                 e.pos = pos;
-                //e.bodyId = CreateEnemyBody(pos.x, pos.y, pos.z); 
-                e.character = CreateEnemyCharacter(pos.x, pos.y, pos.z);
+                e.charId = CreateEnemyCharacter(pos.x, pos.y, pos.z);
                 enemies.push_back(e);
             }
 

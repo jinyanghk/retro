@@ -50,7 +50,7 @@ struct EnemyInfo {
     float      stunTimer = 0.0f;
     float      deathTimer = 0.0f;
     //JPH::BodyID bodyId;
-    JPH::Ref<JPH::CharacterVirtual> character;  // 👈 新增
+    int charId = -1;  // 👈 替换 JPH::Ref<JPH::CharacterVirtual>
 
     // A* 寻路缓存
     std::vector<glm::vec3> path;

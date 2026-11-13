@@ -41,6 +41,7 @@
 // 👈 给 CharacterVirtual 一个基础设置
 static JPH::Ref<JPH::CharacterVirtualSettings> g_enemyCharSettings;
 static JPH::Ref<JPH::Shape> g_enemyShape;
+static std::vector<JPH::Ref<JPH::CharacterVirtual>> g_enemyChars;
 
 // ============================================================================
 // Jolt 物理层过滤器
@@ -108,66 +109,25 @@ static ObjectVsBroadPhaseLayerFilterImpl g_obj_vs_bp_filter;
 static ObjectLayerPairFilterImpl g_obj_vs_obj_filter;
 
 void InitPhysics() {
-    printf("[Jolt] InitPhysics: enter\n"); fflush(stdout);
-
-    printf("[Jolt] 1. RegisterDefaultAllocator\n"); fflush(stdout);
     JPH::RegisterDefaultAllocator();
-
-    printf("[Jolt] 2. new Factory\n"); fflush(stdout);
     JPH::Factory::sInstance = new JPH::Factory();
+    JPH::RegisterTypes(); // <-- POPULATES COLLISION DISPATCH FUNCTION POINTERS!
 
-    printf("[Jolt] 3. Manual Register Types\n"); fflush(stdout);
-    // 👈 直接用 JPH_RTTI 宏，这是 Jolt 内部的注册方式
-    // 已有
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::BoxShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::CapsuleShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::MeshShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::SphereShapeSettings));
-
-    // 👈 补全：BroadPhase 碰撞查询需要的额外形状
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::PlaneShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::CylinderShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::ConvexHullShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::CompoundShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::StaticCompoundShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::MutableCompoundShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::HeightFieldShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::TaperedCapsuleShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::TaperedCylinderShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::RotatedTranslatedShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::ScaledShapeSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::OffsetCenterOfMassShapeSettings));
-
-    // 约束（虽然现在没用到，但有些物理查询会依赖）
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::SixDOFConstraintSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::FixedConstraintSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::DistanceConstraintSettings));
-    JPH::Factory::sInstance->Register(JPH_RTTI(JPH::PointConstraintSettings));
-    
-    // 注册 PhysicalMaterial（有些旧版本需要这个）
-    // JPH::Factory::sInstance->Register(JPH_RTTI(JPH::PhysicsMaterial));
-
-    printf("[Jolt] 4. new TempAllocator\n"); fflush(stdout);
     g_temp_allocator = new JPH::TempAllocatorImpl(10 * 1024 * 1024);
-
-    printf("[Jolt] 5. new JobSystemThreadPool\n"); fflush(stdout);
     g_job_system = new JPH::JobSystemThreadPool(
-        JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, 1);  // 👈 改成 1
+        JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::max(1u, std::thread::hardware_concurrency() - 1));
 
-    printf("[Jolt] 6. new PhysicsSystem\n"); fflush(stdout);
     g_physics = new JPH::PhysicsSystem();
-
-    printf("[Jolt] 7. PhysicsSystem Init\n"); fflush(stdout);
     g_physics->Init(1024, 0, 1024, 1024, g_bp_layer_interface, g_obj_vs_bp_filter, g_obj_vs_obj_filter);
-
-    printf("[Jolt] 8. SetGravity\n"); fflush(stdout);
     g_physics->SetGravity(JPH::Vec3(0.0f, -1200.0f, 0.0f));
 
-    printf("[Jolt] 9. CapsuleShapeSettings\n"); fflush(stdout);
-    JPH::CapsuleShapeSettings capsuleSettings(17.0f, 14.0f);
-    g_enemyShape = capsuleSettings.Create().Get();
-    
-    printf("[Jolt] 10. CharacterVirtualSettings\n"); fflush(stdout);
+    JPH::ShapeSettings::ShapeResult shapeResult = JPH::CapsuleShapeSettings(17.0f, 14.0f).Create();
+    if (!shapeResult.IsValid()) {
+        printf("[Jolt] ERROR: Failed to create capsule shape!\n");
+        return;
+    }
+    g_enemyShape = shapeResult.Get();
+
     g_enemyCharSettings = new JPH::CharacterVirtualSettings();
     g_enemyCharSettings->mShape = g_enemyShape;
     g_enemyCharSettings->mMaxSlopeAngle = JPH::DegreesToRadians(50.0f);
@@ -176,8 +136,6 @@ void InitPhysics() {
     g_enemyCharSettings->mPenetrationRecoverySpeed = 1.0f;
     g_enemyCharSettings->mPredictiveContactDistance = 0.1f;
     g_enemyCharSettings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -17.0f);
-
-    printf("[Jolt] 11. InitPhysics Done!\n"); fflush(stdout);
 }
 
 void ShutdownPhysics() {
@@ -188,6 +146,9 @@ void ShutdownPhysics() {
     
     // 注意：UnregisterTypes / delete Factory / nullptr 已经挪到静态析构函数里，
     // 这里千万不能再删，否则会发生二次释放（double free）。
+    g_enemyChars.clear();
+    g_enemyCharSettings = nullptr;
+    g_enemyShape = nullptr;
 }
 
 JPH::PhysicsSystem& GetPhysicsSystem() { return *g_physics; }
@@ -257,9 +218,6 @@ void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_
         printf("[Physics] Filtered %d degenerate triangles\n", degenerateCount);
     }
 
-    for (uint32_t i = 0; i + 2 < ni; i += 3) {
-        triangles.push_back(JPH::IndexedTriangle(indices[i], indices[i+1], indices[i+2], 0));
-    }
     JPH::MeshShapeSettings mesh_settings(std::move(vertices), std::move(triangles));
     JPH::BodyCreationSettings bcs(
         mesh_settings.Create().Get(),
@@ -269,6 +227,7 @@ void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_
         Layers::NON_MOVING);
     bcs.mEnhancedInternalEdgeRemoval = true;
     g_physics->GetBodyInterface().CreateAndAddBody(bcs, JPH::EActivation::DontActivate);
+    g_physics->OptimizeBroadPhase(); // <-- COMMITS STATIC MESH TO BROADPHASE IMMEDIATELY!
 }
 
 JPH::BodyID CreatePlayerBody(float x, float y, float z) {
@@ -331,39 +290,52 @@ void MoveKinematicBody(JPH::BodyID id, float x, float y, float z) {
     g_physics->GetBodyInterface().SetPositionAndRotation(id, JPH::RVec3(x, y, z), JPH::Quat::sIdentity(), JPH::EActivation::Activate);
 }
 
-/*
-JPH::BodyID CreateEnemyBody(float x, float y, float z) {
-    // 👈 改小半径，从 20 变成 14，总宽 28。这样它就能钻过更窄的缝了
-    JPH::BoxShapeSettings shape(JPH::Vec3(14.0f, 34.0f, 14.0f)); 
-    JPH::BodyCreationSettings settings(
-        shape.Create().Get(),
-        JPH::RVec3(x, y, z),
-        JPH::Quat::sIdentity(),
-        JPH::EMotionType::Dynamic,
-        Layers::MOVING
-    );
-    settings.mFriction = 0.0f;
-    settings.mAllowSleeping = false;
-    settings.mLinearDamping = 0.0f;
-    settings.mAngularDamping = 1.0f;
-    settings.mGravityFactor = 1.0f;
-    settings.mAllowedDOFs = JPH::EAllowedDOFs::TranslationX |
-                            JPH::EAllowedDOFs::TranslationY |
-                            JPH::EAllowedDOFs::TranslationZ;
-    return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
-}
-*/
+// ============================================================================
+// CharacterVirtual 句柄封装
+// ============================================================================
+int CreateEnemyCharacter(float x, float y, float z) {
+    auto char_ = new JPH::CharacterVirtual(g_enemyCharSettings, JPH::RVec3(x,y,z), JPH::Quat::sIdentity(), g_physics);
+    char_->SetUp(JPH::Vec3::sAxisY());
 
-JPH::Ref<JPH::CharacterVirtual> CreateEnemyCharacter(float x, float y, float z) {
-    JPH::Ref<JPH::CharacterVirtual> character = new JPH::CharacterVirtual(
-        g_enemyCharSettings, 
-        JPH::RVec3(x, y, z), 
-        JPH::Quat::sIdentity(), 
-        g_physics
-    );
-    // 👈 启用“贴地”和“自动爬台阶”
-    character->SetUp(JPH::Vec3::sAxisY());
-    return character;
+    for (size_t i = 0; i < g_enemyChars.size(); ++i) {
+        if (!g_enemyChars[i]) {
+            g_enemyChars[i] = char_;
+            return (int)i;
+        }
+    }
+    g_enemyChars.push_back(char_);
+    return (int)g_enemyChars.size() - 1;
+}
+
+glm::vec3 UpdateEnemyCharacter(int charId, const glm::vec3& vel, float dt, bool& outGrounded) {
+    if (charId < 0 || charId >= (int)g_enemyChars.size() || !g_enemyChars[charId]) {
+        outGrounded = false;
+        return glm::vec3(0.0f);
+    }
+    auto* ch = g_enemyChars[charId].GetPtr();
+    ch->UpdateGroundVelocity();
+
+    float velY = ch->IsSupported() ? 0.0f : (ch->GetLinearVelocity().GetY() - 1200.0f * dt);
+    ch->SetLinearVelocity(JPH::Vec3(vel.x, velY, vel.z));
+
+    JPH::CharacterVirtual::ExtendedUpdateSettings settings;
+    settings.mStickToFloorStepDown = JPH::Vec3(0.0f, -15.0f, 0.0f);
+    settings.mWalkStairsStepUp = JPH::Vec3(0.0f, 18.0f, 0.0f);
+
+    ch->ExtendedUpdate(dt, g_physics->GetGravity(), settings,
+        g_physics->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        g_physics->GetDefaultLayerFilter(Layers::MOVING),
+        {}, {}, *g_temp_allocator);
+
+    outGrounded = ch->IsSupported();
+    auto p = ch->GetPosition();
+    return glm::vec3((float)p.GetX(), (float)p.GetY(), (float)p.GetZ());
+}
+
+void DestroyEnemyCharacter(int charId) {
+    if (charId >= 0 && charId < (int)g_enemyChars.size()) {
+        g_enemyChars[charId] = nullptr;
+    }
 }
 
 void SetBodyToDynamic(JPH::BodyID id) {
