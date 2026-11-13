@@ -7,8 +7,7 @@
 
 constexpr float RAY_EPSILON = 0.01f;
 
-// 暂时关闭遮挡检测，否则 30000 个顶点跑一晚上都算不完
-static bool g_occlusionEnabled = false; 
+static bool g_occlusionEnabled = true; 
 
 static bool RayTriangleIntersect(const glm::vec3& orig, const glm::vec3& dir,
                                  const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
