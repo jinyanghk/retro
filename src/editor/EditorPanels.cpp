@@ -180,6 +180,15 @@ void DrawMenuBar()
                 CheckNavCollisions();
             }
 
+            ImGui::Separator();
+            // 👈 新增：飞行模式勾选
+            if (ImGui::MenuItem("Fly Mode (WASD + Mouse Look)", nullptr, g_bFlyMode)) {
+                g_bFlyMode = !g_bFlyMode;
+                // 开启飞行模式时，取消锁定，防止鼠标卡死在屏幕中间
+                extern void SetFlyMode(bool enable);
+                SetFlyMode(g_bFlyMode);
+            }
+
             ImGui::EndMenu();
         }        
         ImGui::EndMainMenuBar();

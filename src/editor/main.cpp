@@ -1410,6 +1410,38 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     ImGui::PopStyleVar();
 }
 
+void SetFlyMode(bool enable)
+{
+    g_bFlyMode = enable;
+    
+    if (enable) {
+        // 1. 记录当前相机的眼睛位置（在轨道模式下，这是相机的真实位置）
+        glm::vec3 currentEye = g_cam.GetEye();
+        
+        // 2. 获取当前的视线方向
+        float rp = glm::radians(g_cam.pitch);
+        float ry = glm::radians(g_cam.yaw);
+        glm::vec3 dir(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry));
+        
+        // 3. 把相机注视点（target）往前推一段距离（比如 10 单位）
+        // 这样你的 eye 仍然在当前的位置，但看向前方
+        g_cam.target = currentEye + dir * 10.0f;
+        
+        // 4. 距离设为 0（或极小值），保证渲染出来的位置就是 g_cam.target 附近
+        g_cam.dist = 0.0f; 
+
+        // 5. 锁定鼠标
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+    } else {
+        // 退出飞行模式时，恢复轨道模式
+        // 此时 target 是刚飞到的位置，我们拉远一点距离，让你能看到全貌
+        g_cam.dist = 200.0f; 
+        
+        // 释放鼠标
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 主函数
 // ---------------------------------------------------------------------------
@@ -1489,6 +1521,14 @@ int main(int argc, char** argv)
             }
             if (ev.type == SDL_MOUSEMOTION) {
                 g_iMouseX = ev.motion.x; g_iMouseY = ev.motion.y;
+
+                // 👈 飞行模式下，鼠标移动控制视角
+                if (g_bFlyMode) {
+                    g_cam.yaw   += ev.motion.xrel * 0.15f; // 0.15 是灵敏度
+                    g_cam.pitch += ev.motion.yrel * 0.15f;
+                    if (g_cam.pitch >  89.0f) g_cam.pitch =  89.0f;
+                    if (g_cam.pitch < -89.0f) g_cam.pitch = -89.0f;
+                }                
             }
             if (ev.type == SDL_MOUSEBUTTONDOWN) {
                 if (ev.button.button == SDL_BUTTON_LEFT)   g_bLeftMouseDown   = true;
@@ -1503,7 +1543,15 @@ int main(int argc, char** argv)
             }
             if (ev.type == SDL_KEYDOWN && !io.WantCaptureKeyboard) {
                 SDL_Keycode k = ev.key.keysym.sym;
-                if (k == SDLK_ESCAPE) running = false;
+                if (k == SDLK_ESCAPE) {
+                    if (g_bFlyMode) {
+                        // 退出飞行模式，不关程序
+                        extern void SetFlyMode(bool enable);
+                        SetFlyMode(false);
+                    } else {
+                        running = false; 
+                    }
+                }
                 else if (k == SDLK_1) g_iGizmoMode = GIZMO_TRANSLATE;
                 else if (k == SDLK_2) g_iGizmoMode = GIZMO_ROTATE;
                 else if (k == SDLK_3) g_iGizmoMode = GIZMO_SCALE;
@@ -1520,23 +1568,39 @@ int main(int argc, char** argv)
 
         if (!io.WantCaptureKeyboard) {
             float flySpeed = g_cam.dist * 1.2f * 0.016f;
+            // 如果是飞行模式，速度稍微调大一点
+            if (g_bFlyMode) flySpeed = 15.0f; 
+
             float rp = glm::radians(g_cam.pitch), ry = glm::radians(g_cam.yaw);
-            
-            // Y-up 坐标系下的标准前向与右向
             glm::vec3 fwd(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry));
             glm::vec3 fwdH(fwd.x, 0, fwd.z); 
             if (glm::length(fwdH) > 1e-4f) fwdH = glm::normalize(fwdH);
-            
-            // Y-up 右手系里的右向量：Up × Forward
             glm::vec3 rightH = glm::normalize(glm::cross(glm::vec3(0, 1, 0), fwdH));
 
             const Uint8* ks = SDL_GetKeyboardState(nullptr);
-            if (ks[SDL_SCANCODE_W]) g_cam.target -= fwdH * flySpeed;
-            if (ks[SDL_SCANCODE_S]) g_cam.target += fwdH * flySpeed;
-            if (ks[SDL_SCANCODE_A]) g_cam.target -= rightH * flySpeed; // A 是左
-            if (ks[SDL_SCANCODE_D]) g_cam.target += rightH * flySpeed; // D 是右
-            if (ks[SDL_SCANCODE_E]) g_cam.target.y += flySpeed;
-            if (ks[SDL_SCANCODE_Q]) g_cam.target.y -= flySpeed;
+            
+            if (g_bFlyMode) {
+                // 👈 飞行模式：移动 Eye，把 Target 跟着推过去
+                glm::vec3 delta(0.0f);
+                if (ks[SDL_SCANCODE_W]) delta -= fwd * flySpeed;
+                if (ks[SDL_SCANCODE_S]) delta += fwd * flySpeed;
+                if (ks[SDL_SCANCODE_A]) delta -= rightH * flySpeed;
+                if (ks[SDL_SCANCODE_D]) delta += rightH * flySpeed;
+                if (ks[SDL_SCANCODE_E]) delta.y += flySpeed;
+                if (ks[SDL_SCANCODE_Q]) delta.y -= flySpeed;
+                
+                // 改变相机 target 和 dist，实现真正的飞行
+                g_cam.target += delta;
+                g_cam.dist = 1.0f; // 让相机贴近 target，实现第一人称视角
+            } else {
+                // 原有的轨道模式
+                if (ks[SDL_SCANCODE_W]) g_cam.target -= fwdH * flySpeed;
+                if (ks[SDL_SCANCODE_S]) g_cam.target += fwdH * flySpeed;
+                if (ks[SDL_SCANCODE_A]) g_cam.target -= rightH * flySpeed; 
+                if (ks[SDL_SCANCODE_D]) g_cam.target += rightH * flySpeed;
+                if (ks[SDL_SCANCODE_E]) g_cam.target.y += flySpeed;
+                if (ks[SDL_SCANCODE_Q]) g_cam.target.y -= flySpeed;
+            }
         }
 
         for (auto& e : g_entities) UpdateEntityBBox(e);

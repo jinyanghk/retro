@@ -30,3 +30,5 @@ bool g_bSubDragging  = false;
 GizmoMode g_iGizmoMode = GIZMO_TRANSLATE;
 
 bool g_bShowNav = false;
+
+bool g_bFlyMode = false;

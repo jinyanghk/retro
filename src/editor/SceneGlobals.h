@@ -56,3 +56,5 @@ extern bool  g_bAutoSaveEnabled;
 extern bool  g_bBlockToolActive;
 
 extern bool g_bShowNav;
+
+extern bool g_bFlyMode;
