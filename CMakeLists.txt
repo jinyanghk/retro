@@ -149,7 +149,14 @@ target_include_directories(physics PUBLIC src/common src/geometry)
 if(MSVC)
     target_include_directories(physics PUBLIC ${JOLT_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
     target_link_libraries(physics PUBLIC core geometry ${JOLT_LIBRARY} ${SDL2_MIXER_LIBRARY})
-    target_compile_definitions(physics PRIVATE JPH_PROFILE_ENABLED JPH_DEBUG_RENDERER JPH_OBJECT_STREAM)
+    target_compile_definitions(physics PRIVATE
+        JPH_DEBUG_RENDERER
+        JPH_FLOATING_POINT_EXCEPTIONS_ENABLED
+        JPH_OBJECT_LAYER_BITS=16
+        JPH_OBJECT_STREAM
+        JPH_PROFILE_ENABLED
+        JPH_USE_CPU_COMPUTE
+    )
 else()
     target_link_libraries(physics PUBLIC core geometry glm::glm Jolt::Jolt SDL2_mixer::SDL2_mixer)
 endif()

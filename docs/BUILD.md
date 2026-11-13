@@ -2,6 +2,8 @@
 
 ## msys2 ucrt64
 
+> need to set msys2/ucrt64/bin to path
+
 ### deps
 
 ```sh
@@ -66,6 +68,8 @@ make
 
 ## windows
 
+> need to remove msys2/ucrt64/bin from path, add windows version cmake in path
+
 ### deps
 
 download win x64 vc pre-built
@@ -108,6 +112,7 @@ set PATH=C:\Users\%USERNAME%\AppData\Local\Programs\python-3.14.10-embed-amd64;%
 git clone https://github.com/jrouwe/JoltPhysics.git
 cd JoltPhysics
 cd Build
+rmdir /s /q Build-MSVC
 cmake -B Build-MSVC ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL ^
@@ -131,6 +136,7 @@ cmake --build build
 ### use cmake + nmake
 
 ```bat
-cmake -B build-msvc -G "NMake Makefiles"
+rmdir /s /q build-msvc
+cmake -B build-msvc -DCMAKE_BUILD_TYPE=Release -G "NMake Makefiles"
 cmake --build build-msvc
 ```
