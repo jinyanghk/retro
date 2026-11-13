@@ -48,3 +48,5 @@ PHYSICS_API JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, floa
 PHYSICS_API int CreateEnemyCharacter(float x, float y, float z);
 PHYSICS_API glm::vec3 UpdateEnemyCharacter(int charId, const glm::vec3& vel, float dt, bool& outGrounded);
 PHYSICS_API void DestroyEnemyCharacter(int charId);
+
+PHYSICS_API void DestroyBodySafe(JPH::BodyID id);

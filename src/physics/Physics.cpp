@@ -118,7 +118,7 @@ void InitPhysics() {
         JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::max(1u, std::thread::hardware_concurrency() - 1));
 
     g_physics = new JPH::PhysicsSystem();
-    g_physics->Init(1024, 0, 1024, 1024, g_bp_layer_interface, g_obj_vs_bp_filter, g_obj_vs_obj_filter);
+    g_physics->Init(8192, 0, 8192, 8192, g_bp_layer_interface, g_obj_vs_bp_filter, g_obj_vs_obj_filter);
     g_physics->SetGravity(JPH::Vec3(0.0f, -1200.0f, 0.0f));
 
     JPH::ShapeSettings::ShapeResult shapeResult = JPH::CapsuleShapeSettings(17.0f, 14.0f).Create();
@@ -140,15 +140,16 @@ void InitPhysics() {
 
 void ShutdownPhysics() {
     printf("[Jolt] ShutdownPhysics\n"); fflush(stdout);
-    delete g_physics;        g_physics = nullptr;
-    delete g_job_system;     g_job_system = nullptr;
-    delete g_temp_allocator; g_temp_allocator = nullptr;
-    
-    // 注意：UnregisterTypes / delete Factory / nullptr 已经挪到静态析构函数里，
-    // 这里千万不能再删，否则会发生二次释放（double free）。
+
+    // 1. Destroy CharacterVirtuals, settings, and shapes FIRST while g_physics is still alive!
     g_enemyChars.clear();
     g_enemyCharSettings = nullptr;
     g_enemyShape = nullptr;
+
+    // 2. Delete PhysicsSystem, JobSystem, and TempAllocator in reverse init order
+    delete g_physics;        g_physics = nullptr;
+    delete g_job_system;     g_job_system = nullptr;
+    delete g_temp_allocator; g_temp_allocator = nullptr;
 }
 
 JPH::PhysicsSystem& GetPhysicsSystem() { return *g_physics; }
@@ -246,9 +247,14 @@ JPH::BodyID CreatePlayerBody(float x, float y, float z) {
 }
 
 JPH::BodyID CreatePhysBox(float x, float y, float z, float hx, float hy, float hz) {
+    hx = std::max(hx, 0.5f);
+    hy = std::max(hy, 0.5f);
+    hz = std::max(hz, 0.5f);
     JPH::BoxShapeSettings shape(JPH::Vec3(hx, hy, hz));
+    auto res = shape.Create();
+    if (!res.IsValid()) return JPH::BodyID();
     JPH::BodyCreationSettings settings(
-        shape.Create().Get(),
+        res.Get(),
         JPH::RVec3(x, y, z),
         JPH::Quat::sIdentity(),
         JPH::EMotionType::Dynamic,
@@ -356,4 +362,13 @@ JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float 
     settings.mRestitution = 0.0f;
     settings.mFriction = 1.0f;
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+}
+
+void DestroyBodySafe(JPH::BodyID id) {
+    if (!g_physics || id.IsInvalid()) return;
+    auto& bi = g_physics->GetBodyInterface();
+    if (bi.IsAdded(id)) {
+        bi.RemoveBody(id);
+    }
+    bi.DestroyBody(id);
 }

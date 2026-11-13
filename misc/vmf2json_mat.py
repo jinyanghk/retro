@@ -3,13 +3,13 @@ import numpy as np
 from scipy.spatial import HalfspaceIntersection
 from scipy.optimize import linprog
 
-# ============ 1. 解析 VMF (基于你最初逐行读的有效逻辑) ============
+# ============ 1. 解析 VMF ============
 def parse_vmf(path):
     with open(path, 'r', errors='ignore') as f:
         lines = f.readlines()
 
     solids = []
-    solids_bbox = []  # 👈 新增：每块 solid 的 AABB
+    solids_bbox = []  # 每块 solid 的 AABB
     entities = []
     stack = [] 
     current_solid_sides = []
@@ -78,14 +78,15 @@ def parse_vmf(path):
         last_line = line
 
     result_entities = []
+    consumed_solids = set() # 👈 记录被实体消耗的 solid 索引
+
     for e in entities:
         cn = e.get('classname', '')
-        if cn in ('info_player_start', 'info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'light', 'light_spot'):
+        if cn in ('info_player_start', 'info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'trigger_once', 'light', 'light_spot', 'prop_physics', 'func_physbox'):
             o_str = e.get('origin', '0 0 0')
             parts = o_str.split()
             o = [float(x) for x in parts] if len(parts) == 3 else [0.0, 0.0, 0.0]
             
-            # 👈 新增：解析 model "*N" 对应的 solid bbox
             bbox = None
             model_str = e.get('model', '')
             if model_str.startswith('*'):
@@ -93,12 +94,18 @@ def parse_vmf(path):
                     idx = int(model_str[1:]) - 1  # VMF 的 model 编号从 1 开始
                     if 0 <= idx < len(solids_bbox):
                         bbox = solids_bbox[idx]
+                        # 👈 关键：如果是带体积的实体，从普通 Brush 列表中剔除
+                        if cn in ('trigger_multiple', 'trigger_once', 'func_door', 'func_physbox'):
+                            consumed_solids.add(idx)
                 except ValueError:
                     pass
             
             result_entities.append({'kv': e, 'origin': o, 'bbox': bbox})
 
-    return solids, result_entities
+    # 👈 过滤掉被实体消耗的 solid，剩下的才是真正的普通地图 Brush
+    valid_solids = [solids[i] for i in range(len(solids)) if i not in consumed_solids]
+    
+    return valid_solids, result_entities
 
 # ============ 2. 计算面多边形 ============
 def brush_faces(sides):
@@ -196,7 +203,7 @@ def brush_faces(sides):
 
 # ============ 3. 转 JSON ============
 def to_my_json(solids, entities, out_path):
-    out = {'brushes': [], 'entities': [], 'format': 'retro_map_v2'}
+    out = {'brushes': [], 'entities': [], 'format': 'retro_map_v2', 'nav_nodes': []}
     
     for sides in solids:
         faces = brush_faces(sides)
@@ -238,16 +245,9 @@ def to_my_json(solids, entities, out_path):
                 'vaxis': convert_axis_str(f['vaxis']),
             })
 
-        #out['brushes'].append({
-        #    'position': [float(x) for x in center],
-        #    'halfSize': [float(x) for x in half],
-        #    'material': default_mat,
-        #    'faces': json_faces,
-        #})
-        # 👈 改成使用 conv 转换中心点：
         out['brushes'].append({
-            'position': conv(center),   # 把中心点从 Z-up 转成 Y-up
-            'halfSize': [half[0], half[2], half[1]], # 👈 注意 halfSize 的 XYZ 也要转，Y和Z互换
+            'position': conv(center),
+            'halfSize': [half[0], half[2], half[1]], 
             'material': default_mat,
             'faces': json_faces,
         })        
@@ -256,31 +256,31 @@ def to_my_json(solids, entities, out_path):
     for e in entities:
         cn = e['kv'].get('classname', '')
         
-        # 👈 新增：计算 Y-up 的 bbox（相对实体原点）
+        # 👈 收集寻路节点坐标
+        if cn == 'info_node':
+            o = e['origin']
+            out['nav_nodes'].append([o[0], o[2], -o[1]])
+            
         def get_y_up_bbox(e):
             if not e.get('bbox'): return None
             mn, mx = e['bbox']
             o = e['origin']
-            # VMF 的 mins/maxs 减去 origin，得到相对偏移
             rel_mins = [mn[0]-o[0], mn[1]-o[1], mn[2]-o[2]]
             rel_maxs = [mx[0]-o[0], mx[1]-o[1], mx[2]-o[2]]
-            # Z-up -> Y-up：X 不变，Y=Z，Z=-Y
             y_up_mins = [rel_mins[0], rel_mins[2], -rel_maxs[1]]
             y_up_maxs = [rel_maxs[0], rel_maxs[2], -rel_mins[1]]
             return y_up_mins, y_up_maxs
         
         def get_default_bbox(classname):
-            # 没找到 brush 时的默认值
             if classname in ('info_player_start', 'npc_zombie'):
                 return [-16, 0, -16], [16, 72, 16]
             elif classname == 'func_door':
                 return [-32, -64, -8], [32, 64, 8]
-            elif classname == 'trigger_multiple':
+            elif classname in ('trigger_multiple', 'trigger_once'):
                 return [-32, -32, -32], [32, 32, 32]
             else:
                 return [-8, -8, -8], [8, 8, 8]
         
-        # 尝试从 brush 读 bbox，失败则用默认
         bbox_result = get_y_up_bbox(e)
         if bbox_result is None:
             bbox_mins, bbox_maxs = get_default_bbox(cn)
@@ -304,9 +304,8 @@ def to_my_json(solids, entities, out_path):
                 primary_spawn_added = True
             continue 
             
-        if cn in ('info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'light', 'light_spot'):
+        if cn in ('info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'trigger_once', 'light', 'light_spot', 'prop_physics', 'func_physbox'):
             o = e['origin']
-            # 读取 angles（HL2 的 angles 是 yaw pitch roll 的 Z-up 格式）
             angles_str = e['kv'].get('angles', '0 0 0')
             try:
                 a_parts = [float(x) for x in angles_str.split()]
@@ -314,20 +313,23 @@ def to_my_json(solids, entities, out_path):
             except ValueError:
                 angles = [0.0, 0.0, 0.0]
             
+            # 👈 把关键参数都保留下来，为晚上的玩法做基础
+            props = {k: v for k, v in e['kv'].items() if k in ('targetname', 'target', 'speed', 'lip', '_light', '_distance', 'spawnflags')}
+            
             out['entities'].append({
                 'classname': cn,
                 'origin': [o[0], o[2], -o[1]],
                 'angles': angles,
                 'bbox_mins': bbox_mins,
                 'bbox_maxs': bbox_maxs,
-                'properties': {k: v for k, v in e['kv'].items() if k in ('targetname', 'target', 'speed', 'lip', '_light', '_distance')},
+                'properties': props,
                 'customs': {},
                 'connections': [],
             })
     
     with open(out_path, 'w') as f:
         json.dump(out, f, indent=2)
-    print(f'Wrote {len(out["brushes"])} brushes, {len(out["entities"])} entities')
+    print(f'Wrote {len(out["brushes"])} brushes, {len(out["entities"])} entities, {len(out["nav_nodes"])} nav_nodes')
 
 if __name__ == '__main__':
     import sys

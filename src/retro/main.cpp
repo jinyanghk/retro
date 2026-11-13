@@ -726,24 +726,24 @@ int main(int argc, char** argv) {
         SDL_GL_SwapWindow(window);
         //printf("[Loop] After SwapWindow\n"); fflush(stdout);
     }
-    //printf("[Main] Exiting while loop\n"); fflush(stdout);
 
-    for (auto id : physboxIds) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); }
-    //printf("[Main] Cleaned physbox\n"); fflush(stdout);
-    for (auto id : doorBodies) { body_interface.RemoveBody(id); body_interface.DestroyBody(id); }
-    //printf("[Main] Cleaned door\n"); fflush(stdout);
+    printf("[Main] Exiting while loop\n"); fflush(stdout);
+    for (auto id : physboxIds) DestroyBodySafe(id);
+    physboxIds.clear();
+    for (auto id : doorBodies) DestroyBodySafe(id);
+    doorBodies.clear();
 
     ShutdownRender(render);
-    //printf("[Main] Render shutdown done\n"); fflush(stdout);
+    printf("[Main] Render shutdown done\n"); fflush(stdout);
     ShutdownAudio(audio);
+    printf("[Main] Audio shutdown done\n"); fflush(stdout);
     ShutdownPhysics();
-    //printf("[Main] All shutdown done\n"); fflush(stdout);
+    printf("[Main] Physics shutdown done\n"); fflush(stdout);
 
     ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext(); SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window); 
     SDL_Quit();
-    //printf("[Main] Exiting...\n");
     fflush(stdout);
     return 0;
 }
