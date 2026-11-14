@@ -35,6 +35,10 @@ void SetLoadBvhHandler(void (*pfn)()) { s_pfnLoadBvh = pfn; }
 // 👈 声明 main.cpp 里的全局变量
 extern std::vector<std::string> g_allMaterials;
 extern GLuint GetMaterialThumb(const std::string& matName);
+extern void SetFlyMode(bool enable);
+extern void CheckNavCollisions();
+extern glm::vec3* GetEditorCamTarget();
+extern float* GetEditorCamDist();
 
 // 👈 全局状态
 static bool   g_bShowMaterialBrowser = false;
@@ -176,7 +180,6 @@ void DrawMenuBar()
             ImGui::MenuItem("Show Nav Nodes", nullptr, &g_bShowNav);
 
             if (ImGui::MenuItem("Check Nav Collisions")) {
-                extern void CheckNavCollisions();
                 CheckNavCollisions();
             }
 
@@ -185,7 +188,6 @@ void DrawMenuBar()
             if (ImGui::MenuItem("Fly Mode (WASD + Mouse Look)", nullptr, g_bFlyMode)) {
                 g_bFlyMode = !g_bFlyMode;
                 // 开启飞行模式时，取消锁定，防止鼠标卡死在屏幕中间
-                extern void SetFlyMode(bool enable);
                 SetFlyMode(g_bFlyMode);
             }
 
@@ -258,7 +260,7 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
 
     // 1. 实体列表
     ImGui::Text("Entities (%d):", count);
-    ImGui::BeginChild("##EntityListScroll", ImVec2(0, 150), true);
+    ImGui::BeginChild("##EntityListScroll", ImVec2(0, 300), true);
     for (int i = 0; i < count; i++) {
         ImGui::PushID(i);
 
@@ -273,11 +275,32 @@ void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBru
         char label[128];
         snprintf(label, sizeof(label), "%s", entities[i].m_szName.c_str());
         bool sel = (i == *pSelEntity);
-        // ★ 关键修复：给 Selectable 传具体宽度，防止覆盖右侧按钮
+        
+        // 👈 修改宽度计算，给 GoTo 按钮腾出空间
+        float btnGoW = ImGui::CalcTextSize("GoTo").x + framePadX;
+        selW = availW - btnDelW - btnGoW - spacing * 2.0f - 4.0f;
+        if (selW < 60.0f) selW = 60.0f;
+
         if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_None, ImVec2(selW, 0))) {
             *pSelEntity = i;
             *pSelBrush  = -1;
         }
+
+        ImGui::SameLine();
+        ImGui::PushID("GoTo");
+        if (ImGui::SmallButton("Tel")) {
+            // 👈 传送相机逻辑：修改全局相机状态            
+            glm::vec3* pCamTarget = GetEditorCamTarget();
+            float* pCamDist = GetEditorCamDist();
+            
+            if (pCamTarget && pCamDist) {
+                *pCamTarget = entities[i].m_vecPos; // 将相机注视点移到实体位置
+                *pCamDist = 150.0f;                 // 把相机拉近一点，方便看清实体
+            }
+            g_bFlyMode = true;
+            SetFlyMode(g_bFlyMode);
+        }
+        ImGui::PopID();
 
         ImGui::SameLine();
         ImGui::PushID("Del");
@@ -484,7 +507,7 @@ void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelE
 
     ImGui::Text("Brushes (%d):", count);
     
-    ImGui::BeginChild("##BrushListScroll", ImVec2(0, 200), true);
+    ImGui::BeginChild("##BrushListScroll", ImVec2(0, 300), true);
     for (int i = 0; i < count; i++) {
         ImGui::PushID(i);
 

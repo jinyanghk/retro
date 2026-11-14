@@ -195,6 +195,17 @@ struct BadNavNode {
 static std::vector<BadNavLink> g_badNavLinks;
 static std::vector<BadNavNode> g_badNavNodes;
 
+// ==========================================
+// 👈 新增：供 EditorPanels 调用的相机控制接口
+// ==========================================
+glm::vec3* GetEditorCamTarget() {
+    return &g_cam.target;
+}
+
+float* GetEditorCamDist() {
+    return &g_cam.dist;
+}
+
 // ---------------------------------------------------------------------------
 // GL 辅助与 FBO
 // ---------------------------------------------------------------------------
