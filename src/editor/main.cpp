@@ -1183,6 +1183,20 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     int localMouseX = (int)(mousePos.x - viewportPos.x);
     int localMouseY = (int)(mousePos.y - viewportPos.y);
 
+    // =========================================================
+    // 👈 新增：右键拖拽旋转相机（不影响左键拾取）
+    // =========================================================
+    if (bMouseInViewport && g_bRightMouseDown) {
+        ImGuiIO& io = ImGui::GetIO();
+        g_cam.yaw   += io.MouseDelta.x * 0.2f;
+        g_cam.pitch += io.MouseDelta.y * 0.2f;
+        if (g_cam.pitch >  89.0f) g_cam.pitch =  89.0f;
+        if (g_cam.pitch < -89.0f) g_cam.pitch = -89.0f;
+        
+        // 隐藏鼠标光标（拖拽时更沉浸）
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    }
+
     glm::mat4 view = g_cam.GetView();
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)vpW/(float)vpH, 1.0f, 10000.0f);
 
@@ -1346,7 +1360,8 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     bool bIsUsingGizmo = ImGuizmo::IsUsing() || ImGuizmo::IsOver();
     
     // 使用 IsMouseClicked 保证每次点击只触发一帧
-    if (bMouseInViewport && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bIsUsingGizmo && !g_bDraggingGizmo)
+        // 👈 增加 !g_bRightMouseDown 判断，防止右键旋转时左键误触拾取
+    if (bMouseInViewport && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bIsUsingGizmo && !g_bDraggingGizmo && !g_bRightMouseDown)
     {
         if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size())
         {
@@ -1613,6 +1628,24 @@ int main(int argc, char** argv)
                 if (ks[SDL_SCANCODE_D]) g_cam.target += rightH * flySpeed;
                 if (ks[SDL_SCANCODE_E]) g_cam.target.y += flySpeed;
                 if (ks[SDL_SCANCODE_Q]) g_cam.target.y -= flySpeed;
+            }     
+        }
+
+        // =========================================================
+        // 👈 新增：方向键微调相机视角（非 Fly Mode 时生效）
+        // =========================================================
+        if (!io.WantCaptureKeyboard && !g_bFlyMode) {
+            const Uint8* ks = SDL_GetKeyboardState(nullptr);
+            bool bChanged = false;
+            
+            if (ks[SDL_SCANCODE_LEFT])  { g_cam.yaw   -= 1.5f; bChanged = true; }
+            if (ks[SDL_SCANCODE_RIGHT]) { g_cam.yaw   += 1.5f; bChanged = true; }
+            if (ks[SDL_SCANCODE_UP])    { g_cam.pitch -= 1.0f; bChanged = true; }
+            if (ks[SDL_SCANCODE_DOWN])  { g_cam.pitch += 1.0f; bChanged = true; }
+            
+            if (bChanged) {
+                if (g_cam.pitch >  89.0f) g_cam.pitch =  89.0f;
+                if (g_cam.pitch < -89.0f) g_cam.pitch = -89.0f;
             }
         }
 
