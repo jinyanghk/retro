@@ -327,6 +327,8 @@ static void DrawBrushes(const glm::mat4& viewProj)
     glDepthMask(GL_TRUE);
 
     glUseProgram(g_brushProg);
+    // 👈 传入是否渲染贴图
+    glUniform1i(glGetUniformLocation(g_brushProg, "uUseTexture"), g_bRenderTexture ? 1 : 0);    
     GLint uMVP = glGetUniformLocation(g_brushProg, "uMVP");
     GLint uTex = glGetUniformLocation(g_brushProg, "uTex");
     glUniform1i(uTex, 0);

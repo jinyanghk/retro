@@ -32,3 +32,5 @@ GizmoMode g_iGizmoMode = GIZMO_TRANSLATE;
 bool g_bShowNav = false;
 
 bool g_bFlyMode = false;
+
+bool g_bRenderTexture = true;

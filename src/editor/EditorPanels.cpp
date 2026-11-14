@@ -189,6 +189,8 @@ void DrawMenuBar()
                 SetFlyMode(g_bFlyMode);
             }
 
+            ImGui::MenuItem("Render Textures", nullptr, &g_bRenderTexture);
+
             ImGui::EndMenu();
         }        
         ImGui::EndMainMenuBar();

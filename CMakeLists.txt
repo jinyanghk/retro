@@ -141,6 +141,8 @@ endif()
 
 # ==========================================
 # physics
+# flags need to match:
+# JoltPhysics\Build\Build-MSVC\CMakeFiles\Jolt.dir\flags.make
 # ==========================================
 add_library(physics SHARED src/physics/Physics.cpp src/physics/Trace.cpp)
 target_compile_definitions(physics PRIVATE PHYSICS_EXPORTS)

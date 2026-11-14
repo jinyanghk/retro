@@ -58,3 +58,5 @@ extern bool  g_bBlockToolActive;
 extern bool g_bShowNav;
 
 extern bool g_bFlyMode;
+
+extern bool g_bRenderTexture;
