@@ -4,7 +4,7 @@
         {
             "type": "cppbuild",
             "label": "C/C++: g++.exe build active file",
-            "command": "${userHome}\\AppData\\Local\\Programs\\msys64\\ucrt64\\bin\\g++.exe",
+            "command": "D:\\jin\\msys64\\ucrt64\\bin\\g++.exe",
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
@@ -13,7 +13,7 @@
                 "${fileDirname}\\${fileBasenameNoExtension}.exe"
             ],
             "options": {
-                "cwd": "${userHome}\\AppData\\Local\\Programs\\msys64\\ucrt64\\bin\\"
+                "cwd": "D:\\jin\\msys64\\ucrt64\\bin\\"
             },
             "problemMatcher": [
                 "$gcc"

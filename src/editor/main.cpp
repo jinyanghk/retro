@@ -37,6 +37,7 @@
 #include <string>
 #include <iostream>
 #include <unordered_map>
+#include <map>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -195,6 +196,13 @@ struct BadNavNode {
 static std::vector<BadNavLink> g_badNavLinks;
 static std::vector<BadNavNode> g_badNavNodes;
 
+// 初始的时候填充可见性数组
+void InitVisibilityArrays() {
+    g_brushVisible.assign(g_brushes.size(), 1);
+    g_entityVisible.assign(g_entities.size(), 1);
+}
+
+
 // ==========================================
 // 👈 新增：供 EditorPanels 调用的相机控制接口
 // ==========================================
@@ -347,7 +355,12 @@ static void DrawBrushes(const glm::mat4& viewProj)
     // 1. 按材质分组
     std::unordered_map<std::string, std::vector<float>> matVertices;
 
-    for (const auto& b : g_brushes) {
+    if (!g_bShowBrushes) return;
+    for (size_t i = 0; i < g_brushes.size(); i++) {
+        // 👈 读取 uint8_t 的状态
+        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue;      
+
+        const auto& b = g_brushes[i];
         if (b.m_vertices.size() < 8 || b.m_faces.size() < 6) continue;
         
         for (int f = 0; f < 6; f++) {
@@ -448,7 +461,11 @@ static void DrawEntityBBoxes(const glm::mat4& viewProj)
     GLint uVP = glGetUniformLocation(prog, "uVP");
     glUniformMatrix4fv(uVP, 1, GL_FALSE, glm::value_ptr(viewProj));
 
+    if (!g_bShowEntities) return;
     for (size_t i = 0; i < g_entities.size(); i++) {
+        // 👈 读取 uint8_t 的状态
+        if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue;
+
         const auto& e = g_entities[i];
         
         glm::vec3 mn = e.m_vecBBoxMins;
@@ -1054,6 +1071,13 @@ static void OnImportMap() {
             printf("[Editor] Auto-centered camera to map bounds. Center=(%.1f, %.1f, %.1f), Size=(%.1f, %.1f, %.1f)\n",
                    center.x, center.y, center.z, size.x, size.y, size.z);
         }
+
+        // 👈 必须加上这一句！
+        InitVisibilityArrays(); 
+        // 👈 加上这句，看看到底有没有初始化成功
+        printf("[Debug] After Init: g_brushes.size=%zu, g_brushVisible.size=%zu\n", 
+               g_brushes.size(), g_brushVisible.size());
+        printf("[Debug] g_brushVisible[0] = %d\n", g_brushVisible.empty() ? -1 : g_brushVisible[0]);        
     }
 }
 static void OnLoadBvh() {
@@ -1660,14 +1684,11 @@ int main(int argc, char** argv)
         DrawMenuBar();
         DrawToolsPanel();
         BrushPanelResult panelRes;
-        DrawEntityPanel(g_entities.data(), (int)g_entities.size(), &g_iSelectedEntity, &g_iSelectedBrush, panelRes);
-        DrawBrushPanel(g_brushes.data(), (int)g_brushes.size(), &g_iSelectedBrush, &g_iSelectedEntity, panelRes);
+        DrawScenePanel(&g_iSelectedEntity, &g_iSelectedBrush, panelRes);
         DrawGraphEditorPanel();
         Draw3DView(g_bLeftMouseDown, g_bRightMouseDown, g_bMiddleMouseDown);
         Draw2DViews();
 
-        //DrawConsolePanel();
-        //DrawScenePanel();
         DrawCompileOptionsWindow();
         DrawMaterialBrowserWindow();
 

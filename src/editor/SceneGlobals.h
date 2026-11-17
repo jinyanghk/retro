@@ -60,3 +60,11 @@ extern bool g_bShowNav;
 extern bool g_bFlyMode;
 
 extern bool g_bRenderTexture;
+
+// 全局开关
+extern bool g_bShowBrushes;
+extern bool g_bShowEntities;
+
+extern std::vector<BrushGroup> g_brushGroups;
+extern std::vector<uint8_t> g_brushVisible;
+extern std::vector<uint8_t> g_entityVisible;

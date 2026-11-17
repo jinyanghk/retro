@@ -20,11 +20,9 @@ struct BrushPanelResult {
 
 void DrawMenuBar();
 void DrawToolsPanel();
-void DrawEntityPanel(CEntity* entities, int count, int* pSelEntity, int* pSelBrush, BrushPanelResult& out);
-void DrawBrushPanel(const CBrush* brushes, int count, int* pSelBrush, int* pSelEntity, BrushPanelResult& out);
 void DrawConsolePanel();
 void DrawViewportPanel();
-void DrawScenePanel();
+void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out);
 
 void SetExportMapHandler(void (*pfn)());
 void SetImportMapHandler(void (*pfn)());
