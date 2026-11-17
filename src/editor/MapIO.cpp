@@ -101,6 +101,25 @@ bool ExportMapJson(const std::string& path)
     }
     root["entities"] = entities;
 
+    // ================= 导出 Groups =================
+    json groups = json::array();
+    for (const auto& grp : g_brushGroups) {
+        json jg;
+        jg["name"] = grp.name;
+        jg["visible"] = grp.visible;
+
+        json brushes_arr = json::array();
+        for (int bi : grp.brushIndices) brushes_arr.push_back(bi);
+        jg["brushes"] = brushes_arr;
+
+        json entities_arr = json::array();
+        for (int ei : grp.entityIndices) entities_arr.push_back(ei);
+        jg["entities"] = entities_arr;
+
+        groups.push_back(jg);
+    }
+    root["groups"] = groups;
+
     std::ofstream f(path);
     if (!f.is_open()) {
         char b[256]; snprintf(b, sizeof(b), "[MAP] FAILED to open %s", path.c_str()); LogAdd(b);
@@ -260,5 +279,29 @@ bool ImportMapJson(const std::string& path)
             g_entities.push_back(e);
         }
     }
+
+    // ================= 导入 Groups =================
+    g_brushGroups.clear(); // 先清空旧的组
+    if (root.contains("groups") && root["groups"].is_array()) {
+        for (const auto& jg : root["groups"]) {
+            BrushGroup grp;
+            grp.name = jg.value("name", "New_Group");
+            grp.visible = jg.value("visible", 1);
+
+            if (jg.contains("brushes") && jg["brushes"].is_array()) {
+                for (const auto& jb : jg["brushes"]) {
+                    grp.brushIndices.push_back(jb.get<int>());
+                }
+            }
+            if (jg.contains("entities") && jg["entities"].is_array()) {
+                for (const auto& je : jg["entities"]) {
+                    grp.entityIndices.push_back(je.get<int>());
+                }
+            }
+            g_brushGroups.push_back(grp);
+        }
+        printf("[MAP] Imported %zu groups\n", g_brushGroups.size());
+    }
+        
     return true;
 }
