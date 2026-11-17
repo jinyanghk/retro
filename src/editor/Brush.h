@@ -39,11 +39,11 @@ struct CBrush {
     void RotateVertices(const glm::vec3& deltaAnglesDeg);
 };
 
-// 👈 新增：分组数据结构
 struct BrushGroup {
     std::string name;
     bool visible = true;
-    std::vector<int> brushIndices; // 存 g_brushes 里的下标
+    std::vector<int> brushIndices;  // 存的 Brush 下标
+    std::vector<int> entityIndices; // 👈 新增：存的 Entity 下标
 };
 
 // face → 4 个顶点索引（纯数据，face/edge/vertex 编辑时查表）

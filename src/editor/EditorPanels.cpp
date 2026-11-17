@@ -257,6 +257,7 @@ static bool InputTextString(const char* label, std::string& value)
 }
 
 // ---------------------------------------------------------------------------
+static int pendingDeleteGroupIdx = -1;
 void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
 {
     if (!ImGui::Begin("Scene")) { ImGui::End(); return; }
@@ -274,164 +275,322 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
     ImGui::Checkbox("Show Entities", &g_bShowEntities);
     ImGui::Separator();
 
-    // 计算树的高度，给下方的属性面板留出空间
     float treeHeight = ImGui::GetContentRegionAvail().y * 0.5f;
     
-    // 3. 树形列表
+    // ================= 上半部分：单一世界树 =================
     ImGui::BeginChild("##SceneTreeChild", ImVec2(0, treeHeight), true);
     
-    if (ImGui::TreeNode("Entities", "Entities (%d)", (int)g_entities.size())) {
+    static int dragItemIdx = -1;
+    static bool dragIsEntity = false;
+    static int pendingDeleteGroupIdx = -1; // 👈 用于延迟删除，防止崩溃
+
+    // 根节点：Scene
+    if (ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
+        
+        // 1. 先渲染所有的 Group
+        auto RenderGroupNode = [&](int gIdx) {
+            auto& grp = g_brushGroups[gIdx];
+            ImGui::PushID(gIdx + 30000);
+            
+            bool groupVis = (grp.visible != 0);
+            if (ImGui::Checkbox("##vis", &groupVis)) {
+                grp.visible = groupVis ? 1 : 0;
+                for (int bi : grp.brushIndices) if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = grp.visible;
+                for (int ei : grp.entityIndices) if (ei < (int)g_entityVisible.size()) g_entityVisible[ei] = grp.visible;
+            }
+            ImGui::SameLine();
+            
+            bool isOpen = ImGui::TreeNodeEx(grp.name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow);
+            
+            // 点击名字选中组
+            if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+                g_iSelectedGroup = gIdx;
+                *pSelBrush = -1;
+                *pSelEntity = -1;
+            }
+
+            // 👈 专门给 Group 名字绑定右键菜单（用 OpenPopup 彻底隔离上下文）
+            std::string popupName = "GroupCtx_" + std::to_string(gIdx);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                ImGui::OpenPopup(popupName.c_str());
+            }
+
+            if (ImGui::BeginPopup(popupName.c_str())) {
+                if (ImGui::MenuItem("Delete Group")) {
+                    pendingDeleteGroupIdx = gIdx; // 延迟删除，防止迭代器失效
+                }
+                ImGui::EndPopup();
+            }
+
+            // 作为拖拽目标
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
+                    int draggedIdx = *(const int*)payload->Data;
+                    if (dragIsEntity) {
+                        bool alreadyIn = false;
+                        for (int e : grp.entityIndices) if (e == draggedIdx) { alreadyIn = true; break; }
+                        if (!alreadyIn) grp.entityIndices.push_back(draggedIdx);
+                    } else {
+                        bool alreadyIn = false;
+                        for (int b : grp.brushIndices) if (b == draggedIdx) { alreadyIn = true; break; }
+                        if (!alreadyIn) grp.brushIndices.push_back(draggedIdx);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            if (isOpen) {
+                // 渲染组内的 Brushes
+                int removeBrushIdx = -1;
+                for (int k = 0; k < (int)grp.brushIndices.size(); k++) {
+                    int bi = grp.brushIndices[k];
+                    ImGui::PushID(bi + 40000);
+                    
+                    bool vis = (bi < (int)g_brushVisible.size()) ? (g_brushVisible[bi] != 0) : true;
+                    if (ImGui::Checkbox("##vis", &vis)) {
+                        if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = vis ? 1 : 0;
+                    }
+                    ImGui::SameLine();
+                    
+                    bool sel = (*pSelBrush == bi);
+                    if (ImGui::Selectable(("Brush #" + std::to_string(bi)).c_str(), sel, ImGuiSelectableFlags_AllowOverlap)) {
+                        *pSelBrush = bi;
+                        *pSelEntity = -1;
+                        g_iSelectedGroup = -1;
+                    }
+                    
+                    if (ImGui::BeginPopupContextItem(("rmB" + std::to_string(bi)).c_str())) {
+                        if (ImGui::MenuItem("Remove from Group")) removeBrushIdx = k;
+                        ImGui::EndPopup();
+                    }
+                    ImGui::PopID();
+                }
+                if (removeBrushIdx >= 0) grp.brushIndices.erase(grp.brushIndices.begin() + removeBrushIdx);
+
+                // 渲染组内的 Entities
+                int removeEntityIdx = -1;
+                for (int k = 0; k < (int)grp.entityIndices.size(); k++) {
+                    int ei = grp.entityIndices[k];
+                    ImGui::PushID(ei + 50000);
+                    
+                    bool vis = (ei < (int)g_entityVisible.size()) ? (g_entityVisible[ei] != 0) : true;
+                    if (ImGui::Checkbox("##vis", &vis)) {
+                        if (ei < (int)g_entityVisible.size()) g_entityVisible[ei] = vis ? 1 : 0;
+                    }
+                    ImGui::SameLine();
+                    
+                    bool sel = (*pSelEntity == ei);
+                    std::string label = g_entities[ei].m_szName + " #" + std::to_string(ei);
+                    if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap)) {
+                        *pSelEntity = ei;
+                        *pSelBrush = -1;
+                        g_iSelectedGroup = -1;
+                    }
+                    
+                    if (ImGui::BeginPopupContextItem(("rmE" + std::to_string(ei)).c_str())) {
+                        if (ImGui::MenuItem("Remove from Group")) removeEntityIdx = k;
+                        ImGui::EndPopup();
+                    }
+                    ImGui::PopID();
+                }
+                if (removeEntityIdx >= 0) grp.entityIndices.erase(grp.entityIndices.begin() + removeEntityIdx);
+
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        };
+
+        // 执行组渲染
+        for (int g = 0; g < (int)g_brushGroups.size(); g++) {
+            RenderGroupNode(g);
+        }
+
+        // 👈 安全清理被删除的组（防崩溃核心）
+        if (pendingDeleteGroupIdx >= 0) {
+            auto& grp = g_brushGroups[pendingDeleteGroupIdx];
+            for (int bi : grp.brushIndices) if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = 1;
+            for (int ei : grp.entityIndices) if (ei < (int)g_entityVisible.size()) g_entityVisible[ei] = 1;
+            g_brushGroups.erase(g_brushGroups.begin() + pendingDeleteGroupIdx);
+            pendingDeleteGroupIdx = -1;
+            g_iSelectedGroup = -1;
+        }
+
+        // 2. 渲染散落的 Entities
         for (int i = 0; i < (int)g_entities.size(); i++) {
+            bool inAnyGroup = false;
+            for (const auto& grp : g_brushGroups) {
+                for (int ei : grp.entityIndices) if (ei == i) { inAnyGroup = true; break; }
+                if (inAnyGroup) break;
+            }
+            if (inAnyGroup) continue;
+
             auto& e = g_entities[i];
             std::string label = e.m_szName + " #" + std::to_string(i);
-            
             if (!filterLower.empty()) {
-                std::string labelLower = label;
-                std::transform(labelLower.begin(), labelLower.end(), labelLower.begin(), ::tolower);
-                if (labelLower.find(filterLower) == std::string::npos) continue;
+                std::string l = label; std::transform(l.begin(), l.end(), l.begin(), ::tolower);
+                if (l.find(filterLower) == std::string::npos) continue;
             }
 
             ImGui::PushID(i);
-            
-            // Checkbox
             bool vis = (i < (int)g_entityVisible.size()) ? (g_entityVisible[i] != 0) : true;
             if (ImGui::Checkbox("##vis", &vis)) {
                 if (i < (int)g_entityVisible.size()) g_entityVisible[i] = vis ? 1 : 0;
             }
             ImGui::SameLine();
 
-            // Selectable (计算好宽度，给 Tel 和 Del 留出空间)
-            float btnTeleW = ImGui::CalcTextSize("Tel").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-            float btnDelW = ImGui::CalcTextSize("Del").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            float btnW = ImGui::CalcTextSize("Tel Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
             float availW = ImGui::GetContentRegionAvail().x;
-            float spacing = ImGui::GetStyle().ItemSpacing.x;
-            
             bool sel = (*pSelEntity == i);
-            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnTeleW - btnDelW - spacing * 2.0f - 5.0f, 0))) {
+            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                 *pSelEntity = i;
                 *pSelBrush = -1;
+                g_iSelectedGroup = -1;
+            }
+            
+            // 拖拽 Entity
+            if (ImGui::BeginDragDropSource()) {
+                dragItemIdx = i;
+                dragIsEntity = true;
+                ImGui::SetDragDropPayload("DRAG_ITEM", &dragItemIdx, sizeof(int));
+                ImGui::Text("Entity #%d", i);
+                ImGui::EndDragDropSource();
+            }
+            
+            // 拖拽建组
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
+                    int draggedIdx = *(const int*)payload->Data;
+                    if (draggedIdx != i) {
+                        BrushGroup newGrp;
+                        newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                        if (dragIsEntity) {
+                            newGrp.entityIndices.push_back(draggedIdx);
+                            newGrp.entityIndices.push_back(i);
+                        } else {
+                            newGrp.brushIndices.push_back(draggedIdx);
+                            newGrp.entityIndices.push_back(i);
+                        }
+                        g_brushGroups.push_back(newGrp);
+                    }
+                }
+                ImGui::EndDragDropTarget();
             }
 
-            // 👈 Teleport 按钮
             ImGui::SameLine();
             if (ImGui::SmallButton("Tel")) {
                 if (GetEditorCamTarget()) *GetEditorCamTarget() = e.m_vecPos;
                 if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
             }
-
-            // 👈 按钮区 (只在选中或悬浮时显示，或者直接常驻)
             ImGui::SameLine();
-            if (ImGui::SmallButton("Del")) {
-                out.bRequestDeleteEntity = true;
-                out.iTargetEntityIndex = i;
-            }
-            
+            if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.iTargetEntityIndex = i; }
             ImGui::PopID();
         }
-        ImGui::TreePop();
-    }
 
-    if (ImGui::TreeNode("Brushes", "Brushes (%d)", (int)g_brushes.size())) {
+        // 3. 渲染散落的 Brushes
         for (int i = 0; i < (int)g_brushes.size(); i++) {
+            bool inAnyGroup = false;
+            for (const auto& grp : g_brushGroups) {
+                for (int bi : grp.brushIndices) if (bi == i) { inAnyGroup = true; break; }
+                if (inAnyGroup) break;
+            }
+            if (inAnyGroup) continue;
+
             auto& b = g_brushes[i];
             std::string label = "brush #" + std::to_string(i);
-            
             if (!filterLower.empty()) {
-                std::string labelLower = label;
-                std::transform(labelLower.begin(), labelLower.end(), labelLower.begin(), ::tolower);
-                if (labelLower.find(filterLower) == std::string::npos) continue;
+                std::string l = label; std::transform(l.begin(), l.end(), l.begin(), ::tolower);
+                if (l.find(filterLower) == std::string::npos) continue;
             }
 
             ImGui::PushID(i + 10000);
-            
-            // Checkbox
             bool vis = (i < (int)g_brushVisible.size()) ? (g_brushVisible[i] != 0) : true;
             if (ImGui::Checkbox("##vis", &vis)) {
                 if (i < (int)g_brushVisible.size()) g_brushVisible[i] = vis ? 1 : 0;
             }
             ImGui::SameLine();
 
-            // Selectable
             float btnW = ImGui::CalcTextSize("Dup Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
             float availW = ImGui::GetContentRegionAvail().x;
             bool sel = (*pSelBrush == i);
-            
-            // 👈 使用 AllowOverlap 并且处理右键
             if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                 *pSelBrush = i;
                 *pSelEntity = -1;
-            }
-            
-            // 👈 如果鼠标在这个 Selectable 上点击了右键，手动打开 Popup
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                ImGui::OpenPopup("BrushContextMenu");
+                g_iSelectedGroup = -1;
             }
 
-            // 👈 定义 Popup 的内容
-            if (ImGui::BeginPopup("BrushContextMenu")) {
-                if (ImGui::MenuItem("Create Group from Selection")) {
-                    BrushGroup grp;
-                    grp.name = "Group_" + std::to_string(g_brushGroups.size());
-                    grp.brushIndices.push_back(i);
-                    g_brushGroups.push_back(grp);
+            if (ImGui::BeginDragDropSource()) {
+                dragItemIdx = i;
+                dragIsEntity = false;
+                ImGui::SetDragDropPayload("DRAG_ITEM", &dragItemIdx, sizeof(int));
+                ImGui::Text("Brush #%d", i);
+                ImGui::EndDragDropSource();
+            }
+
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
+                    int draggedIdx = *(const int*)payload->Data;
+                    if (draggedIdx != i) {
+                        BrushGroup newGrp;
+                        newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                        if (dragIsEntity) {
+                            newGrp.entityIndices.push_back(draggedIdx);
+                            newGrp.brushIndices.push_back(i);
+                        } else {
+                            newGrp.brushIndices.push_back(draggedIdx);
+                            newGrp.brushIndices.push_back(i);
+                        }
+                        g_brushGroups.push_back(newGrp);
+                    }
                 }
-                // 如果你想把 Teleport 也加给 Brush，可以在这里加
-                ImGui::EndPopup();
+                ImGui::EndDragDropTarget();
             }
 
-            // 按钮区
             ImGui::SameLine();
-            if (ImGui::SmallButton("Dup")) {
-                out.bRequestDuplicate = true;
-                out.iTargetIndex = i;
-            }
+            if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.iTargetIndex = i; }
             ImGui::SameLine();
-            if (ImGui::SmallButton("Del")) {
-                out.bRequestDelete = true;
-                out.iTargetIndex = i;
-            }
-
+            if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.iTargetIndex = i; }
             ImGui::PopID();
         }
+        
         ImGui::TreePop();
     }
     
-    // 组列表
-    if (!g_brushGroups.empty()) {
-        ImGui::Separator();
-        ImGui::Text("Groups:");
-        for (size_t g = 0; g < g_brushGroups.size(); g++) {
-            auto& grp = g_brushGroups[g];
-            ImGui::PushID((int)(g + 20000));
-            bool groupVis = (grp.visible != 0);
-            if (ImGui::Checkbox("##vis", &groupVis)) {
-                grp.visible = groupVis ? 1 : 0;
-                for (int bi : grp.brushIndices) {
-                    if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = grp.visible;
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::TreeNode(grp.name.c_str())) {
-                for (int bi : grp.brushIndices) ImGui::BulletText("brush #%d", bi);
-                ImGui::TreePop();
-            }
-            ImGui::PopID();
-        }
-    }
     ImGui::EndChild();
-
     ImGui::Separator();
 
-    // 4. 👈 重新加回属性面板
+    // ================= 下半部分：属性面板 =================
     ImGui::BeginChild("##PropertiesChild", ImVec2(0, 0), true);
-    if (*pSelEntity >= 0 && *pSelEntity < (int)g_entities.size()) {
+    
+    // 👈 优先显示选中组的属性面板
+    if (g_iSelectedGroup >= 0 && g_iSelectedGroup < (int)g_brushGroups.size()) {
+        auto& grp = g_brushGroups[g_iSelectedGroup];
+        ImGui::TextColored(ImVec4(0, 1, 1, 1), "Selected Group");
+        
+        char nameBuf[128];
+        strncpy(nameBuf, grp.name.c_str(), sizeof(nameBuf));
+        if (ImGui::InputText("Group Name", nameBuf, sizeof(nameBuf))) {
+            grp.name = nameBuf;
+        }
+        
+        ImGui::Text("Contains: %zu Brushes, %zu Entities", grp.brushIndices.size(), grp.entityIndices.size());
+        ImGui::Separator();
+        ImGui::TextDisabled("(Click a child inside the tree to edit its properties)");
+    } 
+    else if (*pSelEntity >= 0 && *pSelEntity < (int)g_entities.size()) {
         CEntity& e = g_entities[*pSelEntity];
         ImGui::TextColored(ImVec4(1,1,0,1), "Selected: %s", e.m_szName.c_str());
-
-        if (ImGui::DragFloat3("Position", glm::value_ptr(e.m_vecPos), 1.0f, -4096.f, 4096.f, "%.1f")) {}
+        
+        // 位置和旋转（带 BBox 更新）
+        glm::vec3 prevPos = e.m_vecPos;
+        if (ImGui::DragFloat3("Position", glm::value_ptr(e.m_vecPos), 1.0f)) {
+            e.m_vecBBoxMins += (e.m_vecPos - prevPos);
+            e.m_vecBBoxMaxs += (e.m_vecPos - prevPos);
+        }
         if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Entity Pos");
-
-        if (ImGui::DragFloat3("Angles", glm::value_ptr(e.m_angRot), 0.5f, -180.f, 180.f, "%.1f")) {}
+        
+        if (ImGui::DragFloat3("Angles", glm::value_ptr(e.m_angRot), 0.5f)) {
+            UpdateEntityBBox(e);
+        }
         if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Entity Rot");
 
         ImGui::Separator();
@@ -541,8 +700,10 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                     s_newKey[0] = '\0'; s_newValue[0] = '\0';
                 }
             }
-        }
-    } else if (*pSelBrush >= 0 && *pSelBrush < (int)g_brushes.size()) {
+        }        
+
+    } 
+    else if (*pSelBrush >= 0 && *pSelBrush < (int)g_brushes.size()) {
         CBrush& b = g_brushes[*pSelBrush];
         ImGui::TextColored(ImVec4(1,1,0,1), "Selected: brush #%d", *pSelBrush);
         
@@ -550,16 +711,17 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Center");
             b.RebuildPrimitiveMesh();
         }
+        // 👈 加上了 0.1f 的最小值限制，防止变成 0 导致崩溃
         if (ImGui::DragFloat3("HalfSize", glm::value_ptr(b.m_vecSize), 0.5f, 0.1f, 4096.f)) {
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Size");
             b.RebuildPrimitiveMesh();
         }
-        // 这里如果你之前有材质编辑，也可以加回来
-    } else {
+    } 
+    else {
         ImGui::TextDisabled("Nothing selected.");
     }
+    
     ImGui::EndChild();
-
     ImGui::End();
 }
 

@@ -43,3 +43,5 @@ std::vector<uint8_t> g_brushVisible; // 单个 brush 的可见性
 std::vector<uint8_t> g_entityVisible; // 单个 entity 的可见性
 
 std::vector<std::string> g_allMaterials;
+
+int g_iSelectedGroup = -1;
