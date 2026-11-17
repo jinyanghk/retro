@@ -68,3 +68,5 @@ extern bool g_bShowEntities;
 extern std::vector<BrushGroup> g_brushGroups;
 extern std::vector<uint8_t> g_brushVisible;
 extern std::vector<uint8_t> g_entityVisible;
+
+extern std::vector<std::string> g_allMaterials;

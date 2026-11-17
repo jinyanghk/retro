@@ -41,3 +41,5 @@ bool g_bShowEntities = true;
 std::vector<BrushGroup> g_brushGroups;
 std::vector<uint8_t> g_brushVisible; // 单个 brush 的可见性
 std::vector<uint8_t> g_entityVisible; // 单个 entity 的可见性
+
+std::vector<std::string> g_allMaterials;

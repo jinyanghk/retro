@@ -51,9 +51,6 @@
 
 namespace fs = std::filesystem;
 
-// 👈 全局材质名列表（带路径，比如 "nature/red_grass"）
-std::vector<std::string> g_allMaterials;
-
 // 👈 材质名 → 完整文件路径（用于 TextureCache 加载）
 std::unordered_map<std::string, std::string> g_materialPathMap;
 
@@ -1597,8 +1594,6 @@ int main(int argc, char** argv)
                 SDL_Keycode k = ev.key.keysym.sym;
                 if (k == SDLK_ESCAPE) {
                     if (g_bFlyMode) {
-                        // 退出飞行模式，不关程序
-                        extern void SetFlyMode(bool enable);
                         SetFlyMode(false);
                     } else {
                         running = false; 

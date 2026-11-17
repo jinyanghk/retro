@@ -35,12 +35,12 @@ void SetLoadBvhHandler(void (*pfn)()) { s_pfnLoadBvh = pfn; }
 // ---------------------------------------------------------------------------
 #include <GL/glew.h>
 // 👈 声明 main.cpp 里的全局变量
-extern std::vector<std::string> g_allMaterials;
 extern GLuint GetMaterialThumb(const std::string& matName);
 extern void SetFlyMode(bool enable);
 extern void CheckNavCollisions();
 extern glm::vec3* GetEditorCamTarget();
 extern float* GetEditorCamDist();
+extern void InitVisibilityArrays();
 
 // 👈 全局状态
 static bool   g_bShowMaterialBrowser = false;
@@ -48,11 +48,8 @@ static std::string* g_pTargetMaterial = nullptr; // 当前正在编辑的材质�
 static char   g_matBrowserFilter[128] = "";
 static std::string g_selectedMaterialTemp;  // 用于中转
 static std::string g_selectedFaceMaterialTemp; // 给 Face 级别用 👈 新增
-
-// 全局搜索缓存
 static char s_sceneFilter[128] = "";
 
-extern void InitVisibilityArrays();
 
 // 👈 在主循环（ImGui::NewFrame 之后）调用
 void DrawMaterialBrowserWindow() {
@@ -183,7 +180,7 @@ void DrawMenuBar()
                 EditorLayout::ResetDefaultLayout();
 
             ImGui::Separator();
-            // 👈 新增：控制 Nav 显示的全局变量，需要通过 extern 声明
+
             ImGui::MenuItem("Show Nav Nodes", nullptr, &g_bShowNav);
 
             if (ImGui::MenuItem("Check Nav Collisions")) {
@@ -280,7 +277,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
     // 计算树的高度，给下方的属性面板留出空间
     float treeHeight = ImGui::GetContentRegionAvail().y * 0.5f;
     
-    // 3. 树形列表（放在一个独立的 Child 里，防止和属性面板滚动冲突）
+    // 3. 树形列表
     ImGui::BeginChild("##SceneTreeChild", ImVec2(0, treeHeight), true);
     
     if (ImGui::TreeNode("Entities", "Entities (%d)", (int)g_entities.size())) {
@@ -296,29 +293,39 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
 
             ImGui::PushID(i);
             
+            // Checkbox
             bool vis = (i < (int)g_entityVisible.size()) ? (g_entityVisible[i] != 0) : true;
             if (ImGui::Checkbox("##vis", &vis)) {
                 if (i < (int)g_entityVisible.size()) g_entityVisible[i] = vis ? 1 : 0;
             }
             ImGui::SameLine();
 
+            // Selectable (计算好宽度，给 Tel 和 Del 留出空间)
+            float btnTeleW = ImGui::CalcTextSize("Tel").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            float btnDelW = ImGui::CalcTextSize("Del").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            float availW = ImGui::GetContentRegionAvail().x;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            
             bool sel = (*pSelEntity == i);
-            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap)) {
+            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnTeleW - btnDelW - spacing * 2.0f - 5.0f, 0))) {
                 *pSelEntity = i;
                 *pSelBrush = -1;
             }
-            
-            if (ImGui::BeginPopupContextItem()) {
-                if (ImGui::MenuItem("Go To")) {
-                    if (GetEditorCamTarget()) *GetEditorCamTarget() = e.m_vecPos;
-                    if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
-                }
-                if (ImGui::MenuItem("Delete")) {
-                    out.bRequestDeleteEntity = true;
-                    out.iTargetEntityIndex = i;
-                }
-                ImGui::EndPopup();
+
+            // 👈 Teleport 按钮
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Tel")) {
+                if (GetEditorCamTarget()) *GetEditorCamTarget() = e.m_vecPos;
+                if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
             }
+
+            // 👈 按钮区 (只在选中或悬浮时显示，或者直接常驻)
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Del")) {
+                out.bRequestDeleteEntity = true;
+                out.iTargetEntityIndex = i;
+            }
+            
             ImGui::PopID();
         }
         ImGui::TreePop();
@@ -337,27 +344,53 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
 
             ImGui::PushID(i + 10000);
             
+            // Checkbox
             bool vis = (i < (int)g_brushVisible.size()) ? (g_brushVisible[i] != 0) : true;
             if (ImGui::Checkbox("##vis", &vis)) {
                 if (i < (int)g_brushVisible.size()) g_brushVisible[i] = vis ? 1 : 0;
             }
             ImGui::SameLine();
 
+            // Selectable
+            float btnW = ImGui::CalcTextSize("Dup Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
+            float availW = ImGui::GetContentRegionAvail().x;
             bool sel = (*pSelBrush == i);
-            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap)) {
+            
+            // 👈 使用 AllowOverlap 并且处理右键
+            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                 *pSelBrush = i;
                 *pSelEntity = -1;
             }
+            
+            // 👈 如果鼠标在这个 Selectable 上点击了右键，手动打开 Popup
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                ImGui::OpenPopup("BrushContextMenu");
+            }
 
-            if (ImGui::BeginPopupContextItem()) {
+            // 👈 定义 Popup 的内容
+            if (ImGui::BeginPopup("BrushContextMenu")) {
                 if (ImGui::MenuItem("Create Group from Selection")) {
                     BrushGroup grp;
                     grp.name = "Group_" + std::to_string(g_brushGroups.size());
                     grp.brushIndices.push_back(i);
                     g_brushGroups.push_back(grp);
                 }
+                // 如果你想把 Teleport 也加给 Brush，可以在这里加
                 ImGui::EndPopup();
             }
+
+            // 按钮区
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Dup")) {
+                out.bRequestDuplicate = true;
+                out.iTargetIndex = i;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Del")) {
+                out.bRequestDelete = true;
+                out.iTargetIndex = i;
+            }
+
             ImGui::PopID();
         }
         ImGui::TreePop();
