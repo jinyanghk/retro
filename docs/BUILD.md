@@ -1,5 +1,7 @@
 # Build
 
+> must check and setup PATH before each build
+
 ## msys2 ucrt64
 
 > need to set msys2/ucrt64/bin to path
@@ -9,6 +11,7 @@
 ```sh
 pacman -S   mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-cmake \
+            mingw-w64-ucrt-x86_64-git \
             mingw-w64-ucrt-x86_64-SDL2 \
             mingw-w64-ucrt-x86_64-SDL2_mixer \
             mingw-w64-ucrt-x86_64-glm \
@@ -30,14 +33,18 @@ ninja
 
 ## Ubuntu
 
+> must remove msys2 from PATH
+
 ### deps
 ```sh
 sudo apt install nlohmann-json3-dev \
                  libglew-dev \
+                 libglm-dev \
                  libsdl2-dev \
                  libsdl2-mixer-dev \
                  libassimp-dev \
-                 python3-scipy
+                 python3-scipy \
+                 cmake
 ```
 
 ### Jolt Physics
@@ -51,7 +58,7 @@ cd Build
 cmake -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
       -DINTERPROCEDURAL_OPTIMIZATION=OFF \
-      ..
+      .
 make
 sudo make install
 ```
@@ -86,7 +93,7 @@ download source
 ### [portable msvc](/misc/portable-msvc.py)
 
 ```bat
-set MSVC_ROOT=C:\Users\%USERNAME%\AppData\Local\Programs\portable-msvc\msvc
+set MSVC_ROOT=D:\jin\portable-msvc\msvc
 set SDK_VER=10.0.28000.0
 set MSVC_VER=14.51.36231
 
@@ -100,7 +107,7 @@ set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\include;%MSVC_ROOT%\Windows Kit
 
 ```
 
-### portable python
+### portable python (optional, when only python is now allow to install)
 
 ```bat
 set PATH=C:\Users\%USERNAME%\AppData\Local\Programs\python-3.14.10-embed-amd64;%PATH%
