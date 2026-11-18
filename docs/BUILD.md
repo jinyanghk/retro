@@ -92,6 +92,57 @@ download source
 
 ### [portable msvc](/misc/portable-msvc.py)
 
+Step-by-Step Setup
+
+Step 1: Download the Script
+
+1. Navigate to the official [mmozeiko / portable-msvc](https://gist.github.com/mmozeiko/7f3162ec2988e81e56d5c4e22cde9977) GitHub Gist.
+2. Download the portable-msvc.py file.
+3. Move this script into a clean directory where you want your compiler to live (e.g., C:\Users\YourUsername\Developer\msvc_build).
+
+Step 2: Download the MSVC & Windows SDK Files
+
+1. Open a standard, unprivileged Command Prompt (cmd.exe) or PowerShell window.
+
+2. Navigate to your folder
+
+```cmd
+cd C:\Users\YourUsername\Developer\msvc_build
+```
+3. Run the script to fetch the toolchain. By default, it will automatically pull the bare minimum components required for native desktop application development from the latest stable Visual Studio release:cmd
+python portable-msvc.py
+
+(Note: If you run into a certificate error, you may need to run pip install certifi first as noted by the script creator).
+
+4. Wait for the download to finish. It will create a folder named msvc inside your working directory.
+
+Step 3: Initialize the Compiler Environment
+
+The download process generates a few initialization batch files (setup_x86.bat, setup_x64.bat, etc.) inside the newly created folder. Whenever you want to compile code, you must initialize the environment variables (PATH, INCLUDE, LIB) for that specific terminal window: 
+1. In your command prompt, target the architecture you want to build for
+
+```cmd
+cd msvc
+setup_x64.bat
+```
+2. Your current command prompt session is now ready to use the compiler. 
+
+Step 4: Verify the Installation
+
+Test that the environment variables are active by querying the compiler version:
+
+```cmd
+cl.exe
+```
+You should see the standard Microsoft C/C++ Optimizing Compiler banner print to the console instead of a "'cl.exe' is not recognized" error.
+
+Everyday Use Tips
+
+• Session Lifespan: Running `setup_TARGET.bat` only updates the environment variables for your active shell session. If you close the window, you will need to re-run the batch file the next time you open a terminal. 
+• VS Code Integration: If you use Visual Studio Code, you can open it directly from that initialized terminal window by typing `code .`. VS Code will inherit the environment variables, allowing the C/C++ extensions to locate cl.exe and system headers flawlessly.
+• Python Packaging: If you are trying to use this setup to build local Python extension modules or C-dependencies via pip, remember to pass the flags `SET DISTUTILS_USE_SDK=1` and `SET MSSDK=1` to force Python to utilize your active environment shell tools.
+
+### setup env vars for portable msvc
 ```bat
 set MSVC_ROOT=D:\jin\portable-msvc\msvc
 set SDK_VER=10.0.28000.0
