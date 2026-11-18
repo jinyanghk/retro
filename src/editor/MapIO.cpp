@@ -22,28 +22,43 @@ static json Vec3ToJson(const glm::vec3& v)
 bool ExportMapJson(const std::string& path)
 {
     json root;
-    //root["format"] = "retro_map_v1";
+    
+    // ================= 1. 预处理：构建 旧索引 -> 新索引 的映射 =================
+    std::map<int, int> brushIdxMap;
+    std::map<int, int> entityIdxMap;
+    int newBrushCount = 0;
+    int newEntityCount = 0;
 
+    for (size_t i = 0; i < g_brushes.size(); ++i) {
+        if (i < g_brushVisible.size() && g_brushVisible[i] != 0) {
+            brushIdxMap[i] = newBrushCount++;
+        }
+    }
+    for (size_t i = 0; i < g_entities.size(); ++i) {
+        if (i < g_entityVisible.size() && g_entityVisible[i] != 0) {
+            entityIdxMap[i] = newEntityCount++;
+        }
+    }
+
+    // ================= 2. 导出 Brushes =================
     json brushes = json::array();
-    for (const auto& b : g_brushes) {
+    for (size_t i = 0; i < g_brushes.size(); i++) {
+        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue; // 跳过隐藏
+        
+        const auto& b = g_brushes[i];
         json jb;
         jb["material"] = b.m_szMaterial;
         jb["position"] = Vec3ToJson(b.m_vecPos);
         jb["halfSize"] = Vec3ToJson(b.m_vecSize);
         jb["angles"]   = Vec3ToJson(b.m_angRot);
 
-        // 注意：不要写 jb["vertices"]，bvh.exe 不读它
-
         json faces = json::array();
         for (int f = 0; f < (int)b.m_faces.size(); f++) {
             const auto& face = b.m_faces[f];
             json jf;
-            
-            // 1. 正常导出 normal 和 material
             jf["normal"]   = Vec3ToJson(face.m_vecNormal);
             jf["material"] = face.m_szMaterial;
             
-            // 2. 根据 indices 提取出实际的 3D 顶点坐标（bvh.exe 需要这个）
             json face_verts = json::array();
             for (int k = 0; k < 4; k++) {
                 int idx = face.m_nVertexIndices[k];
@@ -52,10 +67,8 @@ bool ExportMapJson(const std::string& path)
                 }
             }
             jf["vertices"] = face_verts;
-            
             jf["uaxis"] = face.m_szUAxis;
             jf["vaxis"] = face.m_szVAxis;
-            
             faces.push_back(jf);
         }
         jb["faces"] = faces;
@@ -63,26 +76,26 @@ bool ExportMapJson(const std::string& path)
     }
     root["brushes"] = brushes;
 
-    // 实体部分保持不变
+    // ================= 3. 导出 Entities =================
     json entities = json::array();
-    for (const auto& e : g_entities) {
+    for (size_t i = 0; i < g_entities.size(); i++) {
+        if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue; // 跳过隐藏
+        
+        const auto& e = g_entities[i];
         json je;
         je["classname"] = e.m_szName;
         je["origin"]    = Vec3ToJson(e.m_vecPos);
         je["angles"]    = Vec3ToJson(e.m_angRot);
         je["type"]      = (int)e.m_iType;
-        // 👈 存世界坐标，但写进 JSON 时转回相对坐标
-        je["bbox_mins"]  = Vec3ToJson(e.m_vecBBoxMins - e.m_vecPos);
-        je["bbox_maxs"]  = Vec3ToJson(e.m_vecBBoxMaxs - e.m_vecPos);
+        je["bbox_mins"] = Vec3ToJson(e.m_vecBBoxMins - e.m_vecPos);
+        je["bbox_maxs"] = Vec3ToJson(e.m_vecBBoxMaxs - e.m_vecPos);
 
         json props = json::object();
         for (const auto& kv : e.m_properties) props[kv.first] = kv.second;
         je["properties"] = props;
 
         json customs = json::object();
-        for (const auto& kv : e.m_customProperties) {
-            customs[kv.first] = kv.second;
-        }
+        for (const auto& kv : e.m_customProperties) customs[kv.first] = kv.second;
         je["customs"] = customs;
 
         json connections = json::array();
@@ -96,12 +109,11 @@ bool ExportMapJson(const std::string& path)
             connections.push_back(jo);
         }
         je["connections"] = connections;
-
         entities.push_back(je);
     }
     root["entities"] = entities;
 
-    // ================= 导出 Groups =================
+    // ================= 4. 导出 Groups (核心修复) =================
     json groups = json::array();
     for (const auto& grp : g_brushGroups) {
         json jg;
@@ -109,17 +121,31 @@ bool ExportMapJson(const std::string& path)
         jg["visible"] = grp.visible;
 
         json brushes_arr = json::array();
-        for (int bi : grp.brushIndices) brushes_arr.push_back(bi);
+        for (int oldBi : grp.brushIndices) {
+            // 👈 如果这个 Brush 没被删，用映射表把旧索引换成新索引
+            if (brushIdxMap.find(oldBi) != brushIdxMap.end()) {
+                brushes_arr.push_back(brushIdxMap[oldBi]);
+            }
+        }
         jg["brushes"] = brushes_arr;
 
         json entities_arr = json::array();
-        for (int ei : grp.entityIndices) entities_arr.push_back(ei);
+        for (int oldEi : grp.entityIndices) {
+            // 👈 如果这个 Entity 没被删，用映射表把旧索引换成新索引
+            if (entityIdxMap.find(oldEi) != entityIdxMap.end()) {
+                entities_arr.push_back(entityIdxMap[oldEi]);
+            }
+        }
         jg["entities"] = entities_arr;
 
-        groups.push_back(jg);
+        // 如果组里没东西了，就不存这个组
+        if (!brushes_arr.empty() || !entities_arr.empty()) {
+            groups.push_back(jg);
+        }
     }
     root["groups"] = groups;
 
+    // ================= 5. 写文件 =================
     std::ofstream f(path);
     if (!f.is_open()) {
         char b[256]; snprintf(b, sizeof(b), "[MAP] FAILED to open %s", path.c_str()); LogAdd(b);
@@ -128,9 +154,14 @@ bool ExportMapJson(const std::string& path)
     f << root;
     f.close();
 
-    char b[256]; snprintf(b, sizeof(b), "[MAP] exported %s (%zu brushes, %zu entities)",
-        path.c_str(), g_brushes.size(), g_entities.size());
+    char b[256]; snprintf(b, sizeof(b), "[MAP] exported %s (%zu brushes, %zu entities, %zu groups)",
+        path.c_str(), brushes.size(), entities.size(), groups.size());
     LogAdd(b);
+    
+    // 👈 重要：导出成功后，为了保证编辑器内存里和文件完全一致，建议立刻重新加载一下
+    // 否则你还要在编辑器里连续删东西，内存里的旧索引还是会和文件有偏差
+    ImportMapJson(path); 
+    
     return true;
 }
 
@@ -302,6 +333,10 @@ bool ImportMapJson(const std::string& path)
         }
         printf("[MAP] Imported %zu groups\n", g_brushGroups.size());
     }
-        
+
+    // 确保可见性数组和物体数量一致
+    g_brushVisible.assign(g_brushes.size(), 1);
+    g_entityVisible.assign(g_entities.size(), 1);
+
     return true;
 }

@@ -27,6 +27,8 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
 ```sh
 mkdir build
 cd build
+# might need to do this to re-config
+# rm CMakeCache.txt 
 cmake .. -DCMAKE_BUILD_TYPE=Debug -G Ninja
 ninja
 ```

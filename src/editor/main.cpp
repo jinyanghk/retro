@@ -678,6 +678,9 @@ static int PickBrushRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir)
 {
     int best = -1; float bestT = 1e30f;
     for (size_t i = 0; i < g_brushes.size(); i++) {
+        // 👈 如果不可见，跳过
+        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue;
+
         const auto& b = g_brushes[i];
         if (b.m_vertices.size() < 8 || b.m_faces.size() < 6) continue;
         float tmin, tmax;
@@ -705,6 +708,9 @@ static int PickEntityRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir)
 {
     int best = -1; float bestT = 1e30f;
     for (size_t i = 0; i < g_entities.size(); i++) {
+        // 👈 如果不可见，跳过
+        if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue;
+
         float tmin, tmax;
         if (RayAABB(rayOrigin, rayDir, g_entities[i].m_vecBBoxMins, g_entities[i].m_vecBBoxMaxs, tmin, tmax)) {
             if (tmin >= 0.0f && tmin < bestT) { bestT = tmin; best = (int)i; }
@@ -1036,6 +1042,8 @@ static void BuildDefaultScene()
         UpdateEntityBBox(spawn);
         g_entities.push_back(spawn);
     }
+    // 初始化可见性数组
+    InitVisibilityArrays();
 }
 
 // ---------------------------------------------------------------------------
@@ -1704,17 +1712,33 @@ int main(int argc, char** argv)
             g_brushes.push_back(b);
             g_iSelectedBrush = (int)g_brushes.size() - 1;
         }
+
+        // 处理 Brush 删除（改为隐藏）
         if (panelRes.bRequestDelete && panelRes.iTargetIndex >= 0 && panelRes.iTargetIndex < (int)g_brushes.size()) {
-            UndoStack::Instance().PushSnapshot("Delete Brush");
-            g_brushes.erase(g_brushes.begin() + panelRes.iTargetIndex);
+            UndoStack::Instance().PushSnapshot("Delete (Hide) Brush");
+            // 1. 设置不可见
+            if (panelRes.iTargetIndex < (int)g_brushVisible.size()) {
+                g_brushVisible[panelRes.iTargetIndex] = 0;
+            }
+            // 2. 移出地球，防止它的碰撞体还挡路
+            g_brushes[panelRes.iTargetIndex].m_vecPos = glm::vec3(0, -99999, 0);
             g_iSelectedBrush = -1;
-            printf("Delete brush %d\n", panelRes.iTargetIndex);
+            printf("[Editor] Deleted (Hidden) brush %d\n", panelRes.iTargetIndex);
         }
+        
+        // 处理 Entity 删除（改为隐藏）
         if (panelRes.bRequestDeleteEntity && panelRes.iTargetEntityIndex >= 0 && panelRes.iTargetEntityIndex < (int)g_entities.size()) {
-            UndoStack::Instance().PushSnapshot("Delete Entity");
-            g_entities.erase(g_entities.begin() + panelRes.iTargetEntityIndex);
+            UndoStack::Instance().PushSnapshot("Delete (Hide) Entity");
+            // 1. 设置不可见
+            if (panelRes.iTargetEntityIndex < (int)g_entityVisible.size()) {
+                g_entityVisible[panelRes.iTargetEntityIndex] = 0;
+            }
+            // 2. 移出地球
+            g_entities[panelRes.iTargetEntityIndex].m_vecPos = glm::vec3(0, -99999, 0);
             g_iSelectedEntity = -1;
+            printf("[Editor] Deleted (Hidden) entity %d\n", panelRes.iTargetEntityIndex);
         }
+
         if (panelRes.bRequestNewEntity && !panelRes.szNewEntityClass.empty()) {
             UndoStack::Instance().PushSnapshot("New Entity");
             CEntity e;

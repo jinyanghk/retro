@@ -352,12 +352,22 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                     }
                     ImGui::SameLine();
                     
+                    // 👈 加上按钮宽度计算
+                    float btnW = ImGui::CalcTextSize("Dup Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
+                    float availW = ImGui::GetContentRegionAvail().x;
+                    
                     bool sel = (*pSelBrush == bi);
-                    if (ImGui::Selectable(("Brush #" + std::to_string(bi)).c_str(), sel, ImGuiSelectableFlags_AllowOverlap)) {
+                    if (ImGui::Selectable(("Brush #" + std::to_string(bi)).c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                         *pSelBrush = bi;
                         *pSelEntity = -1;
                         g_iSelectedGroup = -1;
                     }
+                    
+                    // 👈 加上按钮
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.iTargetIndex = bi; }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.iTargetIndex = bi; }
                     
                     if (ImGui::BeginPopupContextItem(("rmB" + std::to_string(bi)).c_str())) {
                         if (ImGui::MenuItem("Remove from Group")) removeBrushIdx = k;
@@ -379,13 +389,26 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                     }
                     ImGui::SameLine();
                     
+                    // 👈 加上按钮宽度计算
+                    float btnW = ImGui::CalcTextSize("Tel Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
+                    float availW = ImGui::GetContentRegionAvail().x;
+                    
                     bool sel = (*pSelEntity == ei);
                     std::string label = g_entities[ei].m_szName + " #" + std::to_string(ei);
-                    if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap)) {
+                    if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                         *pSelEntity = ei;
                         *pSelBrush = -1;
                         g_iSelectedGroup = -1;
                     }
+                    
+                    // 👈 加上按钮
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Tel")) {
+                        if (GetEditorCamTarget()) *GetEditorCamTarget() = g_entities[ei].m_vecPos;
+                        if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.iTargetEntityIndex = ei; }
                     
                     if (ImGui::BeginPopupContextItem(("rmE" + std::to_string(ei)).c_str())) {
                         if (ImGui::MenuItem("Remove from Group")) removeEntityIdx = k;

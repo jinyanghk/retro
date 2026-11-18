@@ -327,9 +327,76 @@ def to_my_json(solids, entities, out_path):
                 'connections': [],
             })
     
+
+    # ================= 👈 自动分组逻辑 =================
+    groups = []
+    
+    # 辅助函数：创建一个组
+    def add_group(name, brushes=None, entities=None):
+        if brushes is None: brushes = []
+        if entities is None: entities = []
+        if not brushes and not entities: return
+        groups.append({
+            "name": name,
+            "visible": True,
+            "brushes": brushes,
+            "entities": entities
+        })
+
+    # 记录待分组的实体索引
+    nav_entities = []
+    enemy_entities = []
+    light_entities = []
+    spawn_entities = []
+    
+    # 记录按 targetname 分组的字典 (targetname -> {"entities": [], "brushes": []})
+    target_groups = {}
+
+    # 遍历我们刚刚生成的 out['entities'] 数组
+    for idx, ent in enumerate(out['entities']):
+        cn = ent['classname']
+        tname = ent.get('properties', {}).get('targetname', '')
+        
+        # 1. 基础类型分组
+        if cn == 'info_node':
+            nav_entities.append(idx)
+        elif cn == 'npc_zombie':
+            enemy_entities.append(idx)
+        elif cn in ('light', 'light_spot'):
+            light_entities.append(idx)
+        elif cn == 'info_player_start':
+            spawn_entities.append(idx)
+            
+        # 2. 陷阱/机关逻辑分组 (Trigger, Door, Physics)
+        if cn in ('trigger_multiple', 'trigger_once', 'func_door', 'prop_physics', 'func_physbox'):
+            if tname:
+                if tname not in target_groups:
+                    target_groups[tname] = {"entities": [], "brushes": []}
+                target_groups[tname]["entities"].append(idx)
+
+    # 收集 Brush 的 targetname（如果你的 VMF 解析器后续支持了 Brush 的 targetname，这里就能用）
+    # 目前我们只能靠 Entity 来驱动 Brush。
+    # 比如 Ravenholm 的汽车，可能是个 brush 实体。
+    # 如果后续需要把 Brush 也塞进 targetname 组，需要修改 parse_vmf 解析模型。
+
+    # 3. 组装成组
+    add_group("Nav_Nodes", entities=nav_entities)
+    add_group("Enemy_Spawns", entities=enemy_entities)
+    add_group("Lighting", entities=light_entities)
+    add_group("Player_Spawn", entities=spawn_entities)
+    
+    # 4. 按 targetname 组装（只组装包含 2 个及以上对象的组，避免满屏单物体组）
+    for tname, data in target_groups.items():
+        if len(data["entities"]) > 1:
+            add_group(f"Logic_{tname}", brushes=data["brushes"], entities=data["entities"])
+        else:
+            add_group(f"Obj_{tname}", brushes=data["brushes"], entities=data["entities"])
+
+    out['groups'] = groups
+
     with open(out_path, 'w') as f:
         json.dump(out, f, indent=2)
-    print(f'Wrote {len(out["brushes"])} brushes, {len(out["entities"])} entities, {len(out["nav_nodes"])} nav_nodes')
+    print(f'Wrote {len(out["brushes"])} brushes, {len(out["entities"])} entities, {len(out["nav_nodes"])} nav_nodes, {len(out["groups"])} groups')
 
 if __name__ == '__main__':
     import sys
