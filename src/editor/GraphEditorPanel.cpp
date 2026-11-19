@@ -46,37 +46,63 @@ public:
         }
     };
 
-void Rebuild() {
+    void Rebuild() {
         mNodes.clear();
         mLinks.clear();
         mLinkMap.clear();
 
-        // 1. 收集所有节点的元数据和依赖关系
+        // 1. 扫描所有连接关系，找出参与连线的实体 ID
+        std::set<int> connectedEntityIndices; // 参与连线的实体索引
+        std::set<std::string> referencedTargets; // 被引用的 targetname
+
+        for (int i = 0; i < (int)g_entities.size(); ++i) {
+            auto& e = g_entities[i];
+            if (!e.m_connections.empty()) {
+                connectedEntityIndices.insert(i); // 它是发出者，保留
+                for (const auto& conn : e.m_connections) {
+                    if (!conn.targetName.empty()) {
+                        referencedTargets.insert(conn.targetName);
+                    }
+                }
+            }
+        }
+
+        // 把被引用的 targetname 对应的实体也标记为保留
+        for (int i = 0; i < (int)g_entities.size(); ++i) {
+            auto& e = g_entities[i];
+            auto it = e.m_properties.find("targetname");
+            if (it != e.m_properties.end() && !it->second.empty()) {
+                if (referencedTargets.count(it->second) > 0) {
+                    connectedEntityIndices.insert(i);
+                }
+            }
+        }
+
+        // 2. 根据白名单和开关决定是否过滤节点
         struct NodeData {
             int entityIndex;
             std::string name;
             std::string targetName;
             bool hasIn;
             bool hasOut;
-            int level; // 层级
+            int level;
         };
         std::vector<NodeData> rawNodes;
-
-        std::set<std::string> referencedTargets;
-        for (const auto& e : g_entities) {
-            for (const auto& conn : e.m_connections) {
-                if (!conn.targetName.empty()) referencedTargets.insert(conn.targetName);
-            }
-        }
-
-        auto IsLogicEntity = [](const std::string& classname) {
-            return classname.find("trigger") != std::string::npos || classname.find("door") != std::string::npos ||
-                   classname.find("button") != std::string::npos || classname.find("logic") != std::string::npos;
-        };
 
         for (int i = 0; i < (int)g_entities.size(); ++i) {
             auto& e = g_entities[i];
             if (e.m_szName.empty() || e.m_szName == "worldspawn") continue;
+
+            // 👈 核心白名单：只允许逻辑相关的实体进入 Graph
+            bool isLogic = (e.m_szName.find("trigger_") != std::string::npos) ||
+                        (e.m_szName.find("logic_") != std::string::npos) ||
+                        (e.m_szName == "func_door") ||
+                        (e.m_szName == "func_button") ||
+                        (e.m_szName == "prop_physics") ||
+                        (e.m_szName == "func_physbox") ||
+                        (e.m_szName == "env_explosion");
+
+            if (!isLogic) continue; // 不是逻辑实体，直接跳过
 
             std::string tname = "";
             auto it = e.m_properties.find("targetname");
@@ -84,15 +110,17 @@ void Rebuild() {
 
             bool hasOut = !e.m_connections.empty();
             bool hasIn = !tname.empty() && referencedTargets.count(tname) > 0;
-            bool isLogic = IsLogicEntity(e.m_szName);
 
-            if (m_bHideUnconnected && !hasOut && !hasIn && !isLogic) continue;
+            // 如果开启了“隐藏未连线”，且它没参与任何连线，跳过
+            if (m_bHideUnconnected && !connectedEntityIndices.count(i)) {
+                continue;
+            }
 
-            // 计算层级：没输入但有输出的在 0 层，没输出的在 2 层，其余在 1 层
+            // 计算层级
             int level = 1;
             if (!hasIn && hasOut) level = 0; 
             else if (hasIn && !hasOut) level = 2;
-            else if (!hasIn && !hasOut) level = 3; // 孤立节点放最后
+            else if (!hasIn && !hasOut) level = 3; // 孤立节点
 
             std::string nodeName = e.m_szName;
             if (!tname.empty()) nodeName += "\n[" + tname + "]";
@@ -100,28 +128,20 @@ void Rebuild() {
             rawNodes.push_back({ i, nodeName, tname, hasIn, hasOut, level });
         }
 
-        // 2. 按 level 排序（Out 在前，In 在后）
+        // 3. 按 level 排序（Input -> Logic -> Output）
         std::stable_sort(rawNodes.begin(), rawNodes.end(), [](const NodeData& a, const NodeData& b) {
             return a.level < b.level; 
         });
 
-        // 3. 生成节点并排版
+        // 4. 生成节点并排版
         int nodeId = 0;
+        static int lastLevel = -1;
+        static int yOffset = 0;
         for (const auto& nd : rawNodes) {
             MyNode n;
             n.name = nd.name;
-            
-            // 👈 按层级决定 X 坐标，同一层级在 Y 轴排列
             n.x = 100 + nd.level * 350; 
             
-            // 简单排布，避免重叠
-            int indexInLevel = 0;
-            for (int k = 0; k < nodeId; ++k) { // 检查前面有多少个同 level 的
-                // 这里为了简单，直接通过 nodeId 结合 level 算
-            }
-            // 更简单的排版：每个 level 内部按顺序往下排
-            static int lastLevel = -1;
-            static int yOffset = 0;
             if (nd.level != lastLevel) {
                 lastLevel = nd.level;
                 yOffset = 0;
@@ -135,7 +155,7 @@ void Rebuild() {
             nodeId++;
         }
 
-        // 4. 连线（跟之前一样）
+        // 5. 连线
         for (int i = 0; i < (int)mNodes.size(); ++i) {
             auto& inputEnt = g_entities[mNodes[i].entityIndex];
             for (size_t cIdx = 0; cIdx < inputEnt.m_connections.size(); ++cIdx) {
