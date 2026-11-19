@@ -21,6 +21,7 @@ struct EntityConnection {
 };
 
 struct CEntity {
+    uint64_t m_id = 0; // 👈 全局唯一 ID
     EntityType  m_iType = ENTITY_MODEL;
     std::string m_szName;              // classname，如 "info_player_start" / "light"
     glm::vec3   m_vecPos = glm::vec3(0);

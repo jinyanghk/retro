@@ -21,6 +21,7 @@ struct BrushFace_t {
 
 // 权威数据：8 顶点 + 6 面。m_vecPos / m_vecSize 是派生量（AABB 中心 / 半尺寸）
 struct CBrush {
+    uint64_t m_id = 0; // 👈 全局唯一 ID
     glm::vec3   m_vecPos  = glm::vec3(0);
     glm::vec3   m_vecSize = glm::vec3(16);   // 半尺寸
     glm::vec3   m_angRot  = glm::vec3(0);    // 度 (pitch,yaw,roll)，旋转已烘进顶点时保持 0
@@ -42,8 +43,8 @@ struct CBrush {
 struct BrushGroup {
     std::string name;
     bool visible = true;
-    std::vector<int> brushIndices;  // 存的 Brush 下标
-    std::vector<int> entityIndices; // 👈 新增：存的 Entity 下标
+    std::vector<uint64_t> brushIds;  // 👈 存 ID
+    std::vector<uint64_t> entityIds; // 👈 存 ID
 };
 
 // face → 4 个顶点索引（纯数据，face/edge/vertex 编辑时查表）

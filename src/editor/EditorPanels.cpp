@@ -280,9 +280,8 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
     // ================= 上半部分：单一世界树 =================
     ImGui::BeginChild("##SceneTreeChild", ImVec2(0, treeHeight), true);
     
-    static int dragItemIdx = -1;
     static bool dragIsEntity = false;
-    static int pendingDeleteGroupIdx = -1; // 👈 用于延迟删除，防止崩溃
+    static int pendingDeleteGroupIdx = -1;
 
     // 根节点：Scene
     if (ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -295,79 +294,91 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             bool groupVis = (grp.visible != 0);
             if (ImGui::Checkbox("##vis", &groupVis)) {
                 grp.visible = groupVis ? 1 : 0;
-                for (int bi : grp.brushIndices) if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = grp.visible;
-                for (int ei : grp.entityIndices) if (ei < (int)g_entityVisible.size()) g_entityVisible[ei] = grp.visible;
+                for (uint64_t bid : grp.brushIds) {
+                    for (int i = 0; i < (int)g_brushes.size(); i++) {
+                        if (g_brushes[i].m_id == bid && i < (int)g_brushVisible.size()) g_brushVisible[i] = grp.visible;
+                    }
+                }
+                for (uint64_t eid : grp.entityIds) {
+                    for (int i = 0; i < (int)g_entities.size(); i++) {
+                        if (g_entities[i].m_id == eid && i < (int)g_entityVisible.size()) g_entityVisible[i] = grp.visible;
+                    }
+                }
             }
             ImGui::SameLine();
             
             bool isOpen = ImGui::TreeNodeEx(grp.name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow);
             
-            // 点击名字选中组
             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
                 g_iSelectedGroup = gIdx;
                 *pSelBrush = -1;
                 *pSelEntity = -1;
             }
 
-            // 👈 专门给 Group 名字绑定右键菜单（用 OpenPopup 彻底隔离上下文）
             std::string popupName = "GroupCtx_" + std::to_string(gIdx);
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                 ImGui::OpenPopup(popupName.c_str());
             }
-
             if (ImGui::BeginPopup(popupName.c_str())) {
                 if (ImGui::MenuItem("Delete Group")) {
-                    pendingDeleteGroupIdx = gIdx; // 延迟删除，防止迭代器失效
+                    pendingDeleteGroupIdx = gIdx;
                 }
                 ImGui::EndPopup();
             }
 
-            // 作为拖拽目标
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
-                    int draggedIdx = *(const int*)payload->Data;
+                    uint64_t draggedId = *(const uint64_t*)payload->Data;
                     if (dragIsEntity) {
                         bool alreadyIn = false;
-                        for (int e : grp.entityIndices) if (e == draggedIdx) { alreadyIn = true; break; }
-                        if (!alreadyIn) grp.entityIndices.push_back(draggedIdx);
+                        for (uint64_t eid : grp.entityIds) if (eid == draggedId) { alreadyIn = true; break; }
+                        if (!alreadyIn) grp.entityIds.push_back(draggedId);
                     } else {
                         bool alreadyIn = false;
-                        for (int b : grp.brushIndices) if (b == draggedIdx) { alreadyIn = true; break; }
-                        if (!alreadyIn) grp.brushIndices.push_back(draggedIdx);
+                        for (uint64_t bid : grp.brushIds) if (bid == draggedId) { alreadyIn = true; break; }
+                        if (!alreadyIn) grp.brushIds.push_back(draggedId);
                     }
                 }
                 ImGui::EndDragDropTarget();
             }
 
             if (isOpen) {
-                // 渲染组内的 Brushes
+                // ====== 渲染组内的 Brushes ======
                 int removeBrushIdx = -1;
-                for (int k = 0; k < (int)grp.brushIndices.size(); k++) {
-                    int bi = grp.brushIndices[k];
+                for (int k = 0; k < (int)grp.brushIds.size(); k++) {
+                    uint64_t bid = grp.brushIds[k];
+                    
+                    // 实时通过 ID 查当前索引
+                    int bi = -1;
+                    for (int i = 0; i < (int)g_brushes.size(); i++) {
+                        if (g_brushes[i].m_id == bid) { bi = i; break; }
+                    }
+                    if (bi < 0) continue;
+
                     ImGui::PushID(bi + 40000);
                     
+                    // Checkbox
                     bool vis = (bi < (int)g_brushVisible.size()) ? (g_brushVisible[bi] != 0) : true;
                     if (ImGui::Checkbox("##vis", &vis)) {
                         if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = vis ? 1 : 0;
                     }
                     ImGui::SameLine();
                     
-                    // 👈 加上按钮宽度计算
+                    // Selectable
                     float btnW = ImGui::CalcTextSize("Dup Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
                     float availW = ImGui::GetContentRegionAvail().x;
-                    
                     bool sel = (*pSelBrush == bi);
-                    if (ImGui::Selectable(("Brush #" + std::to_string(bi)).c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
+                    if (ImGui::Selectable(("Brush #" + std::to_string(bid)).c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                         *pSelBrush = bi;
                         *pSelEntity = -1;
                         g_iSelectedGroup = -1;
                     }
                     
-                    // 👈 加上按钮
+                    // 👈 核心修改：传 ID 而不是 bi！
                     ImGui::SameLine();
-                    if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.iTargetIndex = bi; }
+                    if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
                     ImGui::SameLine();
-                    if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.iTargetIndex = bi; }
+                    if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.targetId = bid; }
                     
                     if (ImGui::BeginPopupContextItem(("rmB" + std::to_string(bi)).c_str())) {
                         if (ImGui::MenuItem("Remove from Group")) removeBrushIdx = k;
@@ -375,12 +386,20 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                     }
                     ImGui::PopID();
                 }
-                if (removeBrushIdx >= 0) grp.brushIndices.erase(grp.brushIndices.begin() + removeBrushIdx);
+                if (removeBrushIdx >= 0) grp.brushIds.erase(grp.brushIds.begin() + removeBrushIdx);
 
-                // 渲染组内的 Entities
+                // ====== 渲染组内的 Entities ======
                 int removeEntityIdx = -1;
-                for (int k = 0; k < (int)grp.entityIndices.size(); k++) {
-                    int ei = grp.entityIndices[k];
+                for (int k = 0; k < (int)grp.entityIds.size(); k++) {
+                    uint64_t eid = grp.entityIds[k];
+                    
+                    // 实时通过 ID 查当前索引
+                    int ei = -1;
+                    for (int i = 0; i < (int)g_entities.size(); i++) {
+                        if (g_entities[i].m_id == eid) { ei = i; break; }
+                    }
+                    if (ei < 0) continue;
+
                     ImGui::PushID(ei + 50000);
                     
                     bool vis = (ei < (int)g_entityVisible.size()) ? (g_entityVisible[ei] != 0) : true;
@@ -389,26 +408,24 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                     }
                     ImGui::SameLine();
                     
-                    // 👈 加上按钮宽度计算
                     float btnW = ImGui::CalcTextSize("Tel Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
                     float availW = ImGui::GetContentRegionAvail().x;
-                    
                     bool sel = (*pSelEntity == ei);
-                    std::string label = g_entities[ei].m_szName + " #" + std::to_string(ei);
+                    std::string label = g_entities[ei].m_szName + " #" + std::to_string(eid);
                     if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                         *pSelEntity = ei;
                         *pSelBrush = -1;
                         g_iSelectedGroup = -1;
                     }
                     
-                    // 👈 加上按钮
+                    // 👈 核心修改：传 ID 而不是 ei！
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Tel")) {
                         if (GetEditorCamTarget()) *GetEditorCamTarget() = g_entities[ei].m_vecPos;
                         if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
                     }
                     ImGui::SameLine();
-                    if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.iTargetEntityIndex = ei; }
+                    if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
                     
                     if (ImGui::BeginPopupContextItem(("rmE" + std::to_string(ei)).c_str())) {
                         if (ImGui::MenuItem("Remove from Group")) removeEntityIdx = k;
@@ -416,23 +433,17 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                     }
                     ImGui::PopID();
                 }
-                if (removeEntityIdx >= 0) grp.entityIndices.erase(grp.entityIndices.begin() + removeEntityIdx);
-
+                if (removeEntityIdx >= 0) grp.entityIds.erase(grp.entityIds.begin() + removeEntityIdx);
                 ImGui::TreePop();
             }
             ImGui::PopID();
         };
 
-        // 执行组渲染
         for (int g = 0; g < (int)g_brushGroups.size(); g++) {
             RenderGroupNode(g);
         }
 
-        // 👈 安全清理被删除的组（防崩溃核心）
         if (pendingDeleteGroupIdx >= 0) {
-            auto& grp = g_brushGroups[pendingDeleteGroupIdx];
-            for (int bi : grp.brushIndices) if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = 1;
-            for (int ei : grp.entityIndices) if (ei < (int)g_entityVisible.size()) g_entityVisible[ei] = 1;
             g_brushGroups.erase(g_brushGroups.begin() + pendingDeleteGroupIdx);
             pendingDeleteGroupIdx = -1;
             g_iSelectedGroup = -1;
@@ -441,14 +452,15 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
         // 2. 渲染散落的 Entities
         for (int i = 0; i < (int)g_entities.size(); i++) {
             bool inAnyGroup = false;
+            uint64_t eid = g_entities[i].m_id;
             for (const auto& grp : g_brushGroups) {
-                for (int ei : grp.entityIndices) if (ei == i) { inAnyGroup = true; break; }
+                for (uint64_t id : grp.entityIds) if (id == eid) { inAnyGroup = true; break; }
                 if (inAnyGroup) break;
             }
             if (inAnyGroup) continue;
 
             auto& e = g_entities[i];
-            std::string label = e.m_szName + " #" + std::to_string(i);
+            std::string label = e.m_szName + " #" + std::to_string(eid);
             if (!filterLower.empty()) {
                 std::string l = label; std::transform(l.begin(), l.end(), l.begin(), ::tolower);
                 if (l.find(filterLower) == std::string::npos) continue;
@@ -470,28 +482,25 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                 g_iSelectedGroup = -1;
             }
             
-            // 拖拽 Entity
             if (ImGui::BeginDragDropSource()) {
-                dragItemIdx = i;
                 dragIsEntity = true;
-                ImGui::SetDragDropPayload("DRAG_ITEM", &dragItemIdx, sizeof(int));
-                ImGui::Text("Entity #%d", i);
+                ImGui::SetDragDropPayload("DRAG_ITEM", &eid, sizeof(uint64_t));
+                ImGui::Text("Entity/ID: %llu", eid);
                 ImGui::EndDragDropSource();
             }
             
-            // 拖拽建组
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
-                    int draggedIdx = *(const int*)payload->Data;
-                    if (draggedIdx != i) {
+                    uint64_t draggedId = *(const uint64_t*)payload->Data;
+                    if (draggedId != eid) {
                         BrushGroup newGrp;
                         newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
                         if (dragIsEntity) {
-                            newGrp.entityIndices.push_back(draggedIdx);
-                            newGrp.entityIndices.push_back(i);
+                            newGrp.entityIds.push_back(draggedId);
+                            newGrp.entityIds.push_back(eid);
                         } else {
-                            newGrp.brushIndices.push_back(draggedIdx);
-                            newGrp.entityIndices.push_back(i);
+                            newGrp.brushIds.push_back(draggedId);
+                            newGrp.entityIds.push_back(eid);
                         }
                         g_brushGroups.push_back(newGrp);
                     }
@@ -505,21 +514,22 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                 if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
             }
             ImGui::SameLine();
-            if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.iTargetEntityIndex = i; }
+            if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
             ImGui::PopID();
         }
 
         // 3. 渲染散落的 Brushes
         for (int i = 0; i < (int)g_brushes.size(); i++) {
             bool inAnyGroup = false;
+            uint64_t bid = g_brushes[i].m_id;
             for (const auto& grp : g_brushGroups) {
-                for (int bi : grp.brushIndices) if (bi == i) { inAnyGroup = true; break; }
+                for (uint64_t id : grp.brushIds) if (id == bid) { inAnyGroup = true; break; }
                 if (inAnyGroup) break;
             }
             if (inAnyGroup) continue;
 
             auto& b = g_brushes[i];
-            std::string label = "brush #" + std::to_string(i);
+            std::string label = "brush #" + std::to_string(bid);
             if (!filterLower.empty()) {
                 std::string l = label; std::transform(l.begin(), l.end(), l.begin(), ::tolower);
                 if (l.find(filterLower) == std::string::npos) continue;
@@ -542,25 +552,24 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             }
 
             if (ImGui::BeginDragDropSource()) {
-                dragItemIdx = i;
                 dragIsEntity = false;
-                ImGui::SetDragDropPayload("DRAG_ITEM", &dragItemIdx, sizeof(int));
-                ImGui::Text("Brush #%d", i);
+                ImGui::SetDragDropPayload("DRAG_ITEM", &bid, sizeof(uint64_t));
+                ImGui::Text("Brush/ID: %llu", bid);
                 ImGui::EndDragDropSource();
             }
 
             if (ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
-                    int draggedIdx = *(const int*)payload->Data;
-                    if (draggedIdx != i) {
+                    uint64_t draggedId = *(const uint64_t*)payload->Data;
+                    if (draggedId != bid) {
                         BrushGroup newGrp;
                         newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
                         if (dragIsEntity) {
-                            newGrp.entityIndices.push_back(draggedIdx);
-                            newGrp.brushIndices.push_back(i);
+                            newGrp.entityIds.push_back(draggedId);
+                            newGrp.brushIds.push_back(bid);
                         } else {
-                            newGrp.brushIndices.push_back(draggedIdx);
-                            newGrp.brushIndices.push_back(i);
+                            newGrp.brushIds.push_back(draggedId);
+                            newGrp.brushIds.push_back(bid);
                         }
                         g_brushGroups.push_back(newGrp);
                     }
@@ -569,9 +578,9 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             }
 
             ImGui::SameLine();
-            if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.iTargetIndex = i; }
+            if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
             ImGui::SameLine();
-            if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.iTargetIndex = i; }
+            if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.targetId = bid; }
             ImGui::PopID();
         }
         
@@ -595,7 +604,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             grp.name = nameBuf;
         }
         
-        ImGui::Text("Contains: %zu Brushes, %zu Entities", grp.brushIndices.size(), grp.entityIndices.size());
+        ImGui::Text("Contains: %zu Brushes, %zu Entities", grp.brushIds.size(), grp.entityIds.size());
         ImGui::Separator();
         ImGui::TextDisabled("(Click a child inside the tree to edit its properties)");
     } 
@@ -603,7 +612,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
         CEntity& e = g_entities[*pSelEntity];
         ImGui::TextColored(ImVec4(1,1,0,1), "Selected: %s", e.m_szName.c_str());
         
-        // 位置和旋转（带 BBox 更新）
         glm::vec3 prevPos = e.m_vecPos;
         if (ImGui::DragFloat3("Position", glm::value_ptr(e.m_vecPos), 1.0f)) {
             e.m_vecBBoxMins += (e.m_vecPos - prevPos);
@@ -734,7 +742,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Center");
             b.RebuildPrimitiveMesh();
         }
-        // 👈 加上了 0.1f 的最小值限制，防止变成 0 导致崩溃
         if (ImGui::DragFloat3("HalfSize", glm::value_ptr(b.m_vecSize), 0.5f, 0.1f, 4096.f)) {
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Size");
             b.RebuildPrimitiveMesh();

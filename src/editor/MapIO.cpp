@@ -23,30 +23,14 @@ bool ExportMapJson(const std::string& path)
 {
     json root;
     
-    // ================= 1. 预处理：构建 旧索引 -> 新索引 的映射 =================
-    std::map<int, int> brushIdxMap;
-    std::map<int, int> entityIdxMap;
-    int newBrushCount = 0;
-    int newEntityCount = 0;
-
-    for (size_t i = 0; i < g_brushes.size(); ++i) {
-        if (i < g_brushVisible.size() && g_brushVisible[i] != 0) {
-            brushIdxMap[i] = newBrushCount++;
-        }
-    }
-    for (size_t i = 0; i < g_entities.size(); ++i) {
-        if (i < g_entityVisible.size() && g_entityVisible[i] != 0) {
-            entityIdxMap[i] = newEntityCount++;
-        }
-    }
-
-    // ================= 2. 导出 Brushes =================
+    // ================= 1. 导出 Brushes =================
     json brushes = json::array();
     for (size_t i = 0; i < g_brushes.size(); i++) {
-        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue; // 跳过隐藏
+        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue; // 隐藏的不导
         
         const auto& b = g_brushes[i];
         json jb;
+        jb["id"] = b.m_id; // 👈 保存 ID
         jb["material"] = b.m_szMaterial;
         jb["position"] = Vec3ToJson(b.m_vecPos);
         jb["halfSize"] = Vec3ToJson(b.m_vecSize);
@@ -76,13 +60,14 @@ bool ExportMapJson(const std::string& path)
     }
     root["brushes"] = brushes;
 
-    // ================= 3. 导出 Entities =================
+    // ================= 2. 导出 Entities =================
     json entities = json::array();
     for (size_t i = 0; i < g_entities.size(); i++) {
         if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue; // 跳过隐藏
         
         const auto& e = g_entities[i];
         json je;
+        je["id"] = e.m_id; // 👈 保存 ID
         je["classname"] = e.m_szName;
         je["origin"]    = Vec3ToJson(e.m_vecPos);
         je["angles"]    = Vec3ToJson(e.m_angRot);
@@ -113,7 +98,7 @@ bool ExportMapJson(const std::string& path)
     }
     root["entities"] = entities;
 
-    // ================= 4. 导出 Groups (核心修复) =================
+    // ================= 3. 导出 Groups =================
     json groups = json::array();
     for (const auto& grp : g_brushGroups) {
         json jg;
@@ -121,31 +106,39 @@ bool ExportMapJson(const std::string& path)
         jg["visible"] = grp.visible;
 
         json brushes_arr = json::array();
-        for (int oldBi : grp.brushIndices) {
-            // 👈 如果这个 Brush 没被删，用映射表把旧索引换成新索引
-            if (brushIdxMap.find(oldBi) != brushIdxMap.end()) {
-                brushes_arr.push_back(brushIdxMap[oldBi]);
+        for (uint64_t bid : grp.brushIds) {
+            // 因为存的是 ID，只要找到该 ID 对应的物体没被隐藏，就存下来
+            bool isVisible = false;
+            for (size_t i = 0; i < g_brushes.size(); i++) {
+                if (g_brushes[i].m_id == bid) {
+                    if (i < g_brushVisible.size() && g_brushVisible[i] != 0) isVisible = true;
+                    break;
+                }
             }
+            if (isVisible) brushes_arr.push_back(bid);
         }
         jg["brushes"] = brushes_arr;
 
         json entities_arr = json::array();
-        for (int oldEi : grp.entityIndices) {
-            // 👈 如果这个 Entity 没被删，用映射表把旧索引换成新索引
-            if (entityIdxMap.find(oldEi) != entityIdxMap.end()) {
-                entities_arr.push_back(entityIdxMap[oldEi]);
+        for (uint64_t eid : grp.entityIds) {
+            bool isVisible = false;
+            for (size_t i = 0; i < g_entities.size(); i++) {
+                if (g_entities[i].m_id == eid) {
+                    if (i < g_entityVisible.size() && g_entityVisible[i] != 0) isVisible = true;
+                    break;
+                }
             }
+            if (isVisible) entities_arr.push_back(eid);
         }
         jg["entities"] = entities_arr;
 
-        // 如果组里没东西了，就不存这个组
         if (!brushes_arr.empty() || !entities_arr.empty()) {
             groups.push_back(jg);
         }
     }
     root["groups"] = groups;
 
-    // ================= 5. 写文件 =================
+    // ================= 4. 写文件 =================
     std::ofstream f(path);
     if (!f.is_open()) {
         char b[256]; snprintf(b, sizeof(b), "[MAP] FAILED to open %s", path.c_str()); LogAdd(b);
@@ -192,6 +185,7 @@ bool ImportMapJson(const std::string& path)
     if (root.contains("brushes")) {
         for (const auto& jb : root["brushes"]) {
             CBrush b;
+            b.m_id = jb.value("id", (uint64_t)0);
             b.m_szMaterial = jb.value("material", "DEV/DEV_MEASUREGENERIC01");
             
             b.m_vecPos  = jb.contains("position") ? ParseVec3(jb["position"]) : glm::vec3(0.0f);
@@ -271,6 +265,7 @@ bool ImportMapJson(const std::string& path)
     if (root.contains("entities")) {
         for (const auto& je : root["entities"]) {
             CEntity e;
+            e.m_id = je.value("id", (uint64_t)0);
             e.m_szName = je.value("classname", "info_player_start");
             
             e.m_vecPos = je.contains("origin") ? ParseVec3(je["origin"]) : glm::vec3(0.0f);
@@ -321,17 +316,16 @@ bool ImportMapJson(const std::string& path)
 
             if (jg.contains("brushes") && jg["brushes"].is_array()) {
                 for (const auto& jb : jg["brushes"]) {
-                    grp.brushIndices.push_back(jb.get<int>());
+                    grp.brushIds.push_back(jb.get<uint64_t>());
                 }
             }
             if (jg.contains("entities") && jg["entities"].is_array()) {
                 for (const auto& je : jg["entities"]) {
-                    grp.entityIndices.push_back(je.get<int>());
+                    grp.entityIds.push_back(je.get<uint64_t>());
                 }
             }
             g_brushGroups.push_back(grp);
         }
-        printf("[MAP] Imported %zu groups\n", g_brushGroups.size());
     }
 
     // 确保可见性数组和物体数量一致

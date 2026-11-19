@@ -45,3 +45,6 @@ std::vector<uint8_t> g_entityVisible; // 单个 entity 的可见性
 std::vector<std::string> g_allMaterials;
 
 int g_iSelectedGroup = -1;
+
+uint64_t g_nextUniqueId = 1;
+uint64_t GenerateUniqueID() { return g_nextUniqueId++; }

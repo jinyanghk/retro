@@ -51,6 +51,11 @@
 
 namespace fs = std::filesystem;
 
+// 把 int 改成 uint64_t
+#include <set>
+static std::set<uint64_t> g_pendingDeleteBrushIds;
+static std::set<uint64_t> g_pendingDeleteEntityIds;
+
 // 👈 材质名 → 完整文件路径（用于 TextureCache 加载）
 std::unordered_map<std::string, std::string> g_materialPathMap;
 
@@ -1007,6 +1012,7 @@ static void BuildDefaultScene()
 
     auto MakeBrush = [](glm::vec3 pos, glm::vec3 halfSize, const char* mat) {
         CBrush b;
+        b.m_id = GenerateUniqueID();
         b.m_vecPos  = pos;
         b.m_vecSize = halfSize;
         b.m_szMaterial = mat;
@@ -1026,6 +1032,7 @@ static void BuildDefaultScene()
 
     {
         CEntity light;
+        light.m_id = GenerateUniqueID();
         light.m_iType  = ENTITY_LIGHT;
         light.m_szName = "light";
         light.m_vecPos = glm::vec3(0, 2000, 0);
@@ -1036,6 +1043,7 @@ static void BuildDefaultScene()
     }
     {
         CEntity spawn;
+        spawn.m_id = GenerateUniqueID();
         spawn.m_iType  = ENTITY_PLAYER_START;
         spawn.m_szName = "info_player_start";
         spawn.m_vecPos = glm::vec3(0, 16, 0);
@@ -1083,6 +1091,15 @@ static void OnImportMap() {
         printf("[Debug] After Init: g_brushes.size=%zu, g_brushVisible.size=%zu\n", 
                g_brushes.size(), g_brushVisible.size());
         printf("[Debug] g_brushVisible[0] = %d\n", g_brushVisible.empty() ? -1 : g_brushVisible[0]);        
+
+        // 确保每个加载进来的物体都有 ID
+        uint64_t maxId = 0;
+        for (auto& b : g_brushes) if (b.m_id == 0) b.m_id = GenerateUniqueID();
+        for (auto& e : g_entities) if (e.m_id == 0) e.m_id = GenerateUniqueID();
+        // 将全局 ID 设为当前最大值 + 1，防止冲突
+        for (auto& b : g_brushes) maxId = std::max(maxId, b.m_id);
+        for (auto& e : g_entities) maxId = std::max(maxId, e.m_id);
+        g_nextUniqueId = maxId + 1;
     }
 }
 static void OnLoadBvh() {
@@ -1698,50 +1715,46 @@ int main(int argc, char** argv)
         if (panelRes.bRequestNew) {
             UndoStack::Instance().PushSnapshot("New Brush");
             CBrush b;
+            b.m_id = GenerateUniqueID();
             b.m_vecPos  = glm::vec3(0,32,0);
             b.m_vecSize = glm::vec3(32,32,32);
             b.RebuildPrimitiveMesh();
             g_brushes.push_back(b);
-            g_iSelectedBrush = (int)g_brushes.size() - 1;
-        }
-        if (panelRes.bRequestDuplicate && panelRes.iTargetIndex >= 0 && panelRes.iTargetIndex < (int)g_brushes.size()) {
-            UndoStack::Instance().PushSnapshot("Duplicate Brush");
-            CBrush b = g_brushes[panelRes.iTargetIndex];
-            for (auto& v : b.m_vertices) v += glm::vec3(32,0,0);
-            b.m_vecPos += glm::vec3(32,0,0);
-            g_brushes.push_back(b);
+            g_brushVisible.push_back(1); // 👈 加上这句
             g_iSelectedBrush = (int)g_brushes.size() - 1;
         }
 
-        // 处理 Brush 删除（改为隐藏）
-        if (panelRes.bRequestDelete && panelRes.iTargetIndex >= 0 && panelRes.iTargetIndex < (int)g_brushes.size()) {
-            UndoStack::Instance().PushSnapshot("Delete (Hide) Brush");
-            // 1. 设置不可见
-            if (panelRes.iTargetIndex < (int)g_brushVisible.size()) {
-                g_brushVisible[panelRes.iTargetIndex] = 0;
+        // 处理 Brush 复制请求
+        if (panelRes.bRequestDuplicate && panelRes.duplicateId != 0) {
+            for (int i = 0; i < (int)g_brushes.size(); i++) {
+                if (g_brushes[i].m_id == panelRes.duplicateId) {
+                    UndoStack::Instance().PushSnapshot("Duplicate Brush");
+                    CBrush b = g_brushes[i];
+                    b.m_id = GenerateUniqueID(); // 👈 复制出来的 ID 必须重新生成
+                    for (auto& v : b.m_vertices) v += glm::vec3(32,0,0);
+                    b.m_vecPos += glm::vec3(32,0,0);
+                    g_brushes.push_back(b);
+                    g_brushVisible.push_back(1);
+                    g_iSelectedBrush = (int)g_brushes.size() - 1;
+                    break;
+                }
             }
-            // 2. 移出地球，防止它的碰撞体还挡路
-            g_brushes[panelRes.iTargetIndex].m_vecPos = glm::vec3(0, -99999, 0);
-            g_iSelectedBrush = -1;
-            printf("[Editor] Deleted (Hidden) brush %d\n", panelRes.iTargetIndex);
         }
-        
-        // 处理 Entity 删除（改为隐藏）
-        if (panelRes.bRequestDeleteEntity && panelRes.iTargetEntityIndex >= 0 && panelRes.iTargetEntityIndex < (int)g_entities.size()) {
-            UndoStack::Instance().PushSnapshot("Delete (Hide) Entity");
-            // 1. 设置不可见
-            if (panelRes.iTargetEntityIndex < (int)g_entityVisible.size()) {
-                g_entityVisible[panelRes.iTargetEntityIndex] = 0;
-            }
-            // 2. 移出地球
-            g_entities[panelRes.iTargetEntityIndex].m_vecPos = glm::vec3(0, -99999, 0);
+
+        // 👈 收到删除请求，只把 ID 塞进队列
+        if (panelRes.bRequestDelete && panelRes.targetId != 0) {
+            g_pendingDeleteBrushIds.insert(panelRes.targetId); // 直接塞 ID
+            g_iSelectedBrush = -1;
+        }
+        if (panelRes.bRequestDeleteEntity && panelRes.targetEntityId != 0) {
+            g_pendingDeleteEntityIds.insert(panelRes.targetEntityId); // 直接塞 ID
             g_iSelectedEntity = -1;
-            printf("[Editor] Deleted (Hidden) entity %d\n", panelRes.iTargetEntityIndex);
         }
 
         if (panelRes.bRequestNewEntity && !panelRes.szNewEntityClass.empty()) {
             UndoStack::Instance().PushSnapshot("New Entity");
             CEntity e;
+            e.m_id = GenerateUniqueID();
             e.m_szName = panelRes.szNewEntityClass;
             e.m_vecPos = glm::vec3(0,32,0);
             if (e.m_szName == "info_player_start") e.m_iType = ENTITY_PLAYER_START;
@@ -1763,6 +1776,41 @@ int main(int argc, char** argv)
         SDL_GL_SwapWindow(g_window);
         g_iLastMouseX = g_iMouseX;
         g_iLastMouseY = g_iMouseY;
+
+
+        // 👈 统一清理待删除的 Brush 和 Entity
+        if (!g_pendingDeleteBrushIds.empty()) {
+            UndoStack::Instance().PushSnapshot("Delete Brushes");
+            std::vector<CBrush> newBrushes;
+            std::vector<uint8_t> newVisible;
+            for (size_t i = 0; i < g_brushes.size(); i++) {
+                // 如果这个物体的 ID 不在待删除 ID 集合里，就保留
+                if (g_pendingDeleteBrushIds.find(g_brushes[i].m_id) == g_pendingDeleteBrushIds.end()) {
+                    newBrushes.push_back(g_brushes[i]);
+                    if (i < g_brushVisible.size()) newVisible.push_back(g_brushVisible[i]);
+                }
+            }
+            g_brushes = std::move(newBrushes);
+            g_brushVisible = std::move(newVisible);
+            g_pendingDeleteBrushIds.clear(); // 清空 ID 集合
+            g_iSelectedBrush = -1;
+        }
+
+        if (!g_pendingDeleteEntityIds.empty()) {
+            UndoStack::Instance().PushSnapshot("Delete Entities");
+            std::vector<CEntity> newEntities;
+            std::vector<uint8_t> newVisible;
+            for (size_t i = 0; i < g_entities.size(); i++) {
+                if (g_pendingDeleteEntityIds.find(g_entities[i].m_id) == g_pendingDeleteEntityIds.end()) {
+                    newEntities.push_back(g_entities[i]);
+                    if (i < g_entityVisible.size()) newVisible.push_back(g_entityVisible[i]);
+                }
+            }
+            g_entities = std::move(newEntities);
+            g_entityVisible = std::move(newVisible);
+            g_pendingDeleteEntityIds.clear();
+            g_iSelectedEntity = -1;
+        } 
     }
 
     TextureCache::Shutdown();

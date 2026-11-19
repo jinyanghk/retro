@@ -72,3 +72,6 @@ extern std::vector<uint8_t> g_entityVisible;
 extern std::vector<std::string> g_allMaterials;
 
 extern int g_iSelectedGroup; // 👈 新增：当前选中的组
+
+extern uint64_t g_nextUniqueId;
+extern uint64_t GenerateUniqueID();
