@@ -2,7 +2,7 @@ name: Build Cross-Platform (Windows & Linux x64)
 
 on:
   push:
-    branches: [ main, ci ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -15,10 +15,24 @@ jobs:
         with:
           path: retro
 
-      - name: Checkout sibling header/source repos (imgui & ImGuizmo)
-        run: |
-          git clone --depth 1 -b docking https://github.com/ocornut/imgui
-          git clone --depth 1 https://github.com/CedricGuillemet/ImGuizmo
+      - name: Checkout imgui
+        uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: docking
+          path: imgui
+
+      - name: Checkout ImGuizmo
+        uses: actions/checkout@v4
+        with:
+          repository: CedricGuillemet/ImGuizmo
+          path: ImGuizmo
+
+      - name: Checkout JoltPhysics
+        uses: actions/checkout@v4
+        with:
+          repository: jrouwe/JoltPhysics
+          path: JoltPhysics
 
       - name: Install Ubuntu dependencies
         run: |
@@ -27,14 +41,22 @@ jobs:
             libsdl2-dev libsdl2-mixer-dev libglm-dev libglew-dev \
             nlohmann-json3-dev libassimp-dev libstb-dev
 
+      - name: Cache JoltPhysics (Linux)
+        id: cache-jolt-linux
+        uses: actions/cache@v4
+        with:
+          path: JoltPhysics/Build/Build-Linux
+          key: linux-jolt-${{ hashFiles('JoltPhysics/Build/CMakeLists.txt') }}
+
       - name: Build & Install JoltPhysics
         run: |
-          git clone --depth 1 https://github.com/jrouwe/JoltPhysics
-          cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-Linux -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-            -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF -DTARGET_SAMPLES=OFF
-          cmake --build JoltPhysics/Build/Build-Linux
+          if [ "${{ steps.cache-jolt-linux.outputs.cache-hit }}" != "true" ]; then
+            cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-Linux -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+              -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF -DTARGET_SAMPLES=OFF
+            cmake --build JoltPhysics/Build/Build-Linux
+          fi
           sudo cmake --install JoltPhysics/Build/Build-Linux
 
       - name: Configure & Build retro
@@ -60,12 +82,38 @@ jobs:
         with:
           path: retro
 
-      - name: Checkout sibling repos & Build JoltPhysics
+      - name: Checkout imgui
+        uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: docking
+          path: imgui
+
+      - name: Checkout ImGuizmo
+        uses: actions/checkout@v4
+        with:
+          repository: CedricGuillemet/ImGuizmo
+          path: ImGuizmo
+
+      - name: Checkout JoltPhysics
+        uses: actions/checkout@v4
+        with:
+          repository: jrouwe/JoltPhysics
+          path: JoltPhysics
+
+      - name: Cache JoltPhysics & vcpkg (Windows)
+        id: cache-win-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            JoltPhysics/Build/Build-MSVC
+            C:/vcpkg/installed
+          key: win-deps-v1-${{ hashFiles('JoltPhysics/Build/CMakeLists.txt', 'retro/.github/workflows/ci.yml') }}
+
+      - name: Build JoltPhysics (MSVC)
+        if: steps.cache-win-deps.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          git clone --depth 1 -b docking https://github.com/ocornut/imgui
-          git clone --depth 1 https://github.com/CedricGuillemet/ImGuizmo
-          git clone --depth 1 https://github.com/jrouwe/JoltPhysics
           cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-MSVC ^
             -DCMAKE_BUILD_TYPE=Release ^
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL ^
@@ -73,12 +121,18 @@ jobs:
             -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=ON ^
             -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF -DTARGET_SAMPLES=OFF
           cmake --build JoltPhysics/Build/Build-MSVC --config Release
-          copy JoltPhysics\Build\Build-MSVC\Release\Jolt.lib JoltPhysics\Build\Build-MSVC\Jolt.lib
 
       - name: Install Windows Libraries via vcpkg
+        if: steps.cache-win-deps.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          vcpkg install stb:x64-windows sdl2:x64-windows sdl2-mixer:x64-windows glew:x64-windows glm:x64-windows nlohmann-json:x64-windows assimp:x64-windows
+          for ($i = 1; $i -le 3; $i++) {
+            vcpkg install stb:x64-windows sdl2:x64-windows sdl2-mixer:x64-windows glew:x64-windows glm:x64-windows nlohmann-json:x64-windows assimp:x64-windows
+            if ($LASTEXITCODE -eq 0) { break }
+            Write-Warning "vcpkg install failed (attempt $i), retrying in 10s..."
+            Start-Sleep -Seconds 10
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure & Build retro (MSVC)
         shell: cmd
