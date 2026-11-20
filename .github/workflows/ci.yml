@@ -1,0 +1,98 @@
+name: Build Cross-Platform (Windows & Linux x64)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout retro
+        uses: actions/checkout@v4
+        with:
+          path: retro
+
+      - name: Checkout sibling header/source repos (imgui & ImGuizmo)
+        run: |
+          git clone --depth 1 https://github.com imgui
+          git clone --depth 1 https://github.com ImGuizmo
+
+      - name: Install Ubuntu dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build python3 \
+            libsdl2-dev libsdl2-mixer-dev libglm-dev libglew-dev \
+            nlohmann-json3-dev libassimp-dev
+
+      - name: Build & Install JoltPhysics
+        run: |
+          git clone --depth 1 https://github.com JoltPhysics
+          cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-Linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF -DTARGET_SAMPLES=OFF
+          cmake --build JoltPhysics/Build/Build-Linux
+          sudo cmake --install JoltPhysics/Build/Build-Linux
+
+      - name: Configure & Build retro
+        run: |
+          cmake -S retro -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-linux
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: retro-linux-x64
+          path: |
+            build-linux/retro
+            build-linux/editor
+            build-linux/bvh
+            build-linux/*.so*
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout retro
+        uses: actions/checkout@v4
+        with:
+          path: retro
+
+      - name: Checkout sibling repos & Build JoltPhysics
+        shell: cmd
+        run: |
+          git clone --depth 1 https://github.com imgui
+          git clone --depth 1 https://github.com ImGuizmo
+          git clone --depth 1 https://github.com JoltPhysics
+          cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-MSVC ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL ^
+            -DUSE_STATIC_MSVC_RUNTIME_LIBRARY=OFF ^
+            -DJPH_USE_DX12=OFF -DJPH_USE_VK=OFF -DJPH_USE_MTL=OFF -DJPH_USE_CPU_COMPUTE=ON ^
+            -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF -DTARGET_SAMPLES=OFF
+          cmake --build JoltPhysics/Build/Build-MSVC --config Release
+          copy JoltPhysics\Build\Build-MSVC\Release\Jolt.lib JoltPhysics\Build\Build-MSVC\Jolt.lib
+
+      - name: Install Windows Libraries via vcpkg
+        shell: pwsh
+        run: |
+          vcpkg install sdl2:x64-windows sdl2-mixer:x64-windows glew:x64-windows glm:x64-windows nlohmann-json:x64-windows assimp:x64-windows
+
+      - name: Configure & Build retro (MSVC)
+        shell: cmd
+        run: |
+          cmake -S retro -B build-msvc ^
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
+            -DVCPKG_TARGET_TRIPLET=x64-windows ^
+            -DUSE_VCPKG=ON
+          cmake --build build-msvc --config Release
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: retro-windows-x64
+          path: |
+            build-msvc/Release/*.exe
+            build-msvc/Release/*.dll
