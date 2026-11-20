@@ -272,7 +272,7 @@ else()
     target_link_libraries(game PUBLIC core geometry physics assets imgui glm::glm SDL2::SDL2 SDL2_mixer::SDL2_mixer nlohmann_json::nlohmann_json)
 endif()
 
----------- retro ----------
+#---------- retro ----------
 
 add_executable(retro src/retro/main.cpp src/retro/Render.cpp)
 add_dependencies(retro shaders_gen)
