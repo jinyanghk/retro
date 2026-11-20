@@ -1,156 +1,174 @@
 cmake_minimum_required(VERSION 3.16)
-project(retro)
+project(RetroEngine VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+option(USE_VCPKG "Use vcpkg packages on Windows (for GitHub Actions CI)" OFF)
+
+# Force dynamic runtime /MD to match Release Jolt.lib
 if(MSVC)
-    add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
-    add_compile_options(/W3) # 或者 /W4
-    # 强制 Release 模式（与 Jolt.lib 匹配）
-    if(NOT CMAKE_BUILD_TYPE)
-        set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
-    endif()
-    # 强制使用动态运行库 /MD（与 Release 的 Jolt.lib 匹配）
-    add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)    
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+    add_compile_options(/utf-8 /EHsc /W2)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 else()
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    add_compile_options(-Wall -Wextra)
 endif()
 
-# 针对 MSYS2 / MinGW-w64，屏蔽 DLL 导出的属性重定义警告
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options(-Wno-attributes)
-endif()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+find_package(Git QUIET)
 
-# ==========================================
-# 依赖查找与路径设置
-# ==========================================
+# ==========================================================
+# 1. Dependency Configuration (Windows Local / CI vcpkg vs Linux/MSYS2)
+# ==========================================================
+set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/../imgui")
+set(IMGUIZMO_DIR "${CMAKE_SOURCE_DIR}/../ImGuizmo")
+
 if(MSVC)
-    message(STATUS "MSVC build: Using local dependencies from Desktop")
-
-    # 1. glm (纯头文件)
-    set(GLM_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../glm")
-
-    # 2. SDL2
-    set(SDL2_DIR "${CMAKE_SOURCE_DIR}/../SDL2-2.32.10")
-    set(SDL2_INCLUDE_DIR "${SDL2_DIR}/include")
-    set(SDL2_LIBRARY "${SDL2_DIR}/lib/x64/SDL2.lib")
-    set(SDL2MAIN_LIBRARY "${SDL2_DIR}/lib/x64/SDL2main.lib")
-
-    # 3. SDL2_mixer
-    set(SDL2_MIXER_DIR "${CMAKE_SOURCE_DIR}/../SDL2_mixer-2.8.2")
-    set(SDL2_MIXER_INCLUDE_DIR "${SDL2_MIXER_DIR}/include")
-    set(SDL2_MIXER_LIBRARY "${SDL2_MIXER_DIR}/lib/x64/SDL2_mixer.lib")
-
-    # 4. GLEW
-    set(GLEW_DIR "${CMAKE_SOURCE_DIR}/../glew-2.3.1")
-    set(GLEW_INCLUDE_DIR "${GLEW_DIR}/include")
-    set(GLEW_LIBRARY "${GLEW_DIR}/lib/Release/x64/glew32.lib")
-
-    # 5. Jolt
     set(JOLT_DIR "${CMAKE_SOURCE_DIR}/../JoltPhysics")
     set(JOLT_INCLUDE_DIR "${JOLT_DIR}")
-    set(JOLT_LIBRARY "${JOLT_DIR}/Build/Build-MSVC/Jolt.lib")
+    if(EXISTS "${JOLT_DIR}/Build/Build-MSVC/Release/Jolt.lib")
+        set(JOLT_LIBRARY "${JOLT_DIR}/Build/Build-MSVC/Release/Jolt.lib")
+    else()
+        set(JOLT_LIBRARY "${JOLT_DIR}/Build/Build-MSVC/Jolt.lib")
+    endif()
 
-    # 6. nlohmann_json (纯头文件，放在项目父目录)
-    set(NLOHMANN_JSON_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../nlohmann_json")
+    if(USE_VCPKG)
+        find_package(SDL2 CONFIG REQUIRED)
+        find_package(SDL2_mixer CONFIG REQUIRED)
+        find_package(glew REQUIRED)
+        find_package(glm CONFIG REQUIRED)
+        find_package(nlohmann_json CONFIG REQUIRED)
+        find_package(assimp CONFIG REQUIRED)
 
-    # 7. assimp
-    set(ASSIMP_DIR "${CMAKE_SOURCE_DIR}/../assimp-6.0.6")
-    set(ASSIMP_INCLUDE_DIR "${ASSIMP_DIR}/include")
-    # 注意：assimp 通常需要链接 .lib，你给的是 .dll，这里假设 .lib 在 lib 目录下
-    set(ASSIMP_LIBRARY "${ASSIMP_DIR}/build/lib/assimp-vc145-mt.lib")
+        set(SDL2_LIBRARY SDL2::SDL2)
+        set(SDL2MAIN_LIBRARY SDL2::SDL2main)
+        set(SDL2_MIXER_LIBRARY SDL2_mixer::SDL2_mixer)
+        set(GLEW_LIBRARY GLEW::GLEW)
+        set(ASSIMP_LIBRARY assimp::assimp)
+    else()
+        # Local Windows 11 Desktop Paths
+        set(SDL2_DIR "${CMAKE_SOURCE_DIR}/../SDL2-2.32.10")
+        set(SDL2_INCLUDE_DIR "${SDL2_DIR}/include")
+        set(SDL2_LIBRARY "${SDL2_DIR}/lib/x64/SDL2.lib")
+        set(SDL2MAIN_LIBRARY "${SDL2_DIR}/lib/x64/SDL2main.lib")
 
-    # 8. OpenGL (Windows 自带)
-    find_package(OpenGL REQUIRED)
+        set(SDL2_MIXER_DIR "${CMAKE_SOURCE_DIR}/../SDL2_mixer-2.8.1")
+        set(SDL2_MIXER_INCLUDE_DIR "${SDL2_MIXER_DIR}/include")
+        set(SDL2_MIXER_LIBRARY "${SDL2_MIXER_DIR}/lib/x64/SDL2_mixer.lib")
 
-    # 9. Python3 (生成 shaders)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set(GLEW_DIR "${CMAKE_SOURCE_DIR}/../glew-2.2.0")
+        set(GLEW_INCLUDE_DIR "${GLEW_DIR}/include")
+        set(GLEW_LIBRARY "${GLEW_DIR}/lib/Release/x64/glew32.lib")
 
+        set(GLM_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../glm")
+        set(JSON_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../json/single_include")
+
+        set(ASSIMP_DIR "${CMAKE_SOURCE_DIR}/../assimp-6.0.4")
+        set(ASSIMP_INCLUDE_DIR "${ASSIMP_DIR}/include" "${ASSIMP_DIR}/build/include")
+        file(GLOB ASSIMP_FOUND_LIBS "${ASSIMP_DIR}/build/lib/Release/assimp*.lib" "${ASSIMP_DIR}/build/lib/assimp*.lib" "${ASSIMP_DIR}/lib/assimp*.lib")
+        if(ASSIMP_FOUND_LIBS)
+            list(GET ASSIMP_FOUND_LIBS 0 ASSIMP_LIBRARY)
+        else()
+            set(ASSIMP_LIBRARY "${ASSIMP_DIR}/build/lib/Release/assimp-vc145-mt.lib")
+        endif()
+    endif()
 else()
+    # Linux / MSYS2 / macOS
     find_package(SDL2 REQUIRED)
     find_package(SDL2_mixer REQUIRED)
     find_package(glm REQUIRED)
-    find_package(Jolt REQUIRED)
-    find_package(GLEW REQUIRED)
     find_package(OpenGL REQUIRED)
+    find_package(GLEW REQUIRED)
     find_package(nlohmann_json REQUIRED)
-    find_package(Git REQUIRED)
     find_package(assimp REQUIRED)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    find_package(Jolt REQUIRED)
 endif()
 
-# ---------- GIT ----------
-execute_process(COMMAND ${GIT_EXECUTABLE} log -1 --format=%h OUTPUT_VARIABLE GIT_HASH OUTPUT_STRIP_TRAILING_WHITESPACE)
-execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD OUTPUT_VARIABLE GIT_BRANCH OUTPUT_STRIP_TRAILING_WHITESPACE)
-configure_file(src/common/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h)
-
-# ---------- ImGui ----------
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/../imgui)
-add_library(imgui STATIC
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-)
-target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
-
-if(MSVC)
-    target_include_directories(imgui PUBLIC ${SDL2_INCLUDE_DIR})
-    target_link_libraries(imgui PUBLIC ${SDL2_LIBRARY} OpenGL::GL)
-else()
-    target_link_libraries(imgui PUBLIC SDL2::SDL2 OpenGL::GL)
+# ==========================================================
+# 2. Git Info & Embedded Shaders
+# ==========================================================
+if(GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_BRANCH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+if(NOT GIT_HASH)
+    set(GIT_HASH "unknown")
+endif()
+if(NOT GIT_BRANCH)
+    set(GIT_BRANCH "main")
 endif()
 
-# ---------- ImGuizmo ----------
-set(IMGUIZMO_DIR ${CMAKE_SOURCE_DIR}/../ImGuizmo/src/)
-add_library(imguizmo STATIC
-    ${IMGUIZMO_DIR}/ImGuizmo.cpp
-    ${IMGUIZMO_DIR}/GraphEditor.cpp
-    ${IMGUIZMO_DIR}/ImCurveEdit.cpp
-    ${IMGUIZMO_DIR}/ImGradient.cpp
-    ${IMGUIZMO_DIR}/ImSequencer.cpp
-    ${IMGUIZMO_DIR}/ImVectorEditor.cpp
+add_compile_definitions(
+    GIT_HASH="${GIT_HASH}"
+    GIT_BRANCH="${GIT_BRANCH}"
 )
-target_include_directories(imguizmo PUBLIC ${IMGUIZMO_DIR} ${IMGUI_DIR})
-target_link_libraries(imguizmo PUBLIC imgui)
 
-# ==========================================
-# core
-# ==========================================
-add_library(core SHARED src/core/Log.cpp)
-target_compile_definitions(core PRIVATE CORE_EXPORTS)
+set(SHADER_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/shaders_generated.h")
+file(GLOB SHADER_FILES
+    "${CMAKE_SOURCE_DIR}/src/shaders/*.vert"
+    "${CMAKE_SOURCE_DIR}/src/shaders/*.frag"
+)
+add_custom_command(
+    OUTPUT ${SHADER_OUTPUT}
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tools/embed_shaders.py"
+            "${CMAKE_SOURCE_DIR}/src/shaders"
+            ${SHADER_OUTPUT}
+    DEPENDS ${SHADER_FILES} "${CMAKE_SOURCE_DIR}/tools/embed_shaders.py"
+    COMMENT "Embedding GLSL shaders into C++ header..."
+)
+add_custom_target(GenerateShaders ALL DEPENDS ${SHADER_OUTPUT})
+
+# ==========================================================
+# 3. Shared Libraries (DLL / SO)
+# ==========================================================
+add_library(core SHARED src/core/FileSystem.cpp)
 target_include_directories(core PUBLIC src/common)
+target_compile_definitions(core PRIVATE CORE_EXPORTS)
 
-# ==========================================
-# geometry
-# ==========================================
-add_library(geometry SHARED src/geometry/BVH.cpp)
+add_library(geometry SHARED
+    src/geometry/Brush.cpp
+    src/geometry/Entity.cpp
+    src/geometry/GameDatabase.cpp
+    src/geometry/MapIO.cpp
+    src/geometry/UndoStack.cpp
+)
+target_include_directories(geometry PUBLIC src/common)
 target_compile_definitions(geometry PRIVATE GEOMETRY_EXPORTS)
-target_include_directories(geometry PUBLIC src/geometry src/common)
-
-if(MSVC)
-    target_include_directories(geometry PUBLIC ${GLM_INCLUDE_DIR})
+if(MSVC AND NOT USE_VCPKG)
+    target_include_directories(geometry PUBLIC ${GLM_INCLUDE_DIR} ${JSON_INCLUDE_DIR})
     target_link_libraries(geometry PUBLIC core)
+elseif(MSVC AND USE_VCPKG)
+    target_link_libraries(geometry PUBLIC core glm::glm nlohmann_json::nlohmann_json)
 else()
-    target_link_libraries(geometry PUBLIC core glm::glm)
+    target_link_libraries(geometry PUBLIC core glm::glm nlohmann_json::nlohmann_json)
 endif()
 
-# ==========================================
-# physics
-# flags need to match:
-# JoltPhysics\Build\Build-MSVC\CMakeFiles\Jolt.dir\flags.make
-# ==========================================
-add_library(physics SHARED src/physics/Physics.cpp src/physics/Trace.cpp)
+add_library(physics SHARED
+    src/physics/Physics.cpp
+    src/physics/Trace.cpp
+)
+target_include_directories(physics PUBLIC src/common)
 target_compile_definitions(physics PRIVATE PHYSICS_EXPORTS)
-target_include_directories(physics PUBLIC src/common src/geometry)
-
 if(MSVC)
     target_include_directories(physics PUBLIC ${JOLT_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
     target_link_libraries(physics PUBLIC core geometry ${JOLT_LIBRARY} ${SDL2_MIXER_LIBRARY})
+    if(USE_VCPKG)
+        target_link_libraries(physics PUBLIC glm::glm)
+    endif()
     target_compile_definitions(physics PRIVATE
         JPH_DEBUG_RENDERER
         JPH_FLOATING_POINT_EXCEPTIONS_ENABLED
@@ -160,102 +178,110 @@ if(MSVC)
         JPH_USE_CPU_COMPUTE
     )
 else()
-    target_link_libraries(physics PUBLIC core geometry glm::glm Jolt::Jolt SDL2_mixer::SDL2_mixer)
+    target_link_libraries(physics PUBLIC core geometry Jolt::Jolt SDL2_mixer::SDL2_mixer)
 endif()
 
-# ==========================================
-# assets
-# ==========================================
 add_library(assets SHARED
-    src/assets/FileSystem.cpp
-    src/assets/TextureCache.cpp
-    src/assets/MapLoader.cpp
     src/assets/Audio.cpp
+    src/assets/MapLoader.cpp
     src/assets/ModelLoader.cpp
+    src/assets/TextureCache.cpp
     src/assets/WeaponModel.cpp
 )
-target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
-target_include_directories(assets PUBLIC src/assets src/common)
-
-if(MSVC)
-    target_include_directories(assets PUBLIC ${GLEW_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${ASSIMP_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(assets PUBLIC core ${GLEW_LIBRARY} ${SDL2_MIXER_LIBRARY} ${SDL2_LIBRARY} ${ASSIMP_LIBRARY} OpenGL::GL)
+target_include_directories(assets PUBLIC src/common "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_compile_definitions(assets PRIVATE ASSETS_EXPORTS)
+add_dependencies(assets GenerateShaders)
+if(MSVC AND NOT USE_VCPKG)
+    target_include_directories(assets PUBLIC ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${GLEW_INCLUDE_DIR} ${GLM_INCLUDE_DIR} ${ASSIMP_INCLUDE_DIR})
+    target_link_libraries(assets PUBLIC core ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY} ${GLEW_LIBRARY} opengl32 ${ASSIMP_LIBRARY})
+elseif(MSVC AND USE_VCPKG)
+    target_link_libraries(assets PUBLIC core ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY} ${GLEW_LIBRARY} opengl32 glm::glm ${ASSIMP_LIBRARY})
 else()
-    target_link_libraries(assets PUBLIC core GLEW::GLEW nlohmann_json::nlohmann_json SDL2_mixer::SDL2_mixer SDL2::SDL2 assimp::assimp)
+    target_link_libraries(assets PUBLIC core SDL2::SDL2 SDL2_mixer::SDL2_mixer GLEW::GLEW OpenGL::GL assimp::assimp)
 endif()
 
-# ---------- shader 嵌入 ----------
-set(SHADER_DIR ${CMAKE_SOURCE_DIR}/src/shaders)
-set(SHADER_GEN ${CMAKE_CURRENT_BINARY_DIR}/shaders_generated.h)
-file(GLOB SHADER_FILES ${SHADER_DIR}/*.vert ${SHADER_DIR}/*.frag)
-add_custom_command(
-    OUTPUT ${SHADER_GEN}
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/embed_shaders.py ${SHADER_DIR} ${SHADER_GEN}
-    DEPENDS ${SHADER_FILES} ${CMAKE_SOURCE_DIR}/tools/embed_shaders.py
-    COMMENT "Embedding GLSL shaders"
+add_library(game SHARED
+    src/game/AStar.cpp
+    src/game/Enemy.cpp
+    src/game/Level.cpp
+    src/game/Player.cpp
+    src/game/Weapon.cpp
 )
-add_custom_target(shaders_gen DEPENDS ${SHADER_GEN})
+target_include_directories(game PUBLIC src/common)
+target_compile_definitions(game PRIVATE GAME_EXPORTS)
+if(MSVC AND NOT USE_VCPKG)
+    target_include_directories(game PUBLIC ${JOLT_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
+    target_link_libraries(game PUBLIC core physics)
+elseif(MSVC AND USE_VCPKG)
+    target_include_directories(game PUBLIC ${JOLT_INCLUDE_DIR})
+    target_link_libraries(game PUBLIC core physics ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY} glm::glm)
+else()
+    target_link_libraries(game PUBLIC core physics)
+endif()
 
-# ---------- editor ----------
+# ==========================================================
+# 4. Executables (retro, editor, bvh)
+# ==========================================================
+set(IMGUI_SOURCES
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+add_executable(retro
+    src/retro/main.cpp
+    src/retro/Render.cpp
+    ${IMGUI_SOURCES}
+)
+target_include_directories(retro PRIVATE src/common ${IMGUI_DIR} ${IMGUI_DIR}/backends "${CMAKE_CURRENT_BINARY_DIR}/generated")
+add_dependencies(retro GenerateShaders)
+if(MSVC AND NOT USE_VCPKG)
+    target_include_directories(retro PRIVATE ${JOLT_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${GLEW_INCLUDE_DIR} ${GLM_INCLUDE_DIR} ${ASSIMP_INCLUDE_DIR})
+    target_link_libraries(retro PRIVATE core geometry physics assets game ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY} ${GLEW_LIBRARY} opengl32 ${ASSIMP_LIBRARY})
+elseif(MSVC AND USE_VCPKG)
+    target_include_directories(retro PRIVATE ${JOLT_INCLUDE_DIR})
+    target_link_libraries(retro PRIVATE core geometry physics assets game ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY} ${GLEW_LIBRARY} opengl32 glm::glm ${ASSIMP_LIBRARY})
+else()
+    target_link_libraries(retro PRIVATE core geometry physics assets game SDL2::SDL2main SDL2::SDL2 SDL2_mixer::SDL2_mixer GLEW::GLEW OpenGL::GL assimp::assimp)
+endif()
+
 add_executable(editor
-    src/editor/main.cpp src/editor/SceneGlobals.cpp src/editor/Brush.cpp
-    src/editor/Entity.cpp src/editor/UndoStack.cpp src/editor/EditorLayout.cpp
-    src/editor/GraphEditorPanel.cpp src/editor/GameDatabase.cpp src/editor/EditorPanels.cpp
-    src/editor/View2D.cpp src/editor/MapIO.cpp
+    src/editor/main.cpp
+    src/editor/EditorLayout.cpp
+    src/editor/EditorPanels.cpp
+    src/editor/GraphEditorPanel.cpp
+    src/editor/View2D.cpp
+    ${IMGUI_SOURCES}
+    ${IMGUIZMO_DIR}/GraphEditor.cpp
 )
-add_dependencies(editor shaders_gen)
-add_custom_command(TARGET editor POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/misc/halflife2.json $<TARGET_FILE_DIR:editor>/editor.json
-)
-target_include_directories(editor PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} src/core)
-
-if(MSVC)
-    target_include_directories(editor PRIVATE ${SDL2_INCLUDE_DIR} ${GLEW_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(editor PRIVATE imgui imguizmo ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} OpenGL::GL core geometry assets game)
+target_include_directories(editor PRIVATE src/common ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR} "${CMAKE_CURRENT_BINARY_DIR}/generated")
+add_dependencies(editor GenerateShaders)
+if(MSVC AND NOT USE_VCPKG)
+    target_include_directories(editor PRIVATE ${SDL2_INCLUDE_DIR} ${GLEW_INCLUDE_DIR} ${GLM_INCLUDE_DIR} ${JSON_INCLUDE_DIR})
+    target_link_libraries(editor PRIVATE core geometry ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} opengl32)
+elseif(MSVC AND USE_VCPKG)
+    target_link_libraries(editor PRIVATE core geometry ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} opengl32 glm::glm nlohmann_json::nlohmann_json)
 else()
-    target_link_libraries(editor PRIVATE imgui imguizmo SDL2::SDL2main SDL2::SDL2 glm::glm GLEW::GLEW OpenGL::GL nlohmann_json::nlohmann_json core geometry assets game)
+    target_link_libraries(editor PRIVATE core geometry SDL2::SDL2main SDL2::SDL2 GLEW::GLEW OpenGL::GL)
 endif()
 
-# ---------- bvh (map) ----------
 add_executable(bvh
-    src/map/main.cpp src/map/JsonParser.cpp src/map/BrushBuilder.cpp
-    src/map/LumpPacker.cpp src/map/LightBaker.cpp src/map/NavGridBuilder.cpp
+    src/map/main.cpp
+    src/map/BrushBuilder.cpp
+    src/map/JsonParser.cpp
+    src/map/LightBaker.cpp
+    src/map/LumpPacker.cpp
     src/map/NodeGraphBuilder.cpp
 )
-target_include_directories(bvh PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/common ${CMAKE_CURRENT_BINARY_DIR})
-
-if(MSVC)
-    target_include_directories(bvh PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(bvh PRIVATE core geometry assets)
+target_include_directories(bvh PRIVATE src/common)
+if(MSVC AND NOT USE_VCPKG)
+    target_include_directories(bvh PRIVATE ${GLM_INCLUDE_DIR} ${JSON_INCLUDE_DIR})
+    target_link_libraries(bvh PRIVATE core geometry)
+elseif(MSVC AND USE_VCPKG)
+    target_link_libraries(bvh PRIVATE core geometry glm::glm nlohmann_json::nlohmann_json)
 else()
-    target_link_libraries(bvh PRIVATE nlohmann_json::nlohmann_json core geometry assets)
-endif()
-
-# ==========================================
-# game
-# ==========================================
-add_library(game SHARED
-    src/game/Player.cpp src/game/Weapon.cpp src/game/Enemy.cpp
-    src/game/AStar.cpp src/game/Level.cpp
-)
-target_compile_definitions(game PRIVATE GAME_EXPORTS)
-target_include_directories(game PUBLIC src/game src/common src/physics ${CMAKE_CURRENT_BINARY_DIR})
-
-if(MSVC)
-    target_include_directories(game PUBLIC ${JOLT_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(game PUBLIC core geometry physics assets imgui ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY})
-else()
-    target_link_libraries(game PUBLIC core geometry physics assets imgui glm::glm SDL2::SDL2 nlohmann_json::nlohmann_json)
-endif()
-
-# ---------- retro ----------
-add_executable(retro src/retro/main.cpp src/retro/Render.cpp)
-add_dependencies(retro shaders_gen)
-target_include_directories(retro PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/common src/physics ${CMAKE_CURRENT_BINARY_DIR})
-
-if(MSVC)
-    target_include_directories(retro PRIVATE ${SDL2_INCLUDE_DIR} ${GLEW_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(retro PRIVATE imgui imguizmo ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} OpenGL::GL core geometry assets game)
-else()
-    target_link_libraries(retro PRIVATE game imgui SDL2::SDL2main SDL2::SDL2 GLEW::GLEW OpenGL::GL)
+    target_link_libraries(bvh PRIVATE core geometry)
 endif()
