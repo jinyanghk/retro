@@ -255,13 +255,9 @@ else()
     target_link_libraries(bvh PRIVATE nlohmann_json::nlohmann_json core geometry assets)
 endif()
 
-==========================================
-
-
-game
-
-
-==========================================
+#==========================================
+# game
+#==========================================
 
 add_library(game SHARED
     src/game/Player.cpp src/game/Weapon.cpp src/game/Enemy.cpp
