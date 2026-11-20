@@ -2,7 +2,7 @@ name: Build Cross-Platform (Windows & Linux x64)
 
 on:
   push:
-    branches: [ main, ci ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -17,8 +17,8 @@ jobs:
 
       - name: Checkout sibling header/source repos (imgui & ImGuizmo)
         run: |
-          git clone --depth 1 https://github.com imgui
-          git clone --depth 1 https://github.com ImGuizmo
+          git clone --depth 1 -b docking https://github.com/ocornut/imgui
+          git clone --depth 1 https://github.com/CedricGuillemet/ImGuizmo
 
       - name: Install Ubuntu dependencies
         run: |
@@ -29,7 +29,7 @@ jobs:
 
       - name: Build & Install JoltPhysics
         run: |
-          git clone --depth 1 https://github.com JoltPhysics
+          git clone --depth 1 https://github.com/jrouwe/JoltPhysics
           cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-Linux -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -63,9 +63,9 @@ jobs:
       - name: Checkout sibling repos & Build JoltPhysics
         shell: cmd
         run: |
-          git clone --depth 1 https://github.com imgui
-          git clone --depth 1 https://github.com ImGuizmo
-          git clone --depth 1 https://github.com JoltPhysics
+          git clone --depth 1 -b docking https://github.com/ocornut/imgui
+          git clone --depth 1 https://github.com/CedricGuillemet/ImGuizmo
+          git clone --depth 1 https://github.com/jrouwe/JoltPhysics
           cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-MSVC ^
             -DCMAKE_BUILD_TYPE=Release ^
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL ^
