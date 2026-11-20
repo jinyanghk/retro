@@ -46,6 +46,7 @@ if(MSVC)
         find_package(glm CONFIG REQUIRED)
         find_package(nlohmann_json CONFIG REQUIRED)
         find_package(assimp CONFIG REQUIRED)
+        find_path(STB_INCLUDE_DIR NAMES stb_image.h REQUIRED)
 
         set(SDL2_LIBRARY SDL2::SDL2)
         set(SDL2MAIN_LIBRARY SDL2::SDL2main)
@@ -74,6 +75,9 @@ if(MSVC)
         set(GLEW_INCLUDE_DIR "${GLEW_DIR}/include")
         set(GLEW_LIBRARY "${GLEW_DIR}/lib/Release/x64/glew32.lib")
 
+        # 5. stb (header-only)
+        set(STB_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../stb")
+
         # 6. nlohmann_json (header-only)
         set(NLOHMANN_JSON_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../nlohmann_json")
 
@@ -90,6 +94,11 @@ else()
     find_package(GLEW REQUIRED)
     find_package(nlohmann_json REQUIRED)
     find_package(assimp REQUIRED)
+    find_path(STB_INCLUDE_DIR NAMES stb_image.h
+        HINTS "${CMAKE_SOURCE_DIR}/../stb"
+        PATH_SUFFIXES stb
+        REQUIRED
+    )
 endif()
 
 # ---------- GIT ----------
@@ -197,7 +206,7 @@ add_library(assets SHARED
     src/assets/WeaponModel.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
-target_include_directories(assets PUBLIC src/assets src/common)
+target_include_directories(assets PUBLIC src/assets src/common ${STB_INCLUDE_DIR})
 
 if(MSVC AND NOT USE_VCPKG)
     target_include_directories(assets PUBLIC ${GLEW_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${ASSIMP_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
@@ -242,17 +251,16 @@ endif()
 
 # ---------- bvh (map) ----------
 add_executable(bvh
-    src/map/main.cpp src/map/JsonParser.cpp src/map/BrushBuilder.cpp
-    src/map/LumpPacker.cpp src/map/LightBaker.cpp src/map/NavGridBuilder.cpp
-    src/map/NodeGraphBuilder.cpp
+src/map/main.cpp src/map/JsonParser.cpp src/map/BrushBuilder.cpp
+src/map/LumpPacker.cpp src/map/LightBaker.cpp src/map/NavGridBuilder.cpp
+src/map/NodeGraphBuilder.cpp
 )
 target_include_directories(bvh PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/common ${CMAKE_CURRENT_BINARY_DIR})
-
 if(MSVC AND NOT USE_VCPKG)
-    target_include_directories(bvh PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(bvh PRIVATE core geometry assets)
+target_include_directories(bvh PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
+target_link_libraries(bvh PRIVATE core geometry assets)
 else()
-    target_link_libraries(bvh PRIVATE nlohmann_json::nlohmann_json core geometry assets)
+target_link_libraries(bvh PRIVATE nlohmann_json::nlohmann_json core geometry assets)
 endif()
 
 #==========================================
