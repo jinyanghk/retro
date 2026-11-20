@@ -2,7 +2,7 @@ name: Build Cross-Platform (Windows & Linux x64)
 
 on:
   push:
-    branches: [ main, CI ]
+    branches: [ main, ci ]
   pull_request:
     branches: [ main ]
 
