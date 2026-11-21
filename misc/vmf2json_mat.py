@@ -205,12 +205,9 @@ def brush_faces(sides):
 def to_my_json(solids, entities, out_path):
     out = {'brushes': [], 'entities': [], 'format': 'retro_map_v2', 'nav_nodes': []}
     
-    # 👈 全局 ID 分配器
-    next_brush_id = 1
-    next_entity_id = 1000000
-
-    # 记录 Brush 的 ID 列表（用于分组）
-    brush_ids = []
+    # 不再使用自增 ID
+    # next_brush_id = 1
+    # next_entity_id = 1000000
 
     for sides in solids:
         faces = brush_faces(sides)
@@ -252,16 +249,14 @@ def to_my_json(solids, entities, out_path):
                 'vaxis': convert_axis_str(f['vaxis']),
             })
 
-        # 👈 使用自增 ID
+        # Brush 没有原生 ID，这里保留自增（或者你可以用哈希生成一个，但自增也能保证唯一）
         out['brushes'].append({
-            'id': next_brush_id,
+            'id': len(out['brushes']) + 1,
             'position': conv(center),
             'halfSize': [half[0], half[2], half[1]], 
             'material': default_mat,
             'faces': json_faces,
-        })
-        brush_ids.append(next_brush_id)
-        next_brush_id += 1
+        })        
 
     primary_spawn_added = False
     for e in entities:
@@ -298,12 +293,15 @@ def to_my_json(solids, entities, out_path):
         else:
             bbox_mins, bbox_maxs = bbox_result
 
+        # 从 VMF 的 kv 中获取原始的 hammerid
+        hammer_id = e['kv'].get('id', '')
+
         if cn == 'info_player_start':
             targetname = e['kv'].get('targetname', '')
             if targetname == 'primary' or not primary_spawn_added:
                 o = e['origin']
                 out['entities'].append({
-                    'id': next_entity_id,
+                    'id': int(hammer_id) if hammer_id else 0, # 👈 使用原生 ID
                     'classname': cn,
                     'origin': [o[0], o[2], -o[1]],
                     'angles': [0.0, 0.0, 0.0],
@@ -314,7 +312,6 @@ def to_my_json(solids, entities, out_path):
                     'connections': [],
                 })
                 primary_spawn_added = True
-                next_entity_id += 1
             continue 
             
         if cn in ('info_node', 'npc_zombie', 'func_door', 'trigger_multiple', 'trigger_once', 'light', 'light_spot', 'prop_physics', 'func_physbox'):
@@ -326,11 +323,11 @@ def to_my_json(solids, entities, out_path):
             except ValueError:
                 angles = [0.0, 0.0, 0.0]
             
-            # 👈 把关键参数都保留下来
+            # 把关键参数和 target, connections 都保留下来
             props = {k: v for k, v in e['kv'].items() if k in ('targetname', 'target', 'speed', 'lip', '_light', '_distance', 'spawnflags')}
             
             out['entities'].append({
-                'id': next_entity_id,
+                'id': int(hammer_id) if hammer_id else 0, # 👈 使用原生 ID
                 'classname': cn,
                 'origin': [o[0], o[2], -o[1]],
                 'angles': angles,
@@ -340,12 +337,10 @@ def to_my_json(solids, entities, out_path):
                 'customs': {},
                 'connections': [],
             })
-            next_entity_id += 1
 
     # ================= 👈 自动分组逻辑 =================
     groups = []
     
-    # 辅助函数：创建一个组（参数直接是 ID 列表）
     def add_group(name, brushes=None, entities=None):
         if brushes is None: brushes = []
         if entities is None: entities = []
@@ -362,17 +357,13 @@ def to_my_json(solids, entities, out_path):
     enemy_entities = []
     light_entities = []
     spawn_entities = []
-    
-    # 记录按 targetname 分组的字典 (targetname -> {"entities": [], "brushes": []})
-    target_groups = {}
 
-    # 遍历我们刚刚生成的 out['entities'] 数组
+    # 遍历刚刚生成的 out['entities'] 数组
     for idx, ent in enumerate(out['entities']):
         cn = ent['classname']
-        tname = ent.get('properties', {}).get('targetname', '')
-        eid = ent['id']  # 👈 直接取 ID
+        eid = ent['id']  # 👈 直接用原生 ID
         
-        # 1. 基础类型分组（存 ID）
+        # 1. 基础类型分组（保留）
         if cn == 'info_node':
             nav_entities.append(eid)
         elif cn == 'npc_zombie':
@@ -381,26 +372,12 @@ def to_my_json(solids, entities, out_path):
             light_entities.append(eid)
         elif cn == 'info_player_start':
             spawn_entities.append(eid)
-            
-        # 2. 陷阱/机关逻辑分组 (Trigger, Door, Physics)
-        if cn in ('trigger_multiple', 'trigger_once', 'func_door', 'prop_physics', 'func_physbox'):
-            if tname:
-                if tname not in target_groups:
-                    target_groups[tname] = {"entities": [], "brushes": []}
-                target_groups[tname]["entities"].append(eid)
 
-    # 3. 组装成组（存的是 ID 列表）
+    # 2. 组装成组
     add_group("Nav_Nodes", entities=nav_entities)
     add_group("Enemy_Spawns", entities=enemy_entities)
     add_group("Lighting", entities=light_entities)
     add_group("Player_Spawn", entities=spawn_entities)
-    
-    # 4. 按 targetname 组装
-    for tname, data in target_groups.items():
-        if len(data["entities"]) > 1:
-            add_group(f"Logic_{tname}", brushes=data["brushes"], entities=data["entities"])
-        else:
-            add_group(f"Obj_{tname}", brushes=data["brushes"], entities=data["entities"])
 
     out['groups'] = groups
 

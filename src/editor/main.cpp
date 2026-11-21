@@ -1705,7 +1705,7 @@ int main(int argc, char** argv)
         DrawToolsPanel();
         BrushPanelResult panelRes;
         DrawScenePanel(&g_iSelectedEntity, &g_iSelectedBrush, panelRes);
-        DrawGraphEditorPanel();
+        //DrawGraphEditorPanel();
         Draw3DView(g_bLeftMouseDown, g_bRightMouseDown, g_bMiddleMouseDown);
         Draw2DViews();
 
