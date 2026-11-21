@@ -1703,11 +1703,11 @@ int main(int argc, char** argv)
         EditorLayout::Begin();
         DrawMenuBar();
         DrawToolsPanel();
-        BrushPanelResult panelRes;
+        PanelResult panelRes;
         DrawScenePanel(&g_iSelectedEntity, &g_iSelectedBrush, panelRes);
         //DrawGraphEditorPanel();
         Draw3DView(g_bLeftMouseDown, g_bRightMouseDown, g_bMiddleMouseDown);
-        Draw2DViews();
+        Draw2DViews(panelRes);   // 👈 改签名
 
         DrawCompileOptionsWindow();
         DrawMaterialBrowserWindow();
@@ -1716,6 +1716,7 @@ int main(int argc, char** argv)
             UndoStack::Instance().PushSnapshot("New Brush");
             CBrush b;
             b.m_id = GenerateUniqueID();
+            b.m_vecPos  = panelRes.newBrushPos;          // 👈 用 2D 落点（默认 (0,32,0)）
             b.m_vecPos  = glm::vec3(0,32,0);
             b.m_vecSize = glm::vec3(32,32,32);
             b.RebuildPrimitiveMesh();
@@ -1756,11 +1757,12 @@ int main(int argc, char** argv)
             CEntity e;
             e.m_id = GenerateUniqueID();
             e.m_szName = panelRes.szNewEntityClass;
-            e.m_vecPos = glm::vec3(0,32,0);
+            e.m_vecPos = panelRes.newEntityPos;   // 👈 见第三节，用 2D 落点
             if (e.m_szName == "info_player_start") e.m_iType = ENTITY_PLAYER_START;
             else if (e.m_szName == "light")       e.m_iType = ENTITY_LIGHT;
             UpdateEntityBBox(e);
             g_entities.push_back(e);
+            g_entityVisible.push_back(1);         // 👈 补这句
             g_iSelectedEntity = (int)g_entities.size() - 1;
         }
 

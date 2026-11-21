@@ -2,10 +2,13 @@
 #pragma once
 
 #include <string>
+
+#include <glm/glm.hpp>
+
 #include "Entity.h"
 #include "Brush.h"
 
-struct BrushPanelResult {
+struct PanelResult {
     bool bRequestNew = false;
     bool bRequestDelete = false;
     uint64_t targetId = 0;         // 👈 新增：要删除/复制的 Brush ID
@@ -20,13 +23,16 @@ struct BrushPanelResult {
 
     bool bRequestNewEntity = false;
     std::string szNewEntityClass;
+
+    glm::vec3 newBrushPos  = glm::vec3(0, 32, 0);
+    glm::vec3 newEntityPos = glm::vec3(0, 32, 0);
 };
 
 void DrawMenuBar();
 void DrawToolsPanel();
 void DrawConsolePanel();
 void DrawViewportPanel();
-void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out);
+void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out);
 
 void SetExportMapHandler(void (*pfn)());
 void SetImportMapHandler(void (*pfn)());

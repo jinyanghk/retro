@@ -48,3 +48,6 @@ int g_iSelectedGroup = -1;
 
 uint64_t g_nextUniqueId = 1;
 uint64_t GenerateUniqueID() { return g_nextUniqueId++; }
+
+EditorTool  g_iCurrentTool = TOOL_SELECT;
+std::string g_szPendingEntityClass = "light";

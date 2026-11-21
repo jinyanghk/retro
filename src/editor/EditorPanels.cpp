@@ -105,10 +105,25 @@ void DrawMaterialBrowserWindow() {
                         
                         // 画缩略图按钮
                         if (ImGui::ImageButton(mat.c_str(), (ImTextureID)(intptr_t)texId, ImVec2(thumbSize, thumbSize))) {
-                            // 点击了材质
                             if (g_pTargetMaterial) {
                                 UndoStack::Instance().PushSnapshot("Material Change");
                                 *g_pTargetMaterial = mat;
+
+                                // 👈 按指针身份直接回写到 brush，不依赖面板轮询
+                                if (g_pTargetMaterial == &g_selectedMaterialTemp &&
+                                    g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size())
+                                {
+                                    CBrush& b = g_brushes[g_iSelectedBrush];
+                                    b.m_szMaterial = mat;
+                                    for (int f = 0; f < 6; f++) b.m_faces[f].m_szMaterial = mat;
+                                }
+                                else if (g_pTargetMaterial == &g_selectedFaceMaterialTemp &&
+                                         g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size())
+                                {
+                                    CBrush& b = g_brushes[g_iSelectedBrush];
+                                    if (g_iSelectedFace >= 0 && g_iSelectedFace < 6)
+                                        b.m_faces[g_iSelectedFace].m_szMaterial = mat;
+                                }
                             }
                             g_bShowMaterialBrowser = false;
                         }
@@ -208,6 +223,44 @@ void DrawToolsPanel()
 {
     if (!ImGui::Begin("Tools")) { ImGui::End(); return; }
 
+    if (ImGui::CollapsingHeader("Tool:", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        auto ToolRadio = [](const char* label, EditorTool t) {
+            if (ImGui::RadioButton(label, g_iCurrentTool == t)) {
+                g_iCurrentTool = t;
+                g_bBlockToolActive = (t == TOOL_CREATE_BRUSH); // 👈 复用现有 Box Create
+            }
+            //ImGui::SameLine();
+        };
+        ToolRadio("Select",        TOOL_SELECT);
+        ToolRadio("Create Brush",  TOOL_CREATE_BRUSH);
+        ToolRadio("Create Entity", TOOL_CREATE_ENTITY);
+        ImGui::NewLine();
+
+        if (g_iCurrentTool == TOOL_CREATE_ENTITY) {
+            static char s_toolEntFilter[64] = "";
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint("##ToolEntFilter", "Search classname...",
+                                    s_toolEntFilter, sizeof(s_toolEntFilter));
+
+            std::vector<std::string> allClasses = GameDatabase::Instance().GetClassList();
+            std::sort(allClasses.begin(), allClasses.end());
+
+            std::string filterStr = s_toolEntFilter;
+            std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), ::tolower);
+
+            ImGui::BeginChild("##ToolEntityPalette", ImVec2(0, 160), true);
+            for (const auto& className : allClasses) {
+                std::string lowerClass = className;
+                std::transform(lowerClass.begin(), lowerClass.end(), lowerClass.begin(), ::tolower);
+                if (!filterStr.empty() && lowerClass.find(filterStr) == std::string::npos) continue;
+                if (ImGui::Selectable(className.c_str(), g_szPendingEntityClass == className))
+                    g_szPendingEntityClass = className;
+            }
+            ImGui::EndChild();
+        }
+    }
+
     if (ImGui::CollapsingHeader("Gizmo:", ImGuiTreeNodeFlags_DefaultOpen))
     {
         struct GizmoItem { const char* label; GizmoMode mode; };
@@ -277,7 +330,7 @@ static std::string GetEntitySearchString(const CEntity& e)
     return result;
 }
 
-void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
+void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 {
     if (!ImGui::Begin("Scene")) { ImGui::End(); return; }
 
@@ -783,6 +836,54 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Size");
             b.RebuildPrimitiveMesh();
         }
+
+        // =========================================================
+        // Brush 材质编辑（brush-level + per-face）
+        // =========================================================
+        ImGui::Separator();
+        ImGui::Text("Material (brush-level):");
+
+        char btnId[64];
+        snprintf(btnId, sizeof(btnId), "##BrushMatBtn%d", *pSelBrush);
+        const char* displayText = b.m_szMaterial.empty() ? "<empty>" : b.m_szMaterial.c_str();
+
+        if (ImGui::Button((std::string(displayText) + btnId).c_str(), ImVec2(200, 0))) {
+            g_selectedMaterialTemp = b.m_szMaterial;
+            g_bShowMaterialBrowser = true;
+            g_pTargetMaterial = &g_selectedMaterialTemp;
+        }
+
+        if (ImGui::Button("Reset to inherit##BrushMat")) {
+            UndoStack::Instance().PushSnapshot("Brush Material");
+            b.m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
+            for (int f = 0; f < 6; f++) {
+                b.m_faces[f].m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
+            }
+        }
+
+        // --- 面材质 ---
+        ImGui::Separator();
+        ImGui::Text("Per-face materials:");
+        const char* faceNames[6] = {"+Z(顶)","-Z(底)","+X(右)","-X(左)","+Y(后)","-Y(前)"};
+        if (g_iSelectedFace < 0 || g_iSelectedFace >= 6) g_iSelectedFace = 0;
+        ImGui::Combo("Face", &g_iSelectedFace, faceNames, 6);
+
+        std::string& faceMat = b.m_faces[g_iSelectedFace].m_szMaterial;
+
+        char faceBtnLabel[512];
+        snprintf(faceBtnLabel, sizeof(faceBtnLabel), "%s##FaceMatBtn%d_%d",
+                 faceMat.empty() ? "<inherit>" : faceMat.c_str(), *pSelBrush, g_iSelectedFace);
+
+        if (ImGui::Button(faceBtnLabel, ImVec2(200, 0))) {
+            g_selectedFaceMaterialTemp = faceMat;
+            g_bShowMaterialBrowser = true;
+            g_pTargetMaterial = &g_selectedFaceMaterialTemp;
+        }
+
+        if (ImGui::Button("Reset to inherit##FaceMat")) {
+            UndoStack::Instance().PushSnapshot("Face Material");
+            faceMat.clear();
+        }        
     } 
     else {
         ImGui::TextDisabled("Nothing selected.");
@@ -809,13 +910,6 @@ void DrawConsolePanel()
         ImGui::TextColored(col, "%s", line.c_str());
     }
     ImGui::EndChild();
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------------------
-void DrawScenePanel()
-{
-    if (!ImGui::Begin("Scene")) { ImGui::End(); return; }
     ImGui::End();
 }
 
