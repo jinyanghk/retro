@@ -196,7 +196,11 @@ void DrawMenuBar()
 
             ImGui::Separator();
 
+            ImGui::MenuItem("Show Brushes", nullptr, &g_bShowBrushes);
+            ImGui::MenuItem("Show Entities", nullptr, &g_bShowEntities);
             ImGui::MenuItem("Show Nav Nodes", nullptr, &g_bShowNav);
+
+            ImGui::Separator();
 
             if (ImGui::MenuItem("Check Nav Collisions")) {
                 CheckNavCollisions();
@@ -223,7 +227,7 @@ void DrawToolsPanel()
 {
     if (!ImGui::Begin("Tools")) { ImGui::End(); return; }
 
-    if (ImGui::CollapsingHeader("Tool:", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Mode", ImGuiTreeNodeFlags_DefaultOpen))
     {
         auto ToolRadio = [](const char* label, EditorTool t) {
             if (ImGui::RadioButton(label, g_iCurrentTool == t)) {
@@ -261,7 +265,7 @@ void DrawToolsPanel()
         }
     }
 
-    if (ImGui::CollapsingHeader("Gizmo:", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Gizmo", ImGuiTreeNodeFlags_DefaultOpen))
     {
         struct GizmoItem { const char* label; GizmoMode mode; };
         GizmoItem items[] = {
@@ -340,12 +344,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     
     std::string filterLower = s_sceneFilter;
     std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
-
-    // 2. 全局显示开关
-    ImGui::Checkbox("Show Brushes", &g_bShowBrushes);
-    ImGui::SameLine();
-    ImGui::Checkbox("Show Entities", &g_bShowEntities);
-    ImGui::Separator();
 
     float treeHeight = ImGui::GetContentRegionAvail().y * 0.5f;
     

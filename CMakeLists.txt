@@ -236,6 +236,7 @@ add_executable(editor
     src/editor/GraphEditorPanel.cpp src/editor/GameDatabase.cpp src/editor/EditorPanels.cpp
     src/editor/View2D.cpp src/editor/MapIO.cpp
     src/editor/EditorGL.cpp src/editor/EditorPicking.cpp src/editor/EditorGizmo.cpp
+    src/editor/EditorViewport.cpp src/editor/EditorInput.cpp
 )
 add_dependencies(editor shaders_gen)
 add_custom_command(TARGET editor POST_BUILD

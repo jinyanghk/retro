@@ -1,114 +1,63 @@
 #include <GL/glew.h>
 #include <SDL.h>
-#include <SDL_opengl.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 #include "imgui.h"
-#include "imgui_internal.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
 #include "ImGuizmo.h"
 
+#include "EditorCamera.h"
+#include "EditorInput.h"
+#include "EditorViewport.h"
+#include "EditorGL.h"
 #include "SceneGlobals.h"
-#include "Entity.h"
-#include "UndoStack.h"
 #include "EditorLayout.h"
-#include "GameDatabase.h"
 #include "EditorPanels.h"
 #include "View2D.h"
 #include "MapIO.h"
+#include "MapLoader.h"
+#include "TextureCache.h"
 #include "version.h"
 #include "Log.h"
 #include "FileSystem.h"
-#include "MapLoader.h"
-#include "TextureCache.h"
-#include "BVH.h"
-
-// 引入拆分出的模块
-#include "EditorGL.h"
-#include "EditorPicking.h"
-#include "EditorGizmo.h"
-
-#include <cstdio>
-#include <cstring>
-#include <cmath>
-#include <vector>
-#include <string>
-#include <iostream>
-#include <unordered_map>
-#include <filesystem>
-#include <set>
-#include <algorithm>
+#include "GameDatabase.h"
+#include "UndoStack.h"
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+#include <iostream>
+#include <filesystem>
+#include <set>
+
 namespace fs = std::filesystem;
 
-// ---------------------------------------------------------
-// 全局状态（原本在 SceneGlobals 或 main 的）
-// ---------------------------------------------------------
-struct Camera {
-    glm::vec3 target = glm::vec3(0, 100, 0);
-    float yaw   = 0.0f;
-    float pitch = 0.0f;
-    float dist  = 200.0f;
-    glm::vec3 GetEye() const {
-        float rp = glm::radians(pitch), ry = glm::radians(yaw);
-        return target + glm::vec3(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry)) * dist;
-    }
-    glm::mat4 GetView() const { return glm::lookAt(GetEye(), target, glm::vec3(0,1,0)); }
-};
+// 全局定义
+Camera g_cam;
+bool g_bLeftMouseDown = false, g_bRightMouseDown = false, g_bMiddleMouseDown = false;
+bool g_bDraggingGizmo = false;
+int g_iMouseX = 0, g_iMouseY = 0;
+static int g_iLastMouseX = 0, g_iLastMouseY = 0;
 
-static SDL_Window*   g_window    = nullptr;
+static SDL_Window* g_window = nullptr;
 static SDL_GLContext g_glContext = nullptr;
-static int           g_winW      = 1280;
-static int           g_winH      = 800;
-static float         main_scale  = 1.0f;
-
-Camera        g_cam;
-bool          g_bLeftMouseDown  = false;
-bool          g_bRightMouseDown = false;
-bool          g_bMiddleMouseDown= false;
-bool          g_bDraggingGizmo  = false; // Gizmo.cpp 会 extern 这个
-int           g_iMouseX = 0, g_iMouseY = 0;
-int           g_iLastMouseX = 0, g_iLastMouseY = 0;
-
-static MapData g_loadedMapData;
-static bool g_bLoadedBvh = false;
-static std::vector<MapData::NodeData> g_editorNavNodes;
-
-struct BadNavLink { glm::vec3 start, end; };
-struct BadNavNode { glm::vec3 pos; };
-static std::vector<BadNavLink> g_badNavLinks;
-static std::vector<BadNavNode> g_badNavNodes;
+static int g_winW = 1280, g_winH = 800;
+static float main_scale = 1.0f;
 
 static std::set<uint64_t> g_pendingDeleteBrushIds;
 static std::set<uint64_t> g_pendingDeleteEntityIds;
 
+// 材质的全局缓存
 std::unordered_map<std::string, std::string> g_materialPathMap;
 std::unordered_map<std::string, GLuint> g_matThumbCache;
 
-// ---------------------------------------------------------
-// 材质扫描
-// ---------------------------------------------------------
-static void ScanMaterialsRecursive(const std::string& rootDir) {
-    g_allMaterials.clear(); g_materialPathMap.clear(); g_matThumbCache.clear();
-    if (!fs::exists(rootDir)) return;
-    int count = 0;
-    for (auto& p : fs::recursive_directory_iterator(rootDir)) {
-        if (!p.is_regular_file() || p.path().extension() != ".png" || p.path().filename() == "normal_map.png") continue;
-        std::string rel = fs::relative(p.path(), rootDir).generic_string();
-        rel = rel.substr(0, rel.size() - 4);
-        g_allMaterials.push_back(rel);
-        g_materialPathMap[rel] = p.path().generic_string();
-        count++;
-    }
-    std::sort(g_allMaterials.begin(), g_allMaterials.end());
-    printf("[Editor] Scanned %d materials from %s\n", count, rootDir.c_str());
+// 暴露给 EditorPanels 和 View2D 的接口
+glm::vec3* GetEditorCamTarget() { return &g_cam.target; }
+float* GetEditorCamDist() { return &g_cam.dist; }
+
+void InitVisibilityArrays() {
+    g_brushVisible.assign(g_brushes.size(), 1);
+    g_entityVisible.assign(g_entities.size(), 1);
 }
 
 GLuint GetMaterialThumb(const std::string& matName) {
@@ -122,17 +71,19 @@ GLuint GetMaterialThumb(const std::string& matName) {
     return texId;
 }
 
-void InitVisibilityArrays() {
-    g_brushVisible.assign(g_brushes.size(), 1);
-    g_entityVisible.assign(g_entities.size(), 1);
+static void ScanMaterialsRecursive(const std::string& rootDir) {
+    g_allMaterials.clear(); g_materialPathMap.clear(); g_matThumbCache.clear();
+    if (!fs::exists(rootDir)) return;
+    for (auto& p : fs::recursive_directory_iterator(rootDir)) {
+        if (!p.is_regular_file() || p.path().extension() != ".png" || p.path().filename() == "normal_map.png") continue;
+        std::string rel = fs::relative(p.path(), rootDir).generic_string();
+        rel = rel.substr(0, rel.size() - 4);
+        g_allMaterials.push_back(rel);
+        g_materialPathMap[rel] = p.path().generic_string();
+    }
+    std::sort(g_allMaterials.begin(), g_allMaterials.end());
 }
 
-glm::vec3* GetEditorCamTarget() { return &g_cam.target; }
-float* GetEditorCamDist() { return &g_cam.dist; }
-
-// ---------------------------------------------------------
-// 默认场景 & 回调
-// ---------------------------------------------------------
 static void BuildDefaultScene() {
     g_brushes.clear(); g_entities.clear();
     const float HALF_W=4096.0f, WALL_TH=16.0f, FLOOR_H=16.0f, CEIL_H=16.0f, ROOM_H=2048.0f;
@@ -192,9 +143,7 @@ static void OnCompileAndRun() {
     ret = system(cmdGame.c_str());
     snprintf(b, sizeof(b), "[COMPILE] %s exit=%d", cmdGame.c_str(), ret); LogAdd(b);
 }
-
 void CheckNavCollisions() {
-    // 原样保留
     g_badNavLinks.clear(); g_badNavNodes.clear();
     for (size_t i = 0; i < g_editorNavNodes.size(); i++) {
         const auto& n = g_editorNavNodes[i];
@@ -212,163 +161,6 @@ void CheckNavCollisions() {
     }
 }
 
-// ---------------------------------------------------------
-// Draw3DView (精简后的核心绘制函数)
-// ---------------------------------------------------------
-static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outClickedMiddle) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("3D View", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
-    
-    ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-    int vpW = std::max(1, (int)viewportSize.x), vpH = std::max(1, (int)viewportSize.y);
-    ImVec2 viewportPos = ImGui::GetCursorScreenPos();
-    ImVec2 mousePos = ImGui::GetMousePos();
-    bool bHovered = ImGui::IsWindowHovered();
-    bool bMouseInViewport = bHovered && mousePos.x >= viewportPos.x && mousePos.x <= viewportPos.x + viewportSize.x && mousePos.y >= viewportPos.y && mousePos.y <= viewportPos.y + viewportSize.y;
-    int localMouseX = (int)(mousePos.x - viewportPos.x), localMouseY = (int)(mousePos.y - viewportPos.y);
-
-    if (bMouseInViewport && g_bRightMouseDown) {
-        ImGuiIO& io = ImGui::GetIO();
-        g_cam.yaw += io.MouseDelta.x * 0.2f; g_cam.pitch += io.MouseDelta.y * 0.2f;
-        g_cam.pitch = glm::clamp(g_cam.pitch, -89.0f, 89.0f);
-        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-    }
-
-    glm::mat4 view = g_cam.GetView();
-    glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)vpW/(float)vpH, 1.0f, 10000.0f);
-    bool bIsSubEdit = (g_iGizmoMode == GIZMO_FACE || g_iGizmoMode == GIZMO_EDGE || g_iGizmoMode == GIZMO_VERTEX);
-    g_iSubEditMode = bIsSubEdit ? (g_iGizmoMode == GIZMO_FACE ? SUB_FACE : (g_iGizmoMode == GIZMO_EDGE ? SUB_EDGE : SUB_VERTEX)) : SUB_NONE;
-
-    ResizeFBO(vpW, vpH);
-    BindFBO(); 
-    glViewport(0, 0, vpW, vpH);
-    glClearColor(0.12f, 0.12f, 0.14f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glm::mat4 vp = proj * view;
-    DrawGrid(vp);
-    DrawBrushes(vp);
-    DrawBrushWireframe(vp);
-    if (g_bLoadedBvh && g_bShowBrushes) DrawLoadedBvh(vp);
-
-    if (g_bShowBrushes && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
-        const auto& b = g_brushes[g_iSelectedBrush];
-        std::vector<float> buf;
-        for (int e = 0; e < 12; e++) {
-            const auto& p0 = b.m_vertices[kEdgeVertexIndices[e][0]];
-            const auto& p1 = b.m_vertices[kEdgeVertexIndices[e][1]];
-            buf.insert(buf.end(), {p0.x,p0.y,p0.z, 1,1,0, p1.x,p1.y,p1.z, 1,1,0});
-        }
-        glDisable(GL_DEPTH_TEST); DrawColorLines(buf, vp); glEnable(GL_DEPTH_TEST);
-    }    
-    DrawEntityBBoxes(vp);
-
-    if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
-        const CBrush& b = g_brushes[g_iSelectedBrush];
-        if (g_iSubEditMode == SUB_FACE && g_iSubEditIndex >= 0 && g_iSubEditIndex < 6) {
-            glm::vec3 quad[4];
-            for (int k = 0; k < 4; k++) quad[k] = b.m_vertices[b.m_faces[g_iSubEditIndex].m_nVertexIndices[k]];
-            DrawFaceHighlight(quad, vp);
-        }
-        if (g_iSubEditMode == SUB_EDGE && g_iSubEditIndex >= 0 && g_iSubEditIndex < 12) {
-            int i0 = kEdgeVertexIndices[g_iSubEditIndex][0], i1 = kEdgeVertexIndices[g_iSubEditIndex][1];
-            std::vector<float> buf = { b.m_vertices[i0].x, b.m_vertices[i0].y, b.m_vertices[i0].z, 1,1,0, b.m_vertices[i1].x, b.m_vertices[i1].y, b.m_vertices[i1].z, 1,1,0 };
-            glDisable(GL_DEPTH_TEST); DrawColorLines(buf, vp); glEnable(GL_DEPTH_TEST);
-        }
-        if (g_iSubEditMode == SUB_VERTEX) {
-            std::vector<std::pair<glm::vec3, glm::vec3>> pts;
-            for (int v = 0; v < 8; v++) pts.emplace_back(b.m_vertices[v], v == g_iSubEditIndex ? glm::vec3(1,1,0) : glm::vec3(0.86f));
-            DrawVertexPoints(pts, vp);
-        }
-    }
-
-    if (g_bShowNav && !g_editorNavNodes.empty()) {
-        std::vector<float> pointBuf, linkBuf, badLinkBuf, badPointBuf;
-
-        for (const auto& n : g_editorNavNodes) {
-            pointBuf.insert(pointBuf.end(), {n.pos.x, n.pos.y, n.pos.z, 0.2f, 1.0f, 0.2f});
-            for (uint32_t li : n.links) {
-                if (li < g_editorNavNodes.size()) {
-                    const auto& t = g_editorNavNodes[li];
-                    linkBuf.insert(linkBuf.end(), {n.pos.x, n.pos.y, n.pos.z, 0.2f, 0.6f, 0.2f, t.pos.x, t.pos.y, t.pos.z, 0.2f, 0.6f, 0.2f});
-                }
-            }
-        }
-        for (const auto& bl : g_badNavLinks) {
-            badLinkBuf.insert(badLinkBuf.end(), {bl.start.x, bl.start.y, bl.start.z, 1, 0, 0, bl.end.x, bl.end.y, bl.end.z, 1, 0, 0});
-        }
-        for (const auto& bn : g_badNavNodes) {
-            badPointBuf.insert(badPointBuf.end(), {bn.pos.x, bn.pos.y, bn.pos.z, 1, 1, 0});
-        }
-
-        DrawRawPrimitives(linkBuf, GL_LINES, 0, 1.5f, vp);
-        DrawRawPrimitives(pointBuf, GL_POINTS, 6.0f, 0, vp);
-        DrawRawPrimitives(badLinkBuf, GL_LINES, 0, 2.0f, vp);
-        DrawRawPrimitives(badPointBuf, GL_POINTS, 12.0f, 0, vp);
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0); // 👈 切回屏幕缓冲
-    ImGui::Image((ImTextureID)(intptr_t)GetFBOTexture(), viewportSize, ImVec2(0, 1), ImVec2(1, 0));
-    ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
-    DrawAndManipulateGizmo(view, proj, viewportPos, viewportSize);
-
-    bool bIsUsingGizmo = ImGuizmo::IsUsing() || ImGuizmo::IsOver();
-    if (bMouseInViewport && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bIsUsingGizmo && !g_bDraggingGizmo && !g_bRightMouseDown) {
-        if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
-            CBrush& b = g_brushes[g_iSelectedBrush];
-            int hit = -1;
-            if (g_iSubEditMode == SUB_FACE)        hit = PickFace  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            else if (g_iSubEditMode == SUB_EDGE)   hit = PickEdge  (b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            else if (g_iSubEditMode == SUB_VERTEX) hit = PickVertex(b, view, proj, vpW, vpH, localMouseX, localMouseY);
-            if (hit >= 0) { g_iSubEditIndex = hit; UndoStack::Instance().PushSnapshot("Sub-Edit"); } else g_iSubEditIndex = -1;
-        } else {
-            glm::vec3 rayO, rayD;
-            int bi = -1, ei = -1;
-            if (ScreenToWorldRay(view, proj, vpW, vpH, localMouseX, localMouseY, rayO, rayD)) {
-                bi = PickBrushRay(rayO, rayD); ei = PickEntityRay(rayO, rayD);
-            }
-            if (ei >= 0) { g_iSelectedEntity = ei; g_iSelectedBrush = -1; }
-            else { g_iSelectedBrush = bi; g_iSelectedEntity = -1; }
-            g_iSubEditIndex = -1;
-        }
-    }
-
-    // 右上角相机控件
-    glm::mat4 camViewIm = view; float camDistance = g_cam.dist;
-    ImVec2 viewManipulatePos(viewportPos.x + viewportSize.x - 128, viewportPos.y);
-    ImGui::SetCursorScreenPos(viewManipulatePos);
-    ImGuizmo::PushID("MyViewManip");
-    ImGuizmo::ViewManipulate(glm::value_ptr(camViewIm), camDistance, viewManipulatePos, ImVec2(128, 128), 0x10101010);
-    ImRect viewManipRect(viewManipulatePos, ImVec2(viewManipulatePos.x + 128, viewManipulatePos.y + 128));
-    if (ImGuizmo::IsUsingViewManipulate() || (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsMouseHoveringRect(viewManipRect.Min, viewManipRect.Max))) {
-        glm::mat4 invView = glm::inverse(camViewIm);
-        glm::vec3 offset = glm::vec3(invView[3][0], invView[3][1], invView[3][2]) - g_cam.target;
-        float r = glm::length(glm::vec2(offset.x, offset.z));
-        if (r > 0.001f) { g_cam.yaw = glm::degrees(std::atan2(offset.z, offset.x)); g_cam.pitch = glm::degrees(std::atan2(offset.y, r)); }
-        g_cam.dist = glm::length(offset);
-    }
-    ImGuizmo::PopID();
-    ImGui::End();
-    ImGui::PopStyleVar();
-}
-
-void SetFlyMode(bool enable) {
-    g_bFlyMode = enable;
-    if (enable) {
-        glm::vec3 eye = g_cam.GetEye();
-        float rp = glm::radians(g_cam.pitch), ry = glm::radians(g_cam.yaw);
-        g_cam.target = eye + glm::vec3(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry)) * 10.0f;
-        g_cam.dist = 0.0f;
-        SDL_SetRelativeMouseMode(SDL_TRUE);
-    } else {
-        g_cam.dist = 200.0f;
-        SDL_SetRelativeMouseMode(SDL_FALSE);
-    }
-}
-
-// ---------------------------------------------------------
-// Main
-// ---------------------------------------------------------
 int main(int argc, char** argv) {
     std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << "\n";
     FileSystem::Init(".");
@@ -389,15 +181,11 @@ int main(int argc, char** argv) {
     SDL_GL_MakeCurrent(g_window, g_glContext);
     SDL_GL_SetSwapInterval(1);
     glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) { fprintf(stderr, "GLEW init failed\n"); return 1; }
+    if (glewInit() != GLEW_OK) return 1;
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    IMGUI_CHECKVERSION(); ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     ImGui::StyleColorsDark();
-    
     main_scale = ImGui_ImplSDL2_GetContentScaleForDisplay(0);
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScaleAllSizes(main_scale);
@@ -417,74 +205,10 @@ int main(int argc, char** argv) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             ImGui_ImplSDL2_ProcessEvent(&ev);
-            if (ev.type == SDL_QUIT) running = false;
-            if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_RESIZED) { g_winW = ev.window.data1; g_winH = ev.window.data2; }
-            if (ev.type == SDL_MOUSEMOTION) {
-                g_iMouseX = ev.motion.x; g_iMouseY = ev.motion.y;
-                if (g_bFlyMode) {
-                    g_cam.yaw += ev.motion.xrel * 0.15f; g_cam.pitch += ev.motion.yrel * 0.15f;
-                    g_cam.pitch = glm::clamp(g_cam.pitch, -89.0f, 89.0f);
-                }
-            }
-            if (ev.type == SDL_MOUSEBUTTONDOWN) {
-                if (ev.button.button == SDL_BUTTON_LEFT)   g_bLeftMouseDown = true;
-                if (ev.button.button == SDL_BUTTON_RIGHT)  g_bRightMouseDown = true;
-                if (ev.button.button == SDL_BUTTON_MIDDLE) g_bMiddleMouseDown = true;
-            }
-            if (ev.type == SDL_MOUSEBUTTONUP) {
-                if (ev.button.button == SDL_BUTTON_LEFT)   g_bLeftMouseDown = false;
-                if (ev.button.button == SDL_BUTTON_RIGHT)  g_bRightMouseDown = false;
-                if (ev.button.button == SDL_BUTTON_MIDDLE) g_bMiddleMouseDown = false;
-            }
-            if (ev.type == SDL_KEYDOWN && !io.WantCaptureKeyboard) {
-                SDL_Keycode k = ev.key.keysym.sym;
-                if (k == SDLK_ESCAPE) { if (g_bFlyMode) SetFlyMode(false); else running = false; }
-                else if (k == SDLK_1) g_iGizmoMode = GIZMO_TRANSLATE;
-                else if (k == SDLK_2) g_iGizmoMode = GIZMO_ROTATE;
-                else if (k == SDLK_3) g_iGizmoMode = GIZMO_SCALE;
-                else if (k == SDLK_4) g_iGizmoMode = GIZMO_FACE;
-                else if (k == SDLK_5) g_iGizmoMode = GIZMO_EDGE;
-                else if (k == SDLK_6) g_iGizmoMode = GIZMO_VERTEX;
-                else if (k == SDLK_0) g_iGizmoMode = GIZMO_NONE;
-                else if (k == SDLK_z && (ev.key.keysym.mod & KMOD_CTRL)) UndoStack::Instance().Undo();
-                else if (k == SDLK_y && (ev.key.keysym.mod & KMOD_CTRL)) UndoStack::Instance().Redo();
-                else if (k == SDLK_LEFTBRACKET) g_flGridSize = std::max(1.0f, g_flGridSize*0.5f);
-                else if (k == SDLK_RIGHTBRACKET) g_flGridSize = std::min(128.0f, g_flGridSize*2.0f);
-            }
-        }
-        if (!io.WantCaptureKeyboard) {
-            float flySpeed = g_bFlyMode ? 15.0f : (g_cam.dist * 1.2f * 0.016f);
-            float rp = glm::radians(g_cam.pitch), ry = glm::radians(g_cam.yaw);
-            glm::vec3 fwd(std::cos(rp)*std::cos(ry), std::sin(rp), std::cos(rp)*std::sin(ry));
-            glm::vec3 fwdH(fwd.x, 0, fwd.z); if (glm::length(fwdH) > 1e-4f) fwdH = glm::normalize(fwdH);
-            glm::vec3 rightH = glm::normalize(glm::cross(glm::vec3(0, 1, 0), fwdH));
-            const Uint8* ks = SDL_GetKeyboardState(nullptr);
-            
-            if (g_bFlyMode) {
-                glm::vec3 delta(0.0f);
-                if (ks[SDL_SCANCODE_W]) delta -= fwd * flySpeed;
-                if (ks[SDL_SCANCODE_S]) delta += fwd * flySpeed;
-                if (ks[SDL_SCANCODE_A]) delta -= rightH * flySpeed;
-                if (ks[SDL_SCANCODE_D]) delta += rightH * flySpeed;
-                if (ks[SDL_SCANCODE_E]) delta.y += flySpeed;
-                if (ks[SDL_SCANCODE_Q]) delta.y -= flySpeed;
-                g_cam.target += delta; g_cam.dist = 1.0f;
-            } else {
-                if (ks[SDL_SCANCODE_W]) g_cam.target -= fwdH * flySpeed;
-                if (ks[SDL_SCANCODE_S]) g_cam.target += fwdH * flySpeed;
-                if (ks[SDL_SCANCODE_A]) g_cam.target -= rightH * flySpeed;
-                if (ks[SDL_SCANCODE_D]) g_cam.target += rightH * flySpeed;
-                if (ks[SDL_SCANCODE_E]) g_cam.target.y += flySpeed;
-                if (ks[SDL_SCANCODE_Q]) g_cam.target.y -= flySpeed;
-                
-                if (ks[SDL_SCANCODE_LEFT])  g_cam.yaw -= 1.5f;
-                if (ks[SDL_SCANCODE_RIGHT]) g_cam.yaw += 1.5f;
-                if (ks[SDL_SCANCODE_UP])    g_cam.pitch -= 1.0f;
-                if (ks[SDL_SCANCODE_DOWN])  g_cam.pitch += 1.0f;
-                g_cam.pitch = glm::clamp(g_cam.pitch, -89.0f, 89.0f);
-            }
+            ProcessInput(ev, running, io.WantCaptureKeyboard);
         }
 
+        UpdateCameraMovement(1.0f / 60.0f, io.WantCaptureKeyboard);
         for (auto& e : g_entities) UpdateEntityBBox(e);
 
         ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplSDL2_NewFrame(); ImGui::NewFrame();
