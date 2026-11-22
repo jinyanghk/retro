@@ -194,7 +194,11 @@ static void DrawGrid2D(ImDrawList* draw, const View2D& view, const ImVec2& canva
 
 static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
 {
+    if (!g_bShowBrushes) return;
     for (size_t i = 0; i < g_brushes.size(); i++) {
+        // 👈 新增：如果 Brush 被隐藏，直接跳过
+        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue;
+
         const CBrush& b = g_brushes[i];
         float minX, maxX, minY, maxY;
         GetBrush2DRange(b, view, minX, maxX, minY, maxY);
@@ -213,7 +217,11 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
         draw->AddRect(minP, maxP, color, 0.0f, 0, bSelected ? 2.0f : 1.0f);
     }
 
-    if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+    // 选中手柄也只在总开关 + 个体可见时才画
+    if (g_bShowBrushes &&
+        g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size() &&
+        (g_iSelectedBrush >= (int)g_brushVisible.size() || g_brushVisible[g_iSelectedBrush] != 0))
+    {
         float handles[8][2];
         GetBrushHandles(g_brushes[g_iSelectedBrush], view, handles);
         for (int h = 0; h < 8; h++) {
@@ -229,7 +237,12 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
 
 static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
 {
+    if (!g_bShowEntities) return;
+
     for (size_t i = 0; i < g_entities.size(); i++) {
+        // 👈 新增：如果 Entity 被隐藏，直接跳过
+        if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue;
+
         const CEntity& e = g_entities[i];
         bool bSelected = ((int)i == g_iSelectedEntity);
         ImU32 color = bSelected ? IM_COL32(255, 255, 0, 255) : IM_COL32(0, 200, 0, 255);
@@ -257,7 +270,10 @@ static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& c
         draw->AddLine(ImVec2(p.x, p.y - 8), ImVec2(p.x, p.y + 8), color);
     }
 
-    if (g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size()) {
+    if (g_bShowEntities &&
+        g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size() &&
+        (g_iSelectedEntity >= (int)g_entityVisible.size() || g_entityVisible[g_iSelectedEntity] != 0))
+    {
         float handles[8][2];
         GetEntityHandles(g_entities[g_iSelectedEntity], view, handles);
         for (int h = 0; h < 8; h++) {
@@ -441,7 +457,10 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 优先判定 Entity 手柄
-    if (g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size()) {
+    if (g_bShowEntities &&
+        g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size() &&
+        (g_iSelectedEntity >= (int)g_entityVisible.size() || g_entityVisible[g_iSelectedEntity] != 0))
+    {
         int handle = HitTestEntityHandles(g_entities[g_iSelectedEntity], view, io.MousePos, canvasPos, canvasSize);
         if (handle >= 0) {
             view.bResizingEntity = true; view.iResizingEntity = g_iSelectedEntity; view.iResizeEntityHandle = handle;
@@ -455,7 +474,10 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 其次判定 Brush 手柄
-    if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+    if (g_bShowBrushes &&
+        g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size() &&
+        (g_iSelectedBrush >= (int)g_brushVisible.size() || g_brushVisible[g_iSelectedBrush] != 0))
+    {
         int handle = HitTestBrushHandles(g_brushes[g_iSelectedBrush], view, io.MousePos, canvasPos, canvasSize);
         if (handle >= 0) {
             view.bResizingBrush = true; view.iResizingBrush = g_iSelectedBrush; view.iResizeHandle = handle;
@@ -468,9 +490,12 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 再次判定实体身体
-    {
+    if (g_bShowEntities) {
         int hitEntity = -1;
         for (int i = (int)g_entities.size() - 1; i >= 0; i--) {
+            // 👈 个体可见性
+            if (i < (int)g_entityVisible.size() && g_entityVisible[i] == 0) continue;
+
             float minX, maxX, minY, maxY; GetEntity2DRange(g_entities[i], view, minX, maxX, minY, maxY);
             if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitEntity = i; break; }
         }
@@ -488,9 +513,12 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 最后判定 Brush 身体
-    {
+    if (g_bShowBrushes) {
         int hitBrush = -1;
         for (int i = (int)g_brushes.size() - 1; i >= 0; i--) {
+            // 👈 个体可见性
+            if (i < (int)g_brushVisible.size() && g_brushVisible[i] == 0) continue;
+                        
             float minX, maxX, minY, maxY; GetBrush2DRange(g_brushes[i], view, minX, maxX, minY, maxY);
             if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitBrush = i; break; }
         }
