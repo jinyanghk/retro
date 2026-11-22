@@ -280,7 +280,7 @@ void DrawToolsPanel()
             if (ImGui::RadioButton(items[i].label, b))
                 g_iGizmoMode = items[i].mode;
         }
-
+        ImGui::Separator();
         if (ImGui::RadioButton("Local", g_CurrentGizmoMode == ImGuizmo::LOCAL))
             g_CurrentGizmoMode = ImGuizmo::LOCAL;
         ImGui::SameLine();

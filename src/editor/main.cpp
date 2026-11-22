@@ -422,6 +422,7 @@ static void DrawBrushes(const glm::mat4& viewProj)
 
 static void DrawBrushWireframe(const glm::mat4& viewProj)
 {
+    if (!g_bShowBrushes) return; // 👈 加上这一句
     glUseProgram(g_brushProg);
     GLint uMVP = glGetUniformLocation(g_brushProg, "uMVP");
     glUniformMatrix4fv(uMVP, 1, GL_FALSE, glm::value_ptr(viewProj));
@@ -450,6 +451,7 @@ static void DrawBrushWireframe(const glm::mat4& viewProj)
 
 static void DrawEntityBBoxes(const glm::mat4& viewProj)
 {
+    if (!g_bShowEntities) return; // 👈 确保这行在绘制任何东西之前
     glBindVertexArray(g_lineVAO);
     glBindBuffer(GL_ARRAY_BUFFER, g_lineVBO);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
@@ -1264,16 +1266,30 @@ static void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outCli
     DrawGrid(vp);
     DrawBrushes(vp);
     DrawBrushWireframe(vp);
-    if (g_bLoadedBvh && g_bvhVAO != 0) {
+
+    // =========================================================
+    // 渲染 Loaded BVH
+    // =========================================================
+    if (g_bLoadedBvh && g_bvhVAO != 0 && g_bShowBrushes) { // 👈 加上 g_bShowBrushes
         glUseProgram(g_brushProg);
+        
+        // 👈 强行关掉贴图，并给一个基础色（如果你的 shader 支持）
+        glUniform1i(glGetUniformLocation(g_brushProg, "uUseTexture"), 0);
+        
+        // 👈 保险：解绑纹理，防止状态泄漏
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
         GLint uMVP = glGetUniformLocation(g_brushProg, "uMVP");
         glUniformMatrix4fv(uMVP, 1, GL_FALSE, glm::value_ptr(vp));
+        
         glBindVertexArray(g_bvhVAO);
         glDrawElements(GL_TRIANGLES, (GLsizei)g_loadedMapData.indices.size(), GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
     }
+
     // ========== 选中 Brush 高亮（黄色 x-ray 线框）==========
-    if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+    if (g_bShowBrushes && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
         const auto& b = g_brushes[g_iSelectedBrush];
         std::vector<float> buf;
         buf.reserve(12 * 2 * 6);

@@ -95,7 +95,7 @@ else()
     find_package(nlohmann_json REQUIRED)
     find_package(assimp REQUIRED)
     find_path(STB_INCLUDE_DIR NAMES stb_image.h
-        HINTS "${CMAKE_SOURCE_DIR}/../stb"
+        #HINTS "${CMAKE_SOURCE_DIR}/../stb"
         PATH_SUFFIXES stb
         REQUIRED
     )

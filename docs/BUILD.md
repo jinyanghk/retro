@@ -1,12 +1,18 @@
 # Build
 
+## [ci build](/.github/workflows/ci.yml)
+
+only build main branch for windows-x64 and linux-x64
+
+## local build
+
 > must check and setup PATH before each build
 
-## msys2 ucrt64
+### msys2 ucrt64
 
 > need to set msys2/ucrt64/bin to path
 
-### deps
+#### deps
 
 ```sh
 pacman -S   mingw-w64-ucrt-x86_64-toolchain \
@@ -23,7 +29,7 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-assimp
 ```
 
-### use cmake + ninja
+#### use cmake + ninja
 
 ```sh
 mkdir build
@@ -34,11 +40,11 @@ cmake .. -DCMAKE_BUILD_TYPE=Debug -G Ninja
 ninja
 ```
 
-## Ubuntu
+### Ubuntu
 
 > must remove msys2 from PATH
 
-### deps
+#### deps
 ```sh
 sudo apt install nlohmann-json3-dev \
                  libglew-dev \
@@ -51,7 +57,7 @@ sudo apt install nlohmann-json3-dev \
                  cmake
 ```
 
-### Jolt Physics
+#### Jolt Physics
 
 on linux, jolt physics must be build from source
 
@@ -67,7 +73,7 @@ make
 sudo make install
 ```
 
-### use cmake + make
+#### use cmake + make
 DO NOT USE ninja on ubuntu, only build Release, it needs to match jolt
 
 ```sh
@@ -77,24 +83,25 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make
 ```
 
-## windows
+### windows
 
 > need to remove msys2/ucrt64/bin from path, add windows version cmake in path
 
-### deps
+#### deps
 
 download win x64 vc pre-built
 
 * https://github.com/libsdl-org/SDL_mixer/releases
 * https://github.com/libsdl-org/SDL/releases
 * https://github.com/nigels-com/glew/releases
+* https://github.com/nothings/stb
 
 download source
 
 * https://github.com/g-truc/glm/releases
 * https://github.com/nlohmann/json/releases (only need json.h)
 
-### [portable msvc](/misc/portable-msvc.py)
+#### [portable msvc](/misc/portable-msvc.py)
 
 Step-by-Step Setup
 
@@ -146,7 +153,7 @@ Everyday Use Tips
 • VS Code Integration: If you use Visual Studio Code, you can open it directly from that initialized terminal window by typing `code .`. VS Code will inherit the environment variables, allowing the C/C++ extensions to locate cl.exe and system headers flawlessly.
 • Python Packaging: If you are trying to use this setup to build local Python extension modules or C-dependencies via pip, remember to pass the flags `SET DISTUTILS_USE_SDK=1` and `SET MSSDK=1` to force Python to utilize your active environment shell tools.
 
-### setup env vars for portable msvc
+#### setup env vars for portable msvc
 ```bat
 set MSVC_ROOT=D:\jin\portable-msvc\msvc
 set SDK_VER=10.0.28000.0
@@ -162,13 +169,13 @@ set INCLUDE=%MSVC_ROOT%\VC\Tools\MSVC\%MSVC_VER%\include;%MSVC_ROOT%\Windows Kit
 
 ```
 
-### portable python (optional, when only python is now allow to install)
+#### portable python (optional, when only python is now allow to install)
 
 ```bat
 set PATH=C:\Users\%USERNAME%\AppData\Local\Programs\python-3.14.10-embed-amd64;%PATH%
 ```
 
-### Jolt Physics
+#### Jolt Physics
 
 ```bat
 git clone https://github.com/jrouwe/JoltPhysics.git
@@ -187,7 +194,7 @@ cmake -B Build-MSVC ^
 cmake --build Build-MSVC --config Release
 ```
 
-### assimp
+#### assimp
 
 ```bat
 cd assimp
@@ -195,7 +202,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Releas -DASSIMP_BUILD_TESTS=OFF -DASSIMP_
 cmake --build build
 ```
 
-### use cmake + nmake
+#### use cmake + nmake
 
 ```bat
 rmdir /s /q build-msvc
