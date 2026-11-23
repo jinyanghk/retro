@@ -6,10 +6,10 @@ void InitAudio(AudioAssets& audio) {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
         printf("SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
     }
-    audio.sndShoot = Mix_LoadWAV("sounds/shoot.wav");
-    audio.sndHit = Mix_LoadWAV("sounds/hit.wav");
-    audio.sndDoor = Mix_LoadWAV("sounds/door.wav");
-    audio.sndExplosion = Mix_LoadWAV("sounds/explosion.wav");
+    audio.sndShoot = Mix_LoadWAV("sound/weapons/pistol/pistol_fire2.wav");
+    audio.sndHit = Mix_LoadWAV("sound/npc/zombie/zombie_hit.wav");
+    audio.sndDoor = Mix_LoadWAV("sound/doors/door1_move.wav");
+    audio.sndExplosion = Mix_LoadWAV("sound/weapons/explode3.wav");
 }
 
 void ShutdownAudio(AudioAssets& audio) {

@@ -1,279 +1,32 @@
 #include "EditorPanels.h"
-
-#include <glm/gtc/type_ptr.hpp>
-
-#include <cstdio>
-#include <cstring>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <cctype>
-#include <map>
-#include <algorithm>
-
-#include "imgui.h"
-#include "imgui_internal.h"
-#include "ImGuizmo.h"
-
 #include "SceneGlobals.h"
 #include "UndoStack.h"
 #include "GameDatabase.h"
-#include "EditorLayout.h"
-#include "Log.h"
+#include "imgui.h"
+#include "imgui_internal.h"
+#include <algorithm>
+#include <cstring>
+#include "EditorPanelsInternal.h"
+#include <glm/gtc/type_ptr.hpp>
 
-// ---------- handlers ----------
-static void (*s_pfnExportMap)() = nullptr;
-static void (*s_pfnImportMap)() = nullptr;
-static void (*s_pfnCompileAndRun)() = nullptr;
-static void (*s_pfnLoadBvh)() = nullptr;
-
-void SetExportMapHandler(void (*pfn)()) { s_pfnExportMap = pfn; }
-void SetImportMapHandler(void (*pfn)()) { s_pfnImportMap = pfn; }
-void SetCompileAndRunHandler(void (*pfn)()) { s_pfnCompileAndRun = pfn; }
-void SetLoadBvhHandler(void (*pfn)()) { s_pfnLoadBvh = pfn; }
-
-// ---------------------------------------------------------------------------
-#include <GL/glew.h>
-// 👈 声明 main.cpp 里的全局变量
-extern GLuint GetMaterialThumb(const std::string& matName);
-extern void SetFlyMode(bool enable);
-extern void CheckNavCollisions();
+extern std::string GetEntitySearchString(const CEntity& e); // 从 Common 里拿
+extern bool InputTextString(const char* label, std::string& value);
 extern glm::vec3* GetEditorCamTarget();
 extern float* GetEditorCamDist();
-extern void InitVisibilityArrays();
 
-// 👈 全局状态
-static bool   g_bShowMaterialBrowser = false;
-static std::string* g_pTargetMaterial = nullptr; // 当前正在编辑的材质指针
-static char   g_matBrowserFilter[128] = "";
-static std::string g_selectedMaterialTemp;  // 用于中转
-static std::string g_selectedFaceMaterialTemp; // 给 Face 级别用 👈 新增
 static char s_sceneFilter[128] = "";
-
-
-// 👈 在主循环（ImGui::NewFrame 之后）调用
-void DrawMaterialBrowserWindow() {
-    if (!g_bShowMaterialBrowser) return;
-
-    ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Material Browser", &g_bShowMaterialBrowser)) {
-        // 1. 顶部搜索栏
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputTextWithHint("##MatFilter", "Filter materials...", g_matBrowserFilter, sizeof(g_matBrowserFilter));
-        ImGui::Separator();
-
-        // 2. 筛选逻辑
-        std::string filterLower = g_matBrowserFilter;
-        std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
-
-        // 3. 网格布局
-        float thumbSize = 128.0f; // 👈 大缩略图
-        float padding = 8.0f;
-        float cellSize = thumbSize + padding * 2;
-        float availWidth = ImGui::GetContentRegionAvail().x;
-        int columns = std::max(1, (int)(availWidth / cellSize));
-
-        if (ImGui::BeginChild("##MatGridScroll", ImVec2(0, 0), true)) {
-            int colCount = 0;
-            ImGuiListClipper clipper;
-            
-            // 过滤后的结果（暂存指针）
-            std::vector<const std::string*> filtered;
-            for (auto& m : g_allMaterials) {
-                std::string lower = m;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                if (filterLower.empty() || lower.find(filterLower) != std::string::npos) {
-                    filtered.push_back(&m);
-                }
-            }
-
-            clipper.Begin((int)filtered.size());
-            // 这里为了网格布局，每行算一个 clipper 元素
-            clipper.Begin(((int)filtered.size() + columns - 1) / columns);
-            
-            while (clipper.Step()) {
-                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {
-                    for (int col = 0; col < columns; col++) {
-                        int idx = row * columns + col;
-                        if (idx >= (int)filtered.size()) break;
-                        
-                        const std::string& mat = *filtered[idx];
-                        GLuint texId = GetMaterialThumb(mat);
-                        
-                        ImGui::PushID(idx);
-                        ImGui::BeginGroup();
-                        
-                        // 画缩略图按钮
-                        if (ImGui::ImageButton(mat.c_str(), (ImTextureID)(intptr_t)texId, ImVec2(thumbSize, thumbSize))) {
-                            // 点击了材质
-                            if (g_pTargetMaterial) {
-                                UndoStack::Instance().PushSnapshot("Material Change");
-                                *g_pTargetMaterial = mat;
-                            }
-                            g_bShowMaterialBrowser = false;
-                        }
-                        
-                        // 显示名字（限制宽度避免撑爆）
-                        float textWidth = ImGui::CalcTextSize(mat.c_str()).x;
-                        if (textWidth > cellSize - padding) {
-                            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + cellSize - padding);
-                            ImGui::TextWrapped("%s", mat.c_str());
-                            ImGui::PopTextWrapPos();
-                        } else {
-                            ImGui::TextUnformatted(mat.c_str());
-                        }
-                        
-                        ImGui::EndGroup();
-                        
-                        // 如果是同一行，继续 SameLine
-                        if (col < columns - 1 && idx + 1 < (int)filtered.size()) {
-                            ImGui::SameLine();
-                        }
-                        ImGui::PopID();
-                    }
-                }
-            }
-            ImGui::EndChild();
-        }
-    }
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------------------
-void DrawMenuBar()
-{
-    if (ImGui::BeginMainMenuBar())
-    {
-        if (ImGui::BeginMenu("File")) {
-            //if (ImGui::MenuItem("Open"))  { if (s_pfnImportMap) s_pfnImportMap(); }
-            if (ImGui::MenuItem("Save")) { if (s_pfnExportMap) s_pfnExportMap(); }
-            //ImGui::Separator();
-            if (ImGui::MenuItem("Compile & Run"))   { if (s_pfnCompileAndRun) s_pfnCompileAndRun(); }
-            //if (ImGui::MenuItem("Compile Options...")) OpenCompileOptionsWindow();
-            if (ImGui::MenuItem("Load BVH")) { if (s_pfnLoadBvh) s_pfnLoadBvh(); }         
-            ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) {}
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Edit")) {
-            std::string ul = UndoStack::Instance().GetUndoLabel();
-            std::string rl = UndoStack::Instance().GetRedoLabel();
-            char ub[128], rb[128];
-            snprintf(ub, sizeof(ub), "Undo %s", ul.c_str());
-            snprintf(rb, sizeof(rb), "Redo %s", rl.c_str());
-            if (ImGui::MenuItem(ub, "Ctrl+Z", false, UndoStack::Instance().CanUndo()))
-                UndoStack::Instance().Undo();
-            if (ImGui::MenuItem(rb, "Ctrl+Y", false, UndoStack::Instance().CanRedo()))
-                UndoStack::Instance().Redo();
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("View"))
-        {
-            if (ImGui::MenuItem("Default Layout (Tabs)", nullptr, EditorLayout::GetLayoutMode() == EditorLayout::LAYOUT_DEFAULT))
-                EditorLayout::SetLayoutMode(EditorLayout::LAYOUT_DEFAULT);
-            
-            if (ImGui::MenuItem("Quad Layout (4 Views)", nullptr, EditorLayout::GetLayoutMode() == EditorLayout::LAYOUT_QUAD))
-                EditorLayout::SetLayoutMode(EditorLayout::LAYOUT_QUAD);
-            
-            ImGui::Separator();
-            if (ImGui::MenuItem("Reset Layout"))
-                EditorLayout::ResetDefaultLayout();
-
-            ImGui::Separator();
-
-            ImGui::MenuItem("Show Nav Nodes", nullptr, &g_bShowNav);
-
-            if (ImGui::MenuItem("Check Nav Collisions")) {
-                CheckNavCollisions();
-            }
-
-            ImGui::Separator();
-            // 👈 新增：飞行模式勾选
-            if (ImGui::MenuItem("Fly Mode (WASD + Mouse Look)", nullptr, g_bFlyMode)) {
-                g_bFlyMode = !g_bFlyMode;
-                // 开启飞行模式时，取消锁定，防止鼠标卡死在屏幕中间
-                SetFlyMode(g_bFlyMode);
-            }
-
-            ImGui::MenuItem("Render Textures", nullptr, &g_bRenderTexture);
-
-            ImGui::EndMenu();
-        }        
-        ImGui::EndMainMenuBar();
-    }
-}
-
-// ---------------------------------------------------------------------------
-void DrawToolsPanel()
-{
-    if (!ImGui::Begin("Tools")) { ImGui::End(); return; }
-
-    if (ImGui::CollapsingHeader("Gizmo:", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        struct GizmoItem { const char* label; GizmoMode mode; };
-        GizmoItem items[] = {
-            { "None",      GIZMO_NONE },
-            { "Translate", GIZMO_TRANSLATE },
-            { "Rotate",    GIZMO_ROTATE },
-            { "Scale",     GIZMO_SCALE },
-            { "Face",      GIZMO_FACE },
-            { "Edge",      GIZMO_EDGE },
-            { "Vertex",    GIZMO_VERTEX },
-        };
-
-        for (int i = 0; i < IM_ARRAYSIZE(items); ++i) {
-            //if (i > 0) ImGui::SameLine();
-            bool b = (g_iGizmoMode == items[i].mode);
-            if (ImGui::RadioButton(items[i].label, b))
-                g_iGizmoMode = items[i].mode;
-        }
-
-        if (ImGui::RadioButton("Local", g_CurrentGizmoMode == ImGuizmo::LOCAL))
-            g_CurrentGizmoMode = ImGuizmo::LOCAL;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("World", g_CurrentGizmoMode == ImGuizmo::WORLD))
-            g_CurrentGizmoMode = ImGuizmo::WORLD;
-
-        ImGui::Checkbox("Use Snap", &g_bUseSnap);
-        //ImGui::SameLine();
-        if (g_CurrentGizmoOperation & ImGuizmo::TRANSLATE)
-            ImGui::InputFloat3("Snap", &g_Snap[0]);
-        if (g_CurrentGizmoOperation & ImGuizmo::ROTATE)
-            ImGui::InputFloat("Angle Snap", &g_Snap[0]);
-        if (g_CurrentGizmoOperation & ImGuizmo::SCALE)
-            ImGui::InputFloat("Scale Snap", &g_Snap[0]);
-    }
-
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------------------
-static bool InputTextString(const char* label, std::string& value)
-{
-    char buf[512];
-    strncpy(buf, value.c_str(), sizeof(buf)-1); buf[sizeof(buf)-1] = 0;
-    if (ImGui::InputText(label, buf, sizeof(buf))) { value = buf; return true; }
-    return false;
-}
-
-// ---------------------------------------------------------------------------
 static int pendingDeleteGroupIdx = -1;
-void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
+
+void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 {
     if (!ImGui::Begin("Scene")) { ImGui::End(); return; }
 
     // 1. 搜索栏
     ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##SceneFilter", "Search name / index...", s_sceneFilter, sizeof(s_sceneFilter));
+    ImGui::InputTextWithHint("##SceneFilter", "Search name / ID / KV...", s_sceneFilter, sizeof(s_sceneFilter));
     
     std::string filterLower = s_sceneFilter;
     std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
-
-    // 2. 全局显示开关
-    ImGui::Checkbox("Show Brushes", &g_bShowBrushes);
-    ImGui::SameLine();
-    ImGui::Checkbox("Show Entities", &g_bShowEntities);
-    ImGui::Separator();
 
     float treeHeight = ImGui::GetContentRegionAvail().y * 0.5f;
     
@@ -347,8 +100,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                 int removeBrushIdx = -1;
                 for (int k = 0; k < (int)grp.brushIds.size(); k++) {
                     uint64_t bid = grp.brushIds[k];
-                    
-                    // 实时通过 ID 查当前索引
                     int bi = -1;
                     for (int i = 0; i < (int)g_brushes.size(); i++) {
                         if (g_brushes[i].m_id == bid) { bi = i; break; }
@@ -357,14 +108,12 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
 
                     ImGui::PushID(bi + 40000);
                     
-                    // Checkbox
                     bool vis = (bi < (int)g_brushVisible.size()) ? (g_brushVisible[bi] != 0) : true;
                     if (ImGui::Checkbox("##vis", &vis)) {
                         if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = vis ? 1 : 0;
                     }
                     ImGui::SameLine();
                     
-                    // Selectable
                     float btnW = ImGui::CalcTextSize("Dup Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
                     float availW = ImGui::GetContentRegionAvail().x;
                     bool sel = (*pSelBrush == bi);
@@ -374,7 +123,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                         g_iSelectedGroup = -1;
                     }
                     
-                    // 👈 核心修改：传 ID 而不是 bi！
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
                     ImGui::SameLine();
@@ -392,13 +140,27 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                 int removeEntityIdx = -1;
                 for (int k = 0; k < (int)grp.entityIds.size(); k++) {
                     uint64_t eid = grp.entityIds[k];
-                    
-                    // 实时通过 ID 查当前索引
                     int ei = -1;
                     for (int i = 0; i < (int)g_entities.size(); i++) {
                         if (g_entities[i].m_id == eid) { ei = i; break; }
                     }
                     if (ei < 0) continue;
+
+                    auto& ent = g_entities[ei];
+                    
+                    // 👈 组装标签：Classname #ID [targetname]
+                    std::string tname = "";
+                    auto it = ent.m_properties.find("targetname");
+                    if (it != ent.m_properties.end()) tname = it->second;
+                    std::string label = ent.m_szName + " #" + std::to_string(eid);
+                    if (!tname.empty()) label += " [" + tname + "]";
+
+                    // 👈 搜索匹配
+                    if (!filterLower.empty()) {
+                        std::string searchStr = GetEntitySearchString(ent);
+                        std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
+                        if (searchStr.find(filterLower) == std::string::npos) continue;
+                    }
 
                     ImGui::PushID(ei + 50000);
                     
@@ -411,14 +173,12 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
                     float btnW = ImGui::CalcTextSize("Tel Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
                     float availW = ImGui::GetContentRegionAvail().x;
                     bool sel = (*pSelEntity == ei);
-                    std::string label = g_entities[ei].m_szName + " #" + std::to_string(eid);
                     if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
                         *pSelEntity = ei;
                         *pSelBrush = -1;
                         g_iSelectedGroup = -1;
                     }
                     
-                    // 👈 核心修改：传 ID 而不是 ei！
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Tel")) {
                         if (GetEditorCamTarget()) *GetEditorCamTarget() = g_entities[ei].m_vecPos;
@@ -460,10 +220,20 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             if (inAnyGroup) continue;
 
             auto& e = g_entities[i];
+            
+            // 👈 组装标签
+            std::string tname = "";
+            auto it = e.m_properties.find("targetname");
+            if (it != e.m_properties.end()) tname = it->second;
+            
             std::string label = e.m_szName + " #" + std::to_string(eid);
+            if (!tname.empty()) label += " [" + tname + "]";
+            
+            // 👈 搜索匹配
             if (!filterLower.empty()) {
-                std::string l = label; std::transform(l.begin(), l.end(), l.begin(), ::tolower);
-                if (l.find(filterLower) == std::string::npos) continue;
+                std::string searchStr = GetEntitySearchString(e);
+                std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
+                if (searchStr.find(filterLower) == std::string::npos) continue;
             }
 
             ImGui::PushID(i);
@@ -593,7 +363,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
     // ================= 下半部分：属性面板 =================
     ImGui::BeginChild("##PropertiesChild", ImVec2(0, 0), true);
     
-    // 👈 优先显示选中组的属性面板
     if (g_iSelectedGroup >= 0 && g_iSelectedGroup < (int)g_brushGroups.size()) {
         auto& grp = g_brushGroups[g_iSelectedGroup];
         ImGui::TextColored(ImVec4(0, 1, 1, 1), "Selected Group");
@@ -611,6 +380,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
     else if (*pSelEntity >= 0 && *pSelEntity < (int)g_entities.size()) {
         CEntity& e = g_entities[*pSelEntity];
         ImGui::TextColored(ImVec4(1,1,0,1), "Selected: %s", e.m_szName.c_str());
+        ImGui::TextDisabled("ID: %llu", e.m_id); // 👈 显示 ID
         
         glm::vec3 prevPos = e.m_vecPos;
         if (ImGui::DragFloat3("Position", glm::value_ptr(e.m_vecPos), 1.0f)) {
@@ -736,7 +506,8 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
     } 
     else if (*pSelBrush >= 0 && *pSelBrush < (int)g_brushes.size()) {
         CBrush& b = g_brushes[*pSelBrush];
-        ImGui::TextColored(ImVec4(1,1,0,1), "Selected: brush #%d", *pSelBrush);
+        ImGui::TextColored(ImVec4(1,1,0,1), "Selected: brush #%llu", b.m_id); // 👈 显示 ID
+        ImGui::TextDisabled("Index: %d", *pSelBrush); // 👈 显示内部索引（调试用）
         
         if (ImGui::DragFloat3("Center", glm::value_ptr(b.m_vecPos), 1.0f)) {
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Center");
@@ -746,65 +517,59 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, BrushPanelResult& out)
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Size");
             b.RebuildPrimitiveMesh();
         }
+
+        // =========================================================
+        // Brush 材质编辑（brush-level + per-face）
+        // =========================================================
+        ImGui::Separator();
+        ImGui::Text("Material (brush-level):");
+
+        char btnId[64];
+        snprintf(btnId, sizeof(btnId), "##BrushMatBtn%d", *pSelBrush);
+        const char* displayText = b.m_szMaterial.empty() ? "<empty>" : b.m_szMaterial.c_str();
+
+        if (ImGui::Button((std::string(displayText) + btnId).c_str(), ImVec2(200, 0))) {
+            g_selectedMaterialTemp = b.m_szMaterial;
+            g_bShowMaterialBrowser = true;
+            g_pTargetMaterial = &g_selectedMaterialTemp;
+        }
+
+        if (ImGui::Button("Reset to inherit##BrushMat")) {
+            UndoStack::Instance().PushSnapshot("Brush Material");
+            b.m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
+            for (int f = 0; f < 6; f++) {
+                b.m_faces[f].m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
+            }
+        }
+
+        // --- 面材质 ---
+        ImGui::Separator();
+        ImGui::Text("Per-face materials:");
+        const char* faceNames[6] = {"+Z(顶)","-Z(底)","+X(右)","-X(左)","+Y(后)","-Y(前)"};
+        if (g_iSelectedFace < 0 || g_iSelectedFace >= 6) g_iSelectedFace = 0;
+        ImGui::Combo("Face", &g_iSelectedFace, faceNames, 6);
+
+        std::string& faceMat = b.m_faces[g_iSelectedFace].m_szMaterial;
+
+        char faceBtnLabel[512];
+        snprintf(faceBtnLabel, sizeof(faceBtnLabel), "%s##FaceMatBtn%d_%d",
+                 faceMat.empty() ? "<inherit>" : faceMat.c_str(), *pSelBrush, g_iSelectedFace);
+
+        if (ImGui::Button(faceBtnLabel, ImVec2(200, 0))) {
+            g_selectedFaceMaterialTemp = faceMat;
+            g_bShowMaterialBrowser = true;
+            g_pTargetMaterial = &g_selectedFaceMaterialTemp;
+        }
+
+        if (ImGui::Button("Reset to inherit##FaceMat")) {
+            UndoStack::Instance().PushSnapshot("Face Material");
+            faceMat.clear();
+        }        
     } 
     else {
         ImGui::TextDisabled("Nothing selected.");
     }
     
     ImGui::EndChild();
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------------------
-void DrawConsolePanel()
-{
-    if (!ImGui::Begin("Console")) { ImGui::End(); return; }
-    if (ImGui::Button("Clear")) g_logLines.clear();
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%d lines)", (int)g_logLines.size());
-    ImGui::Separator();
-    ImGui::BeginChild("##LogScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
-    for (auto& line : g_logLines) {
-        ImVec4 col(0.85f,0.85f,0.85f,1);
-        if (line.find("FAILED") != std::string::npos ||
-            line.find("ERROR")  != std::string::npos) col = ImVec4(1,0.4f,0.4f,1);
-        else if (line.find("OK") != std::string::npos) col = ImVec4(0.5f,1,0.5f,1);
-        ImGui::TextColored(col, "%s", line.c_str());
-    }
-    ImGui::EndChild();
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------------------
-void DrawScenePanel()
-{
-    if (!ImGui::Begin("Scene")) { ImGui::End(); return; }
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------------------
-void DrawViewportPanel()
-{
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse
-        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus
-        | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar
-        | ImGuiWindowFlags_NoScrollWithMouse;
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0,0));
-    ImGui::Begin("3D View", nullptr, flags);
-    ImGui::End();
-    ImGui::PopStyleVar();
-}
-
-// ---------------------------------------------------------------------------
-static bool s_bCompileOpen = false;
-void OpenCompileOptionsWindow() { s_bCompileOpen = true; }
-void DrawCompileOptionsWindow()
-{
-    if (!s_bCompileOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(480, 300), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Compile Options", &s_bCompileOpen)) {
-
-    }
     ImGui::End();
 }

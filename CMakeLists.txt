@@ -95,7 +95,7 @@ else()
     find_package(nlohmann_json REQUIRED)
     find_package(assimp REQUIRED)
     find_path(STB_INCLUDE_DIR NAMES stb_image.h
-        HINTS "${CMAKE_SOURCE_DIR}/../stb"
+        #HINTS "${CMAKE_SOURCE_DIR}/../stb"
         PATH_SUFFIXES stb
         REQUIRED
     )
@@ -233,8 +233,11 @@ add_custom_target(shaders_gen DEPENDS ${SHADER_GEN})
 add_executable(editor
     src/editor/main.cpp src/editor/SceneGlobals.cpp src/editor/Brush.cpp
     src/editor/Entity.cpp src/editor/UndoStack.cpp src/editor/EditorLayout.cpp
-    src/editor/GraphEditorPanel.cpp src/editor/GameDatabase.cpp src/editor/EditorPanels.cpp
-    src/editor/View2D.cpp src/editor/MapIO.cpp
+    src/editor/GameDatabase.cpp src/editor/EditorMaterialBrowser.cpp
+    src/editor/View2D.cpp src/editor/MapIO.cpp src/editor/EditorMenu.cpp
+    src/editor/EditorGL.cpp src/editor/EditorPicking.cpp src/editor/EditorGizmo.cpp
+    src/editor/EditorViewport.cpp src/editor/EditorInput.cpp
+    src/editor/EditorPanelsCommon.cpp src/editor/EditorScenePanel.cpp
 )
 add_dependencies(editor shaders_gen)
 add_custom_command(TARGET editor POST_BUILD

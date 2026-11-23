@@ -60,6 +60,7 @@ struct View2D
     float  fBoxCreateEndY     = 0.0f;
 
     bool   bPushedDragSnapshot  = false;
+    PanelResult pendingCreate;  // 本帧待提交的创建请求
 
     View2D() = default;
     View2D(float cx, float cy, float z, int ax, int ay, int ad)
@@ -193,7 +194,11 @@ static void DrawGrid2D(ImDrawList* draw, const View2D& view, const ImVec2& canva
 
 static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
 {
+    if (!g_bShowBrushes) return;
     for (size_t i = 0; i < g_brushes.size(); i++) {
+        // 👈 新增：如果 Brush 被隐藏，直接跳过
+        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue;
+
         const CBrush& b = g_brushes[i];
         float minX, maxX, minY, maxY;
         GetBrush2DRange(b, view, minX, maxX, minY, maxY);
@@ -212,7 +217,11 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
         draw->AddRect(minP, maxP, color, 0.0f, 0, bSelected ? 2.0f : 1.0f);
     }
 
-    if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+    // 选中手柄也只在总开关 + 个体可见时才画
+    if (g_bShowBrushes &&
+        g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size() &&
+        (g_iSelectedBrush >= (int)g_brushVisible.size() || g_brushVisible[g_iSelectedBrush] != 0))
+    {
         float handles[8][2];
         GetBrushHandles(g_brushes[g_iSelectedBrush], view, handles);
         for (int h = 0; h < 8; h++) {
@@ -228,7 +237,12 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
 
 static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
 {
+    if (!g_bShowEntities) return;
+
     for (size_t i = 0; i < g_entities.size(); i++) {
+        // 👈 新增：如果 Entity 被隐藏，直接跳过
+        if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue;
+
         const CEntity& e = g_entities[i];
         bool bSelected = ((int)i == g_iSelectedEntity);
         ImU32 color = bSelected ? IM_COL32(255, 255, 0, 255) : IM_COL32(0, 200, 0, 255);
@@ -256,7 +270,10 @@ static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& c
         draw->AddLine(ImVec2(p.x, p.y - 8), ImVec2(p.x, p.y + 8), color);
     }
 
-    if (g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size()) {
+    if (g_bShowEntities &&
+        g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size() &&
+        (g_iSelectedEntity >= (int)g_entityVisible.size() || g_entityVisible[g_iSelectedEntity] != 0))
+    {
         float handles[8][2];
         GetEntityHandles(g_entities[g_iSelectedEntity], view, handles);
         for (int h = 0; h < 8; h++) {
@@ -398,6 +415,7 @@ static void CreateBrushFromBox(View2D& view)
     minCoords[view.axisDepth] = depthMin; maxCoords[view.axisDepth] = depthMax;
 
     CBrush newBrush;
+    newBrush.m_id = GenerateUniqueID();   // 👈 补这句
     newBrush.m_vecPos = glm::vec3((minCoords[0]+maxCoords[0])*0.5f, (minCoords[1]+maxCoords[1])*0.5f, (minCoords[2]+maxCoords[2])*0.5f);
     newBrush.m_vecSize = glm::vec3((maxCoords[0]-minCoords[0])*0.5f, (maxCoords[1]-minCoords[1])*0.5f, (maxCoords[2]-minCoords[2])*0.5f);
     newBrush.m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
@@ -405,7 +423,8 @@ static void CreateBrushFromBox(View2D& view)
 
     UndoStack::Instance().PushSnapshot("Create Brush (2D Block)");
     g_brushes.push_back(newBrush);
-    g_iSelectedBrush = (int)g_brushes.size() - 1;
+    g_brushVisible.push_back(1);          // 👈 补这句
+    g_iSelectedBrush  = (int)g_brushes.size() - 1;
     g_iSelectedEntity = -1;
 }
 
@@ -414,6 +433,20 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
                              ImGuiIO& io, const ImVec2& canvasPos, const ImVec2& canvasSize,
                              float wx, float wy)
 {
+    // 👈 Create Entity 工具：点一下就放置，不进入拖拽状态机
+    if (g_iCurrentTool == TOOL_CREATE_ENTITY) {
+        float coords[3] = {0.0f, 0.0f, 0.0f};
+        coords[view.axisMapX] = wx;
+        coords[view.axisMapY] = wy;
+        coords[view.axisDepth] = (view.axisDepth == 1) ? 32.0f : 0.0f;
+
+        view.pendingCreate = {};
+        view.pendingCreate.bRequestNewEntity  = true;
+        view.pendingCreate.szNewEntityClass   = g_szPendingEntityClass;
+        view.pendingCreate.newEntityPos       = glm::vec3(coords[0], coords[1], coords[2]);
+        return false;
+    }
+
     if (g_bBlockToolActive) {
         view.bBoxCreating = true;
         view.fBoxCreateStartX = view.fBoxCreateEndX = wx;
@@ -424,7 +457,10 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 优先判定 Entity 手柄
-    if (g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size()) {
+    if (g_bShowEntities &&
+        g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size() &&
+        (g_iSelectedEntity >= (int)g_entityVisible.size() || g_entityVisible[g_iSelectedEntity] != 0))
+    {
         int handle = HitTestEntityHandles(g_entities[g_iSelectedEntity], view, io.MousePos, canvasPos, canvasSize);
         if (handle >= 0) {
             view.bResizingEntity = true; view.iResizingEntity = g_iSelectedEntity; view.iResizeEntityHandle = handle;
@@ -438,7 +474,10 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 其次判定 Brush 手柄
-    if (g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
+    if (g_bShowBrushes &&
+        g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size() &&
+        (g_iSelectedBrush >= (int)g_brushVisible.size() || g_brushVisible[g_iSelectedBrush] != 0))
+    {
         int handle = HitTestBrushHandles(g_brushes[g_iSelectedBrush], view, io.MousePos, canvasPos, canvasSize);
         if (handle >= 0) {
             view.bResizingBrush = true; view.iResizingBrush = g_iSelectedBrush; view.iResizeHandle = handle;
@@ -451,9 +490,12 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 再次判定实体身体
-    {
+    if (g_bShowEntities) {
         int hitEntity = -1;
         for (int i = (int)g_entities.size() - 1; i >= 0; i--) {
+            // 👈 个体可见性
+            if (i < (int)g_entityVisible.size() && g_entityVisible[i] == 0) continue;
+
             float minX, maxX, minY, maxY; GetEntity2DRange(g_entities[i], view, minX, maxX, minY, maxY);
             if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitEntity = i; break; }
         }
@@ -471,9 +513,12 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     }
 
     // 最后判定 Brush 身体
-    {
+    if (g_bShowBrushes) {
         int hitBrush = -1;
         for (int i = (int)g_brushes.size() - 1; i >= 0; i--) {
+            // 👈 个体可见性
+            if (i < (int)g_brushVisible.size() && g_brushVisible[i] == 0) continue;
+                        
             float minX, maxX, minY, maxY; GetBrush2DRange(g_brushes[i], view, minX, maxX, minY, maxY);
             if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitBrush = i; break; }
         }
@@ -558,7 +603,8 @@ static bool TickDrag(View2D& view, View2DUIState& uiState,
     return false;
 }
 
-static void Draw2DViewCommon(const char* name, View2D& view, View2DUIState& uiState)
+static void Draw2DViewCommon(const char* name, View2D& view, View2DUIState& uiState,
+                             PanelResult& out)
 {
     if (!ImGui::Begin(name)) { ImGui::End(); return; }
     ImVec2 canvasPos = ImGui::GetCursorScreenPos();
@@ -615,16 +661,28 @@ static void Draw2DViewCommon(const char* name, View2D& view, View2DUIState& uiSt
         draw->AddRect(minP, maxP, IM_COL32(100, 150, 255, 255), 0.0f, 0, 2.0f);
     }
 
+    // 👈 把本视图本帧的创建请求合并到 out（解法 A）
+    if (view.pendingCreate.bRequestNewEntity) {
+        out.bRequestNewEntity = true;
+        out.szNewEntityClass  = view.pendingCreate.szNewEntityClass;
+        out.newEntityPos      = view.pendingCreate.newEntityPos;
+    }
+    if (view.pendingCreate.bRequestNew) {
+        out.bRequestNew  = true;
+        out.newBrushPos  = view.pendingCreate.newBrushPos;
+    }
+    view.pendingCreate = {};   // 清空，避免下帧重复提交
+
     ImGui::End();
 }
 
-void DrawTopView()   { Draw2DViewCommon("Top View",   s_topView,   s_topUI);   }
-void DrawFrontView() { Draw2DViewCommon("Front View", s_frontView, s_frontUI); }
-void DrawSideView()  { Draw2DViewCommon("Side View",  s_sideView,  s_sideUI);  }
+void DrawTopView(PanelResult& out)   { Draw2DViewCommon("Top View",   s_topView,   s_topUI,   out); }
+void DrawFrontView(PanelResult& out) { Draw2DViewCommon("Front View", s_frontView, s_frontUI, out); }
+void DrawSideView(PanelResult& out)  { Draw2DViewCommon("Side View",  s_sideView,  s_sideUI,  out); }
 
-void Draw2DViews()
+void Draw2DViews(PanelResult& out)
 {
-    DrawTopView();
-    DrawFrontView();
-    DrawSideView();
+    DrawTopView(out);
+    DrawFrontView(out);
+    DrawSideView(out);
 }

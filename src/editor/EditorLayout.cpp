@@ -68,7 +68,7 @@ void Begin()
         // 预热窗口
         const char* allWindows[] = {
             "3D View", "Top View", "Front View", "Side View",
-            "Scene", "Tools", "Graph"
+            "Scene", "Tools", //"Graph"
         };
         for (const char* name : allWindows) {
             ImGui::Begin(name, nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar);
@@ -86,7 +86,7 @@ void Begin()
         // 右侧和底部的固定窗口
         ImGui::DockBuilderDockWindow("Scene",  dock_right);
         ImGui::DockBuilderDockWindow("Tools",   dock_right);
-        ImGui::DockBuilderDockWindow("Graph", dock_right);
+        //ImGui::DockBuilderDockWindow("Graph", dock_right);
 
         if (s_layoutMode == LAYOUT_DEFAULT)
         {
@@ -95,7 +95,7 @@ void Begin()
             ImGui::DockBuilderDockWindow("Top View",   dock_main);
             ImGui::DockBuilderDockWindow("Front View", dock_main);
             ImGui::DockBuilderDockWindow("Side View",  dock_main);
-            ImGui::DockBuilderDockWindow("Graph", dock_main);
+            //ImGui::DockBuilderDockWindow("Graph", dock_main);
         }
         else if (s_layoutMode == LAYOUT_QUAD)
         {

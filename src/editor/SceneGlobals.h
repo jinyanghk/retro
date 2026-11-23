@@ -75,3 +75,13 @@ extern int g_iSelectedGroup; // 👈 新增：当前选中的组
 
 extern uint64_t g_nextUniqueId;
 extern uint64_t GenerateUniqueID();
+
+// 👈 新增：工具模式
+enum EditorTool {
+    TOOL_SELECT = 0,
+    TOOL_CREATE_BRUSH,
+    TOOL_CREATE_ENTITY,
+};
+
+extern EditorTool  g_iCurrentTool;
+extern std::string g_szPendingEntityClass;  // Create Entity 当前选中的类名
