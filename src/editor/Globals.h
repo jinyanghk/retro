@@ -79,6 +79,7 @@ extern uint64_t GenerateUniqueID();
 // 👈 新增：工具模式
 enum EditorTool {
     TOOL_SELECT = 0,
+    TOOL_MULTI_SELECT,
     TOOL_CREATE_BRUSH,
     TOOL_CREATE_ENTITY,
 };

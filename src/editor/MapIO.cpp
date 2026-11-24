@@ -1,7 +1,7 @@
 // MapIO.cpp
 #include "MapIO.h"
-#include "SceneGlobals.h"
-#include "EditorPanels.h"
+#include "Globals.h"
+#include "Panels.h"
 #include "Log.h"
 #include "FileSystem.h"
 

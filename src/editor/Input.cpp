@@ -1,6 +1,6 @@
-#include "EditorInput.h"
-#include "EditorCamera.h"
-#include "SceneGlobals.h"
+#include "Input.h"
+#include "Camera.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include "Log.h"
 #include <imgui.h>

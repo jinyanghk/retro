@@ -1,9 +1,9 @@
-#include "EditorViewport.h"
-#include "EditorCamera.h"
-#include "EditorGL.h"
-#include "EditorPicking.h"
-#include "EditorGizmo.h"
-#include "SceneGlobals.h"
+#include "Viewport.h"
+#include "Camera.h"
+#include "GL.h"
+#include "Picking.h"
+#include "Gizmo.h"
+#include "Globals.h"
 #include "UndoStack.h"
 
 #include <GL/glew.h>

@@ -1,4 +1,4 @@
-#include "EditorGL.h"
+#include "GL.h"
 #include <GL/glew.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>

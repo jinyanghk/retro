@@ -2,7 +2,7 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <utility>
-#include "SceneGlobals.h"
+#include "Globals.h"
 
 struct MapData;
 

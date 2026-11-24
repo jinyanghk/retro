@@ -1,5 +1,5 @@
-#include "GraphEditorPanel.h"
-#include "SceneGlobals.h"
+#include "Graph.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include "imgui.h"
 #include "imgui_internal.h"

@@ -5,13 +5,13 @@
 #include "imgui_impl_opengl3.h"
 #include "ImGuizmo.h"
 
-#include "EditorCamera.h"
-#include "EditorInput.h"
-#include "EditorViewport.h"
-#include "EditorGL.h"
-#include "SceneGlobals.h"
-#include "EditorLayout.h"
-#include "EditorPanels.h"
+#include "Camera.h"
+#include "Input.h"
+#include "Viewport.h"
+#include "GL.h"
+#include "Globals.h"
+#include "Layout.h"
+#include "Panels.h"
 #include "View2D.h"
 #include "MapIO.h"
 #include "MapLoader.h"
@@ -162,7 +162,9 @@ void CheckNavCollisions() {
 }
 
 int main(int argc, char** argv) {
-    std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << "\n";
+    std::cout << "branch: " << Version::GIT_BRANCH 
+                << ", commit: " << Version::GIT_HASH << ", " 
+                << Version::CMAKE_BUILD_TYPE << std::endl;
     FileSystem::Init(".");
     ScanMaterialsRecursive("./materials");
     for (int i = 1; i < argc; ++i) if (std::strcmp(argv[i], "-map") == 0 && i + 1 < argc) currentMap = argv[++i];

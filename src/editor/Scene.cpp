@@ -1,12 +1,12 @@
-#include "EditorPanels.h"
-#include "SceneGlobals.h"
+#include "Panels.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include "GameDatabase.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include <algorithm>
 #include <cstring>
-#include "EditorPanelsInternal.h"
+#include "Internal.h"
 #include <glm/gtc/type_ptr.hpp>
 
 extern std::string GetEntitySearchString(const CEntity& e); // 从 Common 里拿
@@ -34,7 +34,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     ImGui::BeginChild("##SceneTreeChild", ImVec2(0, treeHeight), true);
     
     static bool dragIsEntity = false;
-    static int pendingDeleteGroupIdx = -1;
 
     // 根节点：Scene
     if (ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -114,21 +113,20 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     }
                     ImGui::SameLine();
                     
-                    float btnW = ImGui::CalcTextSize("Dup Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
-                    float availW = ImGui::GetContentRegionAvail().x;
                     bool sel = (*pSelBrush == bi);
-                    if (ImGui::Selectable(("Brush #" + std::to_string(bid)).c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
+                    if (ImGui::Selectable(("Brush #" + std::to_string(bid)).c_str(), sel)) {
                         *pSelBrush = bi;
                         *pSelEntity = -1;
                         g_iSelectedGroup = -1;
                     }
                     
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.targetId = bid; }
-                    
                     if (ImGui::BeginPopupContextItem(("rmB" + std::to_string(bi)).c_str())) {
+                        if (ImGui::MenuItem("Duplicate")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
+                        if (ImGui::MenuItem("Delete")) { out.bRequestDelete = true; out.targetId = bid; }
+                        if (ImGui::MenuItem("Teleport")) {
+                            if (GetEditorCamTarget()) *GetEditorCamTarget() = g_brushes[bi].m_vecPos;
+                            if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+                        }
                         if (ImGui::MenuItem("Remove from Group")) removeBrushIdx = k;
                         ImGui::EndPopup();
                     }
@@ -148,14 +146,12 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 
                     auto& ent = g_entities[ei];
                     
-                    // 👈 组装标签：Classname #ID [targetname]
                     std::string tname = "";
                     auto it = ent.m_properties.find("targetname");
                     if (it != ent.m_properties.end()) tname = it->second;
                     std::string label = ent.m_szName + " #" + std::to_string(eid);
                     if (!tname.empty()) label += " [" + tname + "]";
 
-                    // 👈 搜索匹配
                     if (!filterLower.empty()) {
                         std::string searchStr = GetEntitySearchString(ent);
                         std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
@@ -170,24 +166,19 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     }
                     ImGui::SameLine();
                     
-                    float btnW = ImGui::CalcTextSize("Tel Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
-                    float availW = ImGui::GetContentRegionAvail().x;
                     bool sel = (*pSelEntity == ei);
-                    if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
+                    if (ImGui::Selectable(label.c_str(), sel)) {
                         *pSelEntity = ei;
                         *pSelBrush = -1;
                         g_iSelectedGroup = -1;
                     }
                     
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Tel")) {
-                        if (GetEditorCamTarget()) *GetEditorCamTarget() = g_entities[ei].m_vecPos;
-                        if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
-                    
                     if (ImGui::BeginPopupContextItem(("rmE" + std::to_string(ei)).c_str())) {
+                        if (ImGui::MenuItem("Delete")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
+                        if (ImGui::MenuItem("Teleport")) {
+                            if (GetEditorCamTarget()) *GetEditorCamTarget() = g_entities[ei].m_vecPos;
+                            if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+                        }
                         if (ImGui::MenuItem("Remove from Group")) removeEntityIdx = k;
                         ImGui::EndPopup();
                     }
@@ -221,7 +212,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 
             auto& e = g_entities[i];
             
-            // 👈 组装标签
             std::string tname = "";
             auto it = e.m_properties.find("targetname");
             if (it != e.m_properties.end()) tname = it->second;
@@ -229,7 +219,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             std::string label = e.m_szName + " #" + std::to_string(eid);
             if (!tname.empty()) label += " [" + tname + "]";
             
-            // 👈 搜索匹配
             if (!filterLower.empty()) {
                 std::string searchStr = GetEntitySearchString(e);
                 std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
@@ -243,10 +232,8 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             }
             ImGui::SameLine();
 
-            float btnW = ImGui::CalcTextSize("Tel Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
-            float availW = ImGui::GetContentRegionAvail().x;
             bool sel = (*pSelEntity == i);
-            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
+            if (ImGui::Selectable(label.c_str(), sel)) {
                 *pSelEntity = i;
                 *pSelBrush = -1;
                 g_iSelectedGroup = -1;
@@ -278,13 +265,14 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                 ImGui::EndDragDropTarget();
             }
 
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Tel")) {
-                if (GetEditorCamTarget()) *GetEditorCamTarget() = e.m_vecPos;
-                if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+            if (ImGui::BeginPopupContextItem(("rmE" + std::to_string(i)).c_str())) {
+                if (ImGui::MenuItem("Delete")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
+                if (ImGui::MenuItem("Teleport")) {
+                    if (GetEditorCamTarget()) *GetEditorCamTarget() = e.m_vecPos;
+                    if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+                }
+                ImGui::EndPopup();
             }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Del")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
             ImGui::PopID();
         }
 
@@ -312,10 +300,8 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             }
             ImGui::SameLine();
 
-            float btnW = ImGui::CalcTextSize("Dup Del").x + ImGui::GetStyle().FramePadding.x * 2.0f + 20.0f;
-            float availW = ImGui::GetContentRegionAvail().x;
             bool sel = (*pSelBrush == i);
-            if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(availW - btnW - 10.0f, 0))) {
+            if (ImGui::Selectable(label.c_str(), sel)) {
                 *pSelBrush = i;
                 *pSelEntity = -1;
                 g_iSelectedGroup = -1;
@@ -347,10 +333,15 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                 ImGui::EndDragDropTarget();
             }
 
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Dup")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Del")) { out.bRequestDelete = true; out.targetId = bid; }
+            if (ImGui::BeginPopupContextItem(("rmB" + std::to_string(i)).c_str())) {
+                if (ImGui::MenuItem("Duplicate")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
+                if (ImGui::MenuItem("Delete")) { out.bRequestDelete = true; out.targetId = bid; }
+                if (ImGui::MenuItem("Teleport")) {
+                    if (GetEditorCamTarget()) *GetEditorCamTarget() = b.m_vecPos;
+                    if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+                }
+                ImGui::EndPopup();
+            }
             ImGui::PopID();
         }
         
@@ -379,6 +370,19 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     } 
     else if (*pSelEntity >= 0 && *pSelEntity < (int)g_entities.size()) {
         CEntity& e = g_entities[*pSelEntity];
+        
+        // 👈 实体操作按钮组
+        if (ImGui::Button("Teleport")) {
+            if (GetEditorCamTarget()) *GetEditorCamTarget() = e.m_vecPos;
+            if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Delete")) {
+            out.bRequestDeleteEntity = true;
+            out.targetEntityId = e.m_id;
+        }
+        ImGui::Separator();
+
         ImGui::TextColored(ImVec4(1,1,0,1), "Selected: %s", e.m_szName.c_str());
         ImGui::TextDisabled("ID: %llu", e.m_id); // 👈 显示 ID
         
@@ -506,6 +510,24 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     } 
     else if (*pSelBrush >= 0 && *pSelBrush < (int)g_brushes.size()) {
         CBrush& b = g_brushes[*pSelBrush];
+        
+        // 👈 Brush 操作按钮组
+        if (ImGui::Button("Teleport")) {
+            if (GetEditorCamTarget()) *GetEditorCamTarget() = b.m_vecPos;
+            if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Duplicate")) {
+            out.bRequestDuplicate = true;
+            out.duplicateId = b.m_id;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Delete")) {
+            out.bRequestDelete = true;
+            out.targetId = b.m_id;
+        }
+        ImGui::Separator();
+
         ImGui::TextColored(ImVec4(1,1,0,1), "Selected: brush #%llu", b.m_id); // 👈 显示 ID
         ImGui::TextDisabled("Index: %d", *pSelBrush); // 👈 显示内部索引（调试用）
         

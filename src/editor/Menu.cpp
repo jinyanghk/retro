@@ -1,10 +1,10 @@
-#include "EditorPanels.h"
-#include "SceneGlobals.h"
+#include "Panels.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include "GameDatabase.h"
-#include "EditorLayout.h"
+#include "Layout.h"
 #include "Log.h"
-#include "EditorPanelsInternal.h"
+#include "Internal.h"
 
 #include "imgui.h"
 
@@ -99,6 +99,7 @@ void DrawToolsPanel()
             //ImGui::SameLine();
         };
         ToolRadio("Select",        TOOL_SELECT);
+        ToolRadio("Multi-Select",  TOOL_MULTI_SELECT);
         ToolRadio("Create Brush",  TOOL_CREATE_BRUSH);
         ToolRadio("Create Entity", TOOL_CREATE_ENTITY);
         ImGui::NewLine();

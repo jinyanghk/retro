@@ -231,13 +231,13 @@ add_custom_target(shaders_gen DEPENDS ${SHADER_GEN})
 
 # ---------- editor ----------
 add_executable(editor
-    src/editor/main.cpp src/editor/SceneGlobals.cpp src/editor/Brush.cpp
-    src/editor/Entity.cpp src/editor/UndoStack.cpp src/editor/EditorLayout.cpp
-    src/editor/GameDatabase.cpp src/editor/EditorMaterialBrowser.cpp
-    src/editor/View2D.cpp src/editor/MapIO.cpp src/editor/EditorMenu.cpp
-    src/editor/EditorGL.cpp src/editor/EditorPicking.cpp src/editor/EditorGizmo.cpp
-    src/editor/EditorViewport.cpp src/editor/EditorInput.cpp
-    src/editor/EditorPanelsCommon.cpp src/editor/EditorScenePanel.cpp
+    src/editor/Main.cpp src/editor/Globals.cpp src/editor/Brush.cpp
+    src/editor/Entity.cpp src/editor/UndoStack.cpp src/editor/Layout.cpp
+    src/editor/GameDatabase.cpp src/editor/Material.cpp
+    src/editor/View2D.cpp src/editor/MapIO.cpp src/editor/Menu.cpp
+    src/editor/GL.cpp src/editor/Picking.cpp src/editor/Gizmo.cpp
+    src/editor/Viewport.cpp src/editor/Input.cpp
+    src/editor/Common.cpp src/editor/Scene.cpp
 )
 add_dependencies(editor shaders_gen)
 add_custom_command(TARGET editor POST_BUILD

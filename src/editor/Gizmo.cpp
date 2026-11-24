@@ -1,5 +1,5 @@
-#include "EditorGizmo.h"
-#include "SceneGlobals.h"
+#include "Gizmo.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include "ImGuizmo.h"
 #include <glm/gtc/type_ptr.hpp>
