@@ -162,7 +162,9 @@ void CheckNavCollisions() {
 }
 
 int main(int argc, char** argv) {
-    std::cout << "branch: " << Version::GIT_BRANCH << ", commit: " << Version::GIT_HASH << "\n";
+    std::cout << "branch: " << Version::GIT_BRANCH 
+                << ", commit: " << Version::GIT_HASH << ", " 
+                << Version::CMAKE_BUILD_TYPE << std::endl;
     FileSystem::Init(".");
     ScanMaterialsRecursive("./materials");
     for (int i = 1; i < argc; ++i) if (std::strcmp(argv[i], "-map") == 0 && i + 1 < argc) currentMap = argv[++i];
