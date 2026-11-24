@@ -4,11 +4,11 @@
 #include <vector>
 #include <algorithm>
 #include "imgui.h"
-#include "SceneGlobals.h"
+#include "Globals.h"
 #include "Brush.h"
 #include "Entity.h"
 #include "UndoStack.h"
-#include "EditorViewport.h"
+#include "Viewport.h"
 
 // ---------------------------------------------------------------------------
 // 每个 2D 视图的相机状态 + 拖动状态

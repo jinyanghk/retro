@@ -1,10 +1,10 @@
-#include "EditorPanels.h"
-#include "SceneGlobals.h"
+#include "Panels.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include "GameDatabase.h"
-#include "EditorLayout.h"
+#include "Layout.h"
 #include "Log.h"
-#include "EditorPanelsInternal.h"
+#include "Internal.h"
 
 #include "imgui.h"
 

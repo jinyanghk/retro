@@ -1,12 +1,12 @@
-#include "EditorPanels.h"
-#include "SceneGlobals.h"
+#include "Panels.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include "GameDatabase.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include <algorithm>
 #include <cstring>
-#include "EditorPanelsInternal.h"
+#include "Internal.h"
 #include <glm/gtc/type_ptr.hpp>
 
 extern std::string GetEntitySearchString(const CEntity& e); // 从 Common 里拿

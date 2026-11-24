@@ -1,5 +1,5 @@
-#include "EditorPicking.h"
-#include "SceneGlobals.h"
+#include "Picking.h"
+#include "Globals.h"
 #include "math_compat.h"
 #include "BVH.h"
 #include <cmath>

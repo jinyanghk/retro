@@ -1,7 +1,7 @@
 // src/editor/View2D.h
 #pragma once
 
-#include "EditorPanels.h"
+#include "Panels.h"
 
 // 三个 2D 视图
 void DrawTopView(PanelResult& out);

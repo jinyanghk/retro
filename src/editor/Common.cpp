@@ -1,11 +1,11 @@
-#include "EditorPanels.h"
+#include "Panels.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <algorithm>
 #include <cstring>
 #include "imgui.h"
-#include "SceneGlobals.h"
+#include "Globals.h"
 #include "Log.h"
-#include "EditorPanelsInternal.h"
+#include "Internal.h"
 
 // 全局回调
 void (*s_pfnExportMap)() = nullptr;

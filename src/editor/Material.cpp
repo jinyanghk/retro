@@ -1,5 +1,5 @@
-#include "EditorPanels.h"
-#include "SceneGlobals.h"
+#include "Panels.h"
+#include "Globals.h"
 #include "UndoStack.h"
 #include <GL/glew.h>
 #include <imgui.h>
