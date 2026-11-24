@@ -8,6 +8,7 @@
 #include "Brush.h"
 #include "Entity.h"
 #include "UndoStack.h"
+#include "EditorViewport.h"
 
 // ---------------------------------------------------------------------------
 // 每个 2D 视图的相机状态 + 拖动状态
@@ -190,6 +191,45 @@ static void DrawGrid2D(ImDrawList* draw, const View2D& view, const ImVec2& canva
     ImVec2 origin = WorldToScreen2D(0, 0, view, canvasPos, canvasSize);
     draw->AddLine(ImVec2(origin.x - 12, origin.y), ImVec2(origin.x + 12, origin.y), IM_COL32(255, 255, 255, 128));
     draw->AddLine(ImVec2(origin.x, origin.y - 12), ImVec2(origin.x, origin.y + 12), IM_COL32(255, 255, 255, 128));
+}
+
+static void DrawNav2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
+{
+    if (!g_bShowNav || g_editorNavNodes.empty()) return;
+
+    // 1. 画 Nav Links（连线）
+    for (size_t i = 0; i < g_editorNavNodes.size(); i++) {
+        const auto& n = g_editorNavNodes[i];
+        ImVec2 p1 = WorldToScreen2D(n.pos[view.axisMapX], n.pos[view.axisMapY], view, canvasPos, canvasSize);
+        
+        for (uint32_t li : n.links) {
+            if (li >= g_editorNavNodes.size()) continue;
+            const auto& t = g_editorNavNodes[li];
+            ImVec2 p2 = WorldToScreen2D(t.pos[view.axisMapX], t.pos[view.axisMapY], view, canvasPos, canvasSize);
+            
+            // 正常连线（如果你觉得2D太乱，可以注释掉这一行）
+            draw->AddLine(p1, p2, IM_COL32(50, 150, 50, 100), 1.0f); 
+        }
+    }
+
+    // 2. 画 Nav Nodes（节点）
+    for (const auto& n : g_editorNavNodes) {
+        ImVec2 p = WorldToScreen2D(n.pos[view.axisMapX], n.pos[view.axisMapY], view, canvasPos, canvasSize);
+        draw->AddCircleFilled(p, 3.0f, IM_COL32(50, 255, 50, 255));
+    }
+
+    // 3. 画错误节点（悬空点，黄色）
+    for (const auto& bn : g_badNavNodes) {
+        ImVec2 p = WorldToScreen2D(bn.pos[view.axisMapX], bn.pos[view.axisMapY], view, canvasPos, canvasSize);
+        draw->AddCircleFilled(p, 5.0f, IM_COL32(255, 255, 0, 255));
+    }
+
+    // 4. 画错误连线（穿墙，红色粗线）
+    for (const auto& bl : g_badNavLinks) {
+        ImVec2 p1 = WorldToScreen2D(bl.start[view.axisMapX], bl.start[view.axisMapY], view, canvasPos, canvasSize);
+        ImVec2 p2 = WorldToScreen2D(bl.end[view.axisMapX], bl.end[view.axisMapY], view, canvasPos, canvasSize);
+        draw->AddLine(p1, p2, IM_COL32(255, 50, 50, 200), 2.0f);
+    }
 }
 
 static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& canvasPos, const ImVec2& canvasSize)
@@ -650,6 +690,7 @@ static void Draw2DViewCommon(const char* name, View2D& view, View2DUIState& uiSt
 
     // -------- 3. 绘制 --------
     DrawGrid2D(draw, view, canvasPos, canvasSize);
+    DrawNav2D(draw, view, canvasPos, canvasSize);
     DrawBrushes2D(draw, view, canvasPos, canvasSize);
     DrawEntities2D(draw, view, canvasPos, canvasSize);
 
