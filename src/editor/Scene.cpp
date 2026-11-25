@@ -9,13 +9,31 @@
 #include "Internal.h"
 #include <glm/gtc/type_ptr.hpp>
 
-extern std::string GetEntitySearchString(const CEntity& e); // 从 Common 里拿
+extern std::string GetEntitySearchString(const CEntity& e);
 extern bool InputTextString(const char* label, std::string& value);
 extern glm::vec3* GetEditorCamTarget();
 extern float* GetEditorCamDist();
 
 static char s_sceneFilter[128] = "";
 static int pendingDeleteGroupIdx = -1;
+
+// 👈 辅助函数：查找某物体所在的组
+static int FindBrushGroupIndex(uint64_t bid) {
+    for (int g = 0; g < (int)g_brushGroups.size(); g++) {
+        for (uint64_t id : g_brushGroups[g].brushIds) {
+            if (id == bid) return g;
+        }
+    }
+    return -1;
+}
+static int FindEntityGroupIndex(uint64_t eid) {
+    for (int g = 0; g < (int)g_brushGroups.size(); g++) {
+        for (uint64_t id : g_brushGroups[g].entityIds) {
+            if (id == eid) return g;
+        }
+    }
+    return -1;
+}
 
 void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 {
@@ -82,10 +100,24 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
                     uint64_t draggedId = *(const uint64_t*)payload->Data;
                     if (dragIsEntity) {
+                        // 从原组移除
+                        int oldG = FindEntityGroupIndex(draggedId);
+                        if (oldG >= 0) {
+                            auto& oldIds = g_brushGroups[oldG].entityIds;
+                            oldIds.erase(std::remove(oldIds.begin(), oldIds.end(), draggedId), oldIds.end());
+                        }
+                        // 加入新组
                         bool alreadyIn = false;
                         for (uint64_t eid : grp.entityIds) if (eid == draggedId) { alreadyIn = true; break; }
                         if (!alreadyIn) grp.entityIds.push_back(draggedId);
                     } else {
+                        // 从原组移除
+                        int oldG = FindBrushGroupIndex(draggedId);
+                        if (oldG >= 0) {
+                            auto& oldIds = g_brushGroups[oldG].brushIds;
+                            oldIds.erase(std::remove(oldIds.begin(), oldIds.end(), draggedId), oldIds.end());
+                        }
+                        // 加入新组
                         bool alreadyIn = false;
                         for (uint64_t bid : grp.brushIds) if (bid == draggedId) { alreadyIn = true; break; }
                         if (!alreadyIn) grp.brushIds.push_back(draggedId);
@@ -383,8 +415,41 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         }
         ImGui::Separator();
 
+        // 👈 新增：Entity Group 分配
+        int curGroup = FindEntityGroupIndex(e.m_id);
+        if (curGroup >= 0) {
+            ImGui::Text("Group: %s", g_brushGroups[curGroup].name.c_str());
+            ImGui::SameLine();
+            if (ImGui::Button("Remove from Group")) {
+                auto& ids = g_brushGroups[curGroup].entityIds;
+                ids.erase(std::remove(ids.begin(), ids.end(), e.m_id), ids.end());
+            }
+        } else {
+            ImGui::Text("Group: <None>");
+            ImGui::SameLine();
+            if (ImGui::Button("Assign to Group...")) {
+                ImGui::OpenPopup("AssignEntityGroupPopup");
+            }
+            if (ImGui::BeginPopup("AssignEntityGroupPopup")) {
+                if (ImGui::MenuItem("Create New Group")) {
+                    BrushGroup newGrp;
+                    newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                    newGrp.entityIds.push_back(e.m_id);
+                    g_brushGroups.push_back(newGrp);
+                }
+                ImGui::Separator();
+                for (int g = 0; g < (int)g_brushGroups.size(); g++) {
+                    if (ImGui::MenuItem(g_brushGroups[g].name.c_str())) {
+                        g_brushGroups[g].entityIds.push_back(e.m_id);
+                    }
+                }
+                ImGui::EndPopup();
+            }
+        }
+        ImGui::Separator();
+
         ImGui::TextColored(ImVec4(1,1,0,1), "Selected: %s", e.m_szName.c_str());
-        ImGui::TextDisabled("ID: %llu", e.m_id); // 👈 显示 ID
+        ImGui::TextDisabled("ID: %llu", e.m_id);
         
         glm::vec3 prevPos = e.m_vecPos;
         if (ImGui::DragFloat3("Position", glm::value_ptr(e.m_vecPos), 1.0f)) {
@@ -528,8 +593,41 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         }
         ImGui::Separator();
 
-        ImGui::TextColored(ImVec4(1,1,0,1), "Selected: brush #%llu", b.m_id); // 👈 显示 ID
-        ImGui::TextDisabled("Index: %d", *pSelBrush); // 👈 显示内部索引（调试用）
+        // 👈 新增：Brush Group 分配
+        int curGroup = FindBrushGroupIndex(b.m_id);
+        if (curGroup >= 0) {
+            ImGui::Text("Group: %s", g_brushGroups[curGroup].name.c_str());
+            ImGui::SameLine();
+            if (ImGui::Button("Remove from Group")) {
+                auto& ids = g_brushGroups[curGroup].brushIds;
+                ids.erase(std::remove(ids.begin(), ids.end(), b.m_id), ids.end());
+            }
+        } else {
+            ImGui::Text("Group: <None>");
+            ImGui::SameLine();
+            if (ImGui::Button("Assign to Group...")) {
+                ImGui::OpenPopup("AssignBrushGroupPopup");
+            }
+            if (ImGui::BeginPopup("AssignBrushGroupPopup")) {
+                if (ImGui::MenuItem("Create New Group")) {
+                    BrushGroup newGrp;
+                    newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                    newGrp.brushIds.push_back(b.m_id);
+                    g_brushGroups.push_back(newGrp);
+                }
+                ImGui::Separator();
+                for (int g = 0; g < (int)g_brushGroups.size(); g++) {
+                    if (ImGui::MenuItem(g_brushGroups[g].name.c_str())) {
+                        g_brushGroups[g].brushIds.push_back(b.m_id);
+                    }
+                }
+                ImGui::EndPopup();
+            }
+        }
+        ImGui::Separator();
+
+        ImGui::TextColored(ImVec4(1,1,0,1), "Selected: brush #%llu", b.m_id);
+        ImGui::TextDisabled("Index: %d", *pSelBrush);
         
         if (ImGui::DragFloat3("Center", glm::value_ptr(b.m_vecPos), 1.0f)) {
             if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Brush Center");
