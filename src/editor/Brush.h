@@ -45,6 +45,9 @@ struct BrushGroup {
     bool visible = true;
     std::vector<uint64_t> brushIds;  // 👈 存 ID
     std::vector<uint64_t> entityIds; // 👈 存 ID
+
+    uint64_t parentId = 0; // 👈 新增：父组的 ID，0 表示根节点
+    uint64_t id = 0;       // 👈 新增：组自己的唯一 ID    
 };
 
 // face → 4 个顶点索引（纯数据，face/edge/vertex 编辑时查表）

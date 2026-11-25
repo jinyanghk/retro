@@ -26,7 +26,7 @@ bool ExportMapJson(const std::string& path)
     // ================= 1. 导出 Brushes =================
     json brushes = json::array();
     for (size_t i = 0; i < g_brushes.size(); i++) {
-        if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue; // 隐藏的不导
+        //if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue; // 隐藏的不导
         
         const auto& b = g_brushes[i];
         json jb;
@@ -63,7 +63,7 @@ bool ExportMapJson(const std::string& path)
     // ================= 2. 导出 Entities =================
     json entities = json::array();
     for (size_t i = 0; i < g_entities.size(); i++) {
-        if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue; // 跳过隐藏
+        //if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue; // 跳过隐藏
         
         const auto& e = g_entities[i];
         json je;
@@ -104,6 +104,9 @@ bool ExportMapJson(const std::string& path)
         json jg;
         jg["name"] = grp.name;
         jg["visible"] = grp.visible;
+        // 👈 加上这两行
+        jg["id"] = grp.id;
+        jg["parentId"] = grp.parentId;
 
         json brushes_arr = json::array();
         for (uint64_t bid : grp.brushIds) {
@@ -132,9 +135,7 @@ bool ExportMapJson(const std::string& path)
         }
         jg["entities"] = entities_arr;
 
-        if (!brushes_arr.empty() || !entities_arr.empty()) {
-            groups.push_back(jg);
-        }
+        groups.push_back(jg);
     }
     root["groups"] = groups;
 
@@ -313,6 +314,9 @@ bool ImportMapJson(const std::string& path)
             BrushGroup grp;
             grp.name = jg.value("name", "New_Group");
             grp.visible = jg.value("visible", 1);
+            // 👈 加上这两行
+            grp.id = jg.value("id", 0ULL);
+            grp.parentId = jg.value("parentId", 0ULL);
 
             if (jg.contains("brushes") && jg["brushes"].is_array()) {
                 for (const auto& jb : jg["brushes"]) {
@@ -331,6 +335,23 @@ bool ImportMapJson(const std::string& path)
     // 确保可见性数组和物体数量一致
     g_brushVisible.assign(g_brushes.size(), 1);
     g_entityVisible.assign(g_entities.size(), 1);
+
+    // 在导入完成后，遍历一遍，确保所有组都有唯一的 ID
+    for (auto& grp : g_brushGroups) {
+        if (grp.id == 0) {
+            grp.id = GenerateUniqueID(); // 给老组分配新 ID
+        }
+    }
+    // 如果有组的 parentId 指向了不存在的组（因为旧存档没存 parentId），重置为根
+    for (auto& grp : g_brushGroups) {
+        if (grp.parentId != 0) {
+            bool parentExists = false;
+            for (const auto& other : g_brushGroups) {
+                if (other.id == grp.parentId) { parentExists = true; break; }
+            }
+            if (!parentExists) grp.parentId = 0;
+        }
+    }    
 
     return true;
 }
