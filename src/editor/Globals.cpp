@@ -51,3 +51,22 @@ uint64_t GenerateUniqueID() { return g_nextUniqueId++; }
 
 EditorTool  g_iCurrentTool = TOOL_SELECT;
 std::string g_szPendingEntityClass = "light";
+
+// 👈 新增：根据 Group ID 查找 Index
+int FindGroupIndexById(uint64_t groupId) {
+    if (groupId == 0) return -1;
+    for (int i = 0; i < (int)g_brushGroups.size(); i++) {
+        if (g_brushGroups[i].id == groupId) return i;
+    }
+    return -1;
+}
+
+// 👈 新增：判断某个组是否是另一个组的祖先（防成环）
+bool IsGroupAncestor(uint64_t ancestorId, uint64_t childId) {
+    int curr = FindGroupIndexById(childId);
+    while (curr >= 0) {
+        if (g_brushGroups[curr].id == ancestorId) return true;
+        curr = FindGroupIndexById(g_brushGroups[curr].parentId);
+    }
+    return false;
+}

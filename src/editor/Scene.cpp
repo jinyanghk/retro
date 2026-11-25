@@ -6,6 +6,7 @@
 #include "imgui_internal.h"
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include "Internal.h"
 #include <glm/gtc/type_ptr.hpp>
 
@@ -35,11 +36,36 @@ static int FindEntityGroupIndex(uint64_t eid) {
     return -1;
 }
 
+// 👈 递归设置组及其所有子孙节点的可见性
+static void SetGroupVisibilityRecursive(uint64_t groupId, bool visible) {
+    int gIdx = FindGroupIndexById(groupId);
+    if (gIdx < 0) return;
+    
+    auto& grp = g_brushGroups[gIdx];
+    grp.visible = visible;
+    
+    // 改直接成员
+    for (uint64_t bid : grp.brushIds) {
+        for (int i = 0; i < (int)g_brushes.size(); i++)
+            if (g_brushes[i].m_id == bid && i < (int)g_brushVisible.size()) g_brushVisible[i] = visible;
+    }
+    for (uint64_t eid : grp.entityIds) {
+        for (int i = 0; i < (int)g_entities.size(); i++)
+            if (g_entities[i].m_id == eid && i < (int)g_entityVisible.size()) g_entityVisible[i] = visible;
+    }
+    
+    // 递归改子组
+    for (auto& sub : g_brushGroups) {
+        if (sub.parentId == groupId) {
+            SetGroupVisibilityRecursive(sub.id, visible);
+        }
+    }
+}
+
 void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 {
     if (!ImGui::Begin("Scene")) { ImGui::End(); return; }
 
-    // 1. 搜索栏
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##SceneFilter", "Search name / ID / KV...", s_sceneFilter, sizeof(s_sceneFilter));
     
@@ -48,191 +74,215 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 
     float treeHeight = ImGui::GetContentRegionAvail().y * 0.5f;
     
-    // ================= 上半部分：单一世界树 =================
     ImGui::BeginChild("##SceneTreeChild", ImVec2(0, treeHeight), true);
     
     static bool dragIsEntity = false;
 
-    // 根节点：Scene
     if (ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
         
-        // 1. 先渲染所有的 Group
-        auto RenderGroupNode = [&](int gIdx) {
-            auto& grp = g_brushGroups[gIdx];
-            ImGui::PushID(gIdx + 30000);
-            
-            bool groupVis = (grp.visible != 0);
-            if (ImGui::Checkbox("##vis", &groupVis)) {
-                grp.visible = groupVis ? 1 : 0;
-                for (uint64_t bid : grp.brushIds) {
-                    for (int i = 0; i < (int)g_brushes.size(); i++) {
-                        if (g_brushes[i].m_id == bid && i < (int)g_brushVisible.size()) g_brushVisible[i] = grp.visible;
-                    }
-                }
-                for (uint64_t eid : grp.entityIds) {
-                    for (int i = 0; i < (int)g_entities.size(); i++) {
-                        if (g_entities[i].m_id == eid && i < (int)g_entityVisible.size()) g_entityVisible[i] = grp.visible;
-                    }
-                }
-            }
-            ImGui::SameLine();
-            
-            bool isOpen = ImGui::TreeNodeEx(grp.name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow);
-            
-            if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-                g_iSelectedGroup = gIdx;
-                *pSelBrush = -1;
-                *pSelEntity = -1;
+        // 👈 改成 Lambda 形式的递归渲染
+        std::function<void(uint64_t, int)> RenderGroupRecursive = [&](uint64_t parentId, int depth) {
+            // 👈 用拷贝或者局部快照，避免循环中容器改变导致迭代器失效
+            // 为了性能，我们只拷贝一层 ID
+            std::vector<uint64_t> childGroupIds;
+            for (const auto& g : g_brushGroups) {
+                if (g.parentId == parentId) childGroupIds.push_back(g.id);
             }
 
-            std::string popupName = "GroupCtx_" + std::to_string(gIdx);
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                ImGui::OpenPopup(popupName.c_str());
-            }
-            if (ImGui::BeginPopup(popupName.c_str())) {
-                if (ImGui::MenuItem("Delete Group")) {
-                    pendingDeleteGroupIdx = gIdx;
-                }
-                ImGui::EndPopup();
-            }
+            for (uint64_t childId : childGroupIds) {
+                int gIdx = FindGroupIndexById(childId);
+                if (gIdx < 0) continue; // 可能在渲染过程中被删了
 
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
-                    uint64_t draggedId = *(const uint64_t*)payload->Data;
-                    if (dragIsEntity) {
-                        // 从原组移除
-                        int oldG = FindEntityGroupIndex(draggedId);
-                        if (oldG >= 0) {
-                            auto& oldIds = g_brushGroups[oldG].entityIds;
-                            oldIds.erase(std::remove(oldIds.begin(), oldIds.end(), draggedId), oldIds.end());
+                // 每次用的时候，安全地拿一下引用
+                auto& grp = g_brushGroups[gIdx]; 
+                if (grp.parentId != parentId) continue;
+
+                ImGui::PushID(grp.id + 30000);
+                if (depth > 0) ImGui::Indent(16.0f);
+
+                bool groupVis = (grp.visible != 0);
+                if (ImGui::Checkbox("##vis", &groupVis)) {
+                    SetGroupVisibilityRecursive(grp.id, groupVis);
+                }
+                ImGui::SameLine();
+                
+                bool isOpen = ImGui::TreeNodeEx(grp.name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow);
+                
+                if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+                    g_iSelectedGroup = gIdx;
+                    *pSelBrush = -1;
+                    *pSelEntity = -1;
+                }
+
+                // 右键菜单
+                std::string popupName = "GroupCtx_" + std::to_string(grp.id);
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup(popupName.c_str());
+                if (ImGui::BeginPopup(popupName.c_str())) {
+                    if (ImGui::MenuItem("Delete Group")) pendingDeleteGroupIdx = gIdx;
+                    ImGui::EndPopup();
+                }
+
+                // 接收拖拽
+                if (ImGui::BeginDragDropTarget()) {
+                    // 接收 Brush/Entity
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
+                        uint64_t draggedId = *(const uint64_t*)payload->Data;
+                        if (dragIsEntity) {
+                            int oldG = FindEntityGroupIndex(draggedId);
+                            if (oldG >= 0) {
+                                auto& ids = g_brushGroups[oldG].entityIds;
+                                ids.erase(std::remove(ids.begin(), ids.end(), draggedId), ids.end());
+                            }
+                            grp.entityIds.push_back(draggedId);
+                        } else {
+                            int oldG = FindBrushGroupIndex(draggedId);
+                            if (oldG >= 0) {
+                                auto& ids = g_brushGroups[oldG].brushIds;
+                                ids.erase(std::remove(ids.begin(), ids.end(), draggedId), ids.end());
+                            }
+                            grp.brushIds.push_back(draggedId);
                         }
-                        // 加入新组
-                        bool alreadyIn = false;
-                        for (uint64_t eid : grp.entityIds) if (eid == draggedId) { alreadyIn = true; break; }
-                        if (!alreadyIn) grp.entityIds.push_back(draggedId);
-                    } else {
-                        // 从原组移除
-                        int oldG = FindBrushGroupIndex(draggedId);
-                        if (oldG >= 0) {
-                            auto& oldIds = g_brushGroups[oldG].brushIds;
-                            oldIds.erase(std::remove(oldIds.begin(), oldIds.end(), draggedId), oldIds.end());
-                        }
-                        // 加入新组
-                        bool alreadyIn = false;
-                        for (uint64_t bid : grp.brushIds) if (bid == draggedId) { alreadyIn = true; break; }
-                        if (!alreadyIn) grp.brushIds.push_back(draggedId);
                     }
+                    // 接收 Group（多级嵌套）
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_GROUP")) {
+                        uint64_t draggedGroupId = *(const uint64_t*)payload->Data;
+                        if (draggedGroupId != grp.id && !IsGroupAncestor(draggedGroupId, grp.id)) {
+                            int draggedIdx = FindGroupIndexById(draggedGroupId);
+                            if (draggedIdx >= 0) {
+                                g_brushGroups[draggedIdx].parentId = grp.id;
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
                 }
-                ImGui::EndDragDropTarget();
+
+                // 拖拽源（将 Group 拖走）
+                if (ImGui::BeginDragDropSource()) {
+                    ImGui::SetDragDropPayload("DRAG_GROUP", &grp.id, sizeof(uint64_t));
+                    ImGui::Text("Group: %s", grp.name.c_str());
+                    ImGui::EndDragDropSource();
+                }
+
+                if (isOpen) {
+                    // ====== 渲染组内的 Brushes ======
+                    int removeBrushIdx = -1;
+                    for (int k = 0; k < (int)grp.brushIds.size(); k++) {
+                        uint64_t bid = grp.brushIds[k];
+                        int bi = -1;
+                        for (int i = 0; i < (int)g_brushes.size(); i++) {
+                            if (g_brushes[i].m_id == bid) { bi = i; break; }
+                        }
+                        if (bi < 0) continue;
+
+                        ImGui::PushID(bi + 40000);
+                        
+                        bool vis = (bi < (int)g_brushVisible.size()) ? (g_brushVisible[bi] != 0) : true;
+                        if (ImGui::Checkbox("##vis", &vis)) {
+                            if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = vis ? 1 : 0;
+                        }
+                        ImGui::SameLine();
+                        
+                        bool sel = (*pSelBrush == bi);
+                        if (ImGui::Selectable(("Brush #" + std::to_string(bid)).c_str(), sel)) {
+                            *pSelBrush = bi;
+                            *pSelEntity = -1;
+                            g_iSelectedGroup = -1;
+                        }
+                        
+                        if (ImGui::BeginPopupContextItem(("rmB" + std::to_string(bi)).c_str())) {
+                            if (ImGui::MenuItem("Duplicate")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
+                            if (ImGui::MenuItem("Delete")) { out.bRequestDelete = true; out.targetId = bid; }
+                            if (ImGui::MenuItem("Teleport")) {
+                                if (GetEditorCamTarget()) *GetEditorCamTarget() = g_brushes[bi].m_vecPos;
+                                if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+                            }
+                            if (ImGui::MenuItem("Remove from Group")) removeBrushIdx = k;
+                            ImGui::EndPopup();
+                        }
+                        ImGui::PopID();
+                    }
+                    if (removeBrushIdx >= 0) grp.brushIds.erase(grp.brushIds.begin() + removeBrushIdx);
+
+                    // ====== 渲染组内的 Entities ======
+                    int removeEntityIdx = -1;
+                    for (int k = 0; k < (int)grp.entityIds.size(); k++) {
+                        uint64_t eid = grp.entityIds[k];
+                        int ei = -1;
+                        for (int i = 0; i < (int)g_entities.size(); i++) {
+                            if (g_entities[i].m_id == eid) { ei = i; break; }
+                        }
+                        if (ei < 0) continue;
+
+                        auto& ent = g_entities[ei];
+                        std::string tname = "";
+                        auto it = ent.m_properties.find("targetname");
+                        if (it != ent.m_properties.end()) tname = it->second;
+                        std::string label = ent.m_szName + " #" + std::to_string(eid);
+                        if (!tname.empty()) label += " [" + tname + "]";
+
+                        if (!filterLower.empty()) {
+                            std::string searchStr = GetEntitySearchString(ent);
+                            std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
+                            if (searchStr.find(filterLower) == std::string::npos) continue;
+                        }
+
+                        ImGui::PushID(ei + 50000);
+                        
+                        bool vis = (ei < (int)g_entityVisible.size()) ? (g_entityVisible[ei] != 0) : true;
+                        if (ImGui::Checkbox("##vis", &vis)) {
+                            if (ei < (int)g_entityVisible.size()) g_entityVisible[ei] = vis ? 1 : 0;
+                        }
+                        ImGui::SameLine();
+                        
+                        bool sel = (*pSelEntity == ei);
+                        if (ImGui::Selectable(label.c_str(), sel)) {
+                            *pSelEntity = ei;
+                            *pSelBrush = -1;
+                            g_iSelectedGroup = -1;
+                        }
+                        
+                        if (ImGui::BeginPopupContextItem(("rmE" + std::to_string(ei)).c_str())) {
+                            if (ImGui::MenuItem("Delete")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
+                            if (ImGui::MenuItem("Teleport")) {
+                                if (GetEditorCamTarget()) *GetEditorCamTarget() = g_entities[ei].m_vecPos;
+                                if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
+                            }
+                            if (ImGui::MenuItem("Remove from Group")) removeEntityIdx = k;
+                            ImGui::EndPopup();
+                        }
+                        ImGui::PopID();
+                    }
+                    if (removeEntityIdx >= 0) grp.entityIds.erase(grp.entityIds.begin() + removeEntityIdx);
+                    
+                    // 👈 递归渲染子组
+                    RenderGroupRecursive(grp.id, depth + 1);
+                    
+                    ImGui::TreePop();
+                }
+
+                if (depth > 0) ImGui::Unindent(16.0f);
+                ImGui::PopID();
             }
-
-            if (isOpen) {
-                // ====== 渲染组内的 Brushes ======
-                int removeBrushIdx = -1;
-                for (int k = 0; k < (int)grp.brushIds.size(); k++) {
-                    uint64_t bid = grp.brushIds[k];
-                    int bi = -1;
-                    for (int i = 0; i < (int)g_brushes.size(); i++) {
-                        if (g_brushes[i].m_id == bid) { bi = i; break; }
-                    }
-                    if (bi < 0) continue;
-
-                    ImGui::PushID(bi + 40000);
-                    
-                    bool vis = (bi < (int)g_brushVisible.size()) ? (g_brushVisible[bi] != 0) : true;
-                    if (ImGui::Checkbox("##vis", &vis)) {
-                        if (bi < (int)g_brushVisible.size()) g_brushVisible[bi] = vis ? 1 : 0;
-                    }
-                    ImGui::SameLine();
-                    
-                    bool sel = (*pSelBrush == bi);
-                    if (ImGui::Selectable(("Brush #" + std::to_string(bid)).c_str(), sel)) {
-                        *pSelBrush = bi;
-                        *pSelEntity = -1;
-                        g_iSelectedGroup = -1;
-                    }
-                    
-                    if (ImGui::BeginPopupContextItem(("rmB" + std::to_string(bi)).c_str())) {
-                        if (ImGui::MenuItem("Duplicate")) { out.bRequestDuplicate = true; out.duplicateId = bid; }
-                        if (ImGui::MenuItem("Delete")) { out.bRequestDelete = true; out.targetId = bid; }
-                        if (ImGui::MenuItem("Teleport")) {
-                            if (GetEditorCamTarget()) *GetEditorCamTarget() = g_brushes[bi].m_vecPos;
-                            if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
-                        }
-                        if (ImGui::MenuItem("Remove from Group")) removeBrushIdx = k;
-                        ImGui::EndPopup();
-                    }
-                    ImGui::PopID();
-                }
-                if (removeBrushIdx >= 0) grp.brushIds.erase(grp.brushIds.begin() + removeBrushIdx);
-
-                // ====== 渲染组内的 Entities ======
-                int removeEntityIdx = -1;
-                for (int k = 0; k < (int)grp.entityIds.size(); k++) {
-                    uint64_t eid = grp.entityIds[k];
-                    int ei = -1;
-                    for (int i = 0; i < (int)g_entities.size(); i++) {
-                        if (g_entities[i].m_id == eid) { ei = i; break; }
-                    }
-                    if (ei < 0) continue;
-
-                    auto& ent = g_entities[ei];
-                    
-                    std::string tname = "";
-                    auto it = ent.m_properties.find("targetname");
-                    if (it != ent.m_properties.end()) tname = it->second;
-                    std::string label = ent.m_szName + " #" + std::to_string(eid);
-                    if (!tname.empty()) label += " [" + tname + "]";
-
-                    if (!filterLower.empty()) {
-                        std::string searchStr = GetEntitySearchString(ent);
-                        std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
-                        if (searchStr.find(filterLower) == std::string::npos) continue;
-                    }
-
-                    ImGui::PushID(ei + 50000);
-                    
-                    bool vis = (ei < (int)g_entityVisible.size()) ? (g_entityVisible[ei] != 0) : true;
-                    if (ImGui::Checkbox("##vis", &vis)) {
-                        if (ei < (int)g_entityVisible.size()) g_entityVisible[ei] = vis ? 1 : 0;
-                    }
-                    ImGui::SameLine();
-                    
-                    bool sel = (*pSelEntity == ei);
-                    if (ImGui::Selectable(label.c_str(), sel)) {
-                        *pSelEntity = ei;
-                        *pSelBrush = -1;
-                        g_iSelectedGroup = -1;
-                    }
-                    
-                    if (ImGui::BeginPopupContextItem(("rmE" + std::to_string(ei)).c_str())) {
-                        if (ImGui::MenuItem("Delete")) { out.bRequestDeleteEntity = true; out.targetEntityId = eid; }
-                        if (ImGui::MenuItem("Teleport")) {
-                            if (GetEditorCamTarget()) *GetEditorCamTarget() = g_entities[ei].m_vecPos;
-                            if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
-                        }
-                        if (ImGui::MenuItem("Remove from Group")) removeEntityIdx = k;
-                        ImGui::EndPopup();
-                    }
-                    ImGui::PopID();
-                }
-                if (removeEntityIdx >= 0) grp.entityIds.erase(grp.entityIds.begin() + removeEntityIdx);
-                ImGui::TreePop();
-            }
-            ImGui::PopID();
         };
 
-        for (int g = 0; g < (int)g_brushGroups.size(); g++) {
-            RenderGroupNode(g);
-        }
+        // 启动递归渲染
+        RenderGroupRecursive(0, 0);
 
+        // 删除 Group（安全处理子组）
         if (pendingDeleteGroupIdx >= 0) {
+            uint64_t deletedId = g_brushGroups[pendingDeleteGroupIdx].id;
+            uint64_t parentOfDeleted = g_brushGroups[pendingDeleteGroupIdx].parentId;
+            
+            for (auto& g : g_brushGroups) {
+                if (g.parentId == deletedId) g.parentId = parentOfDeleted;
+            }
+            
             g_brushGroups.erase(g_brushGroups.begin() + pendingDeleteGroupIdx);
             pendingDeleteGroupIdx = -1;
             g_iSelectedGroup = -1;
         }
 
-        // 2. 渲染散落的 Entities
+        // ====== 渲染散落的 Entities ======
         for (int i = 0; i < (int)g_entities.size(); i++) {
             bool inAnyGroup = false;
             uint64_t eid = g_entities[i].m_id;
@@ -283,7 +333,9 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     uint64_t draggedId = *(const uint64_t*)payload->Data;
                     if (draggedId != eid) {
                         BrushGroup newGrp;
-                        newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                        newGrp.id = GenerateUniqueID();      // 👈 分配 ID
+                        newGrp.parentId = 0;
+                        newGrp.name = "Group_" + std::to_string(newGrp.id);
                         if (dragIsEntity) {
                             newGrp.entityIds.push_back(draggedId);
                             newGrp.entityIds.push_back(eid);
@@ -308,7 +360,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             ImGui::PopID();
         }
 
-        // 3. 渲染散落的 Brushes
+        // ====== 渲染散落的 Brushes ======
         for (int i = 0; i < (int)g_brushes.size(); i++) {
             bool inAnyGroup = false;
             uint64_t bid = g_brushes[i].m_id;
@@ -351,7 +403,9 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     uint64_t draggedId = *(const uint64_t*)payload->Data;
                     if (draggedId != bid) {
                         BrushGroup newGrp;
-                        newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                        newGrp.id = GenerateUniqueID();      // 👈 分配 ID
+                        newGrp.parentId = 0;
+                        newGrp.name = "Group_" + std::to_string(newGrp.id);
                         if (dragIsEntity) {
                             newGrp.entityIds.push_back(draggedId);
                             newGrp.brushIds.push_back(bid);
@@ -403,7 +457,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     else if (*pSelEntity >= 0 && *pSelEntity < (int)g_entities.size()) {
         CEntity& e = g_entities[*pSelEntity];
         
-        // 👈 实体操作按钮组
         if (ImGui::Button("Teleport")) {
             if (GetEditorCamTarget()) *GetEditorCamTarget() = e.m_vecPos;
             if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
@@ -415,7 +468,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         }
         ImGui::Separator();
 
-        // 👈 新增：Entity Group 分配
+        // Entity Group 分配
         int curGroup = FindEntityGroupIndex(e.m_id);
         if (curGroup >= 0) {
             ImGui::Text("Group: %s", g_brushGroups[curGroup].name.c_str());
@@ -427,13 +480,13 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         } else {
             ImGui::Text("Group: <None>");
             ImGui::SameLine();
-            if (ImGui::Button("Assign to Group...")) {
-                ImGui::OpenPopup("AssignEntityGroupPopup");
-            }
+            if (ImGui::Button("Assign to Group...")) ImGui::OpenPopup("AssignEntityGroupPopup");
             if (ImGui::BeginPopup("AssignEntityGroupPopup")) {
                 if (ImGui::MenuItem("Create New Group")) {
                     BrushGroup newGrp;
-                    newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                    newGrp.id = GenerateUniqueID();
+                    newGrp.parentId = 0;
+                    newGrp.name = "Group_" + std::to_string(newGrp.id);
                     newGrp.entityIds.push_back(e.m_id);
                     g_brushGroups.push_back(newGrp);
                 }
@@ -531,7 +584,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             }
         }
 
-        // Custom Properties
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Custom Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
             std::string keyToDelete;
@@ -576,7 +628,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     else if (*pSelBrush >= 0 && *pSelBrush < (int)g_brushes.size()) {
         CBrush& b = g_brushes[*pSelBrush];
         
-        // 👈 Brush 操作按钮组
         if (ImGui::Button("Teleport")) {
             if (GetEditorCamTarget()) *GetEditorCamTarget() = b.m_vecPos;
             if (GetEditorCamDist()) *GetEditorCamDist() = 150.0f;
@@ -593,7 +644,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         }
         ImGui::Separator();
 
-        // 👈 新增：Brush Group 分配
+        // Brush Group 分配
         int curGroup = FindBrushGroupIndex(b.m_id);
         if (curGroup >= 0) {
             ImGui::Text("Group: %s", g_brushGroups[curGroup].name.c_str());
@@ -605,13 +656,13 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         } else {
             ImGui::Text("Group: <None>");
             ImGui::SameLine();
-            if (ImGui::Button("Assign to Group...")) {
-                ImGui::OpenPopup("AssignBrushGroupPopup");
-            }
+            if (ImGui::Button("Assign to Group...")) ImGui::OpenPopup("AssignBrushGroupPopup");
             if (ImGui::BeginPopup("AssignBrushGroupPopup")) {
                 if (ImGui::MenuItem("Create New Group")) {
                     BrushGroup newGrp;
-                    newGrp.name = "Group_" + std::to_string(g_brushGroups.size());
+                    newGrp.id = GenerateUniqueID();
+                    newGrp.parentId = 0;
+                    newGrp.name = "Group_" + std::to_string(newGrp.id);
                     newGrp.brushIds.push_back(b.m_id);
                     g_brushGroups.push_back(newGrp);
                 }
@@ -638,9 +689,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             b.RebuildPrimitiveMesh();
         }
 
-        // =========================================================
-        // Brush 材质编辑（brush-level + per-face）
-        // =========================================================
         ImGui::Separator();
         ImGui::Text("Material (brush-level):");
 
@@ -662,7 +710,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             }
         }
 
-        // --- 面材质 ---
         ImGui::Separator();
         ImGui::Text("Per-face materials:");
         const char* faceNames[6] = {"+Z(顶)","-Z(底)","+X(右)","-X(左)","+Y(后)","-Y(前)"};

@@ -332,5 +332,22 @@ bool ImportMapJson(const std::string& path)
     g_brushVisible.assign(g_brushes.size(), 1);
     g_entityVisible.assign(g_entities.size(), 1);
 
+    // 在导入完成后，遍历一遍，确保所有组都有唯一的 ID
+    for (auto& grp : g_brushGroups) {
+        if (grp.id == 0) {
+            grp.id = GenerateUniqueID(); // 给老组分配新 ID
+        }
+    }
+    // 如果有组的 parentId 指向了不存在的组（因为旧存档没存 parentId），重置为根
+    for (auto& grp : g_brushGroups) {
+        if (grp.parentId != 0) {
+            bool parentExists = false;
+            for (const auto& other : g_brushGroups) {
+                if (other.id == grp.parentId) { parentExists = true; break; }
+            }
+            if (!parentExists) grp.parentId = 0;
+        }
+    }    
+
     return true;
 }

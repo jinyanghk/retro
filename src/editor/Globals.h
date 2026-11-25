@@ -75,6 +75,8 @@ extern int g_iSelectedGroup; // 👈 新增：当前选中的组
 
 extern uint64_t g_nextUniqueId;
 extern uint64_t GenerateUniqueID();
+extern int FindGroupIndexById(uint64_t groupId);
+extern bool IsGroupAncestor(uint64_t ancestorId, uint64_t childId);
 
 // 👈 新增：工具模式
 enum EditorTool {
