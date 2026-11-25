@@ -276,7 +276,7 @@ def make_wedge_brush(t0, t1, t2, mat, uaxis, vaxis, thickness=16.0):
         },
         {
             'normal': [-nx, -nz, ny],
-            'material': 'TOOLS/TOOLSNODRAW',
+            'material': mat,
             'vertices': [conv_pt(*b0), conv_pt(*b1), conv_pt(*b2)],
             'uaxis': uaxis,
             'vaxis': vaxis,
@@ -365,7 +365,7 @@ def export_to_json(bsp, out_path):
                 },
                 {
                     'normal': [-nx, -nz, ny],
-                    'material': 'TOOLS/TOOLSNODRAW',
+                    'material': fp['material'],
                     'vertices': [conv_pt(*v) for v in back],
                     'uaxis': fp['uaxis'],
                     'vaxis': fp['vaxis'],
