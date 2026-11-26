@@ -70,3 +70,87 @@ bool IsGroupAncestor(uint64_t ancestorId, uint64_t childId) {
     }
     return false;
 }
+// 👈 辅助函数：查找某物体所在的组
+int FindBrushGroupIndex(uint64_t bid) {
+    for (int g = 0; g < (int)g_brushGroups.size(); g++) {
+        for (uint64_t id : g_brushGroups[g].brushIds) {
+            if (id == bid) return g;
+        }
+    }
+    return -1;
+}
+int FindEntityGroupIndex(uint64_t eid) {
+    for (int g = 0; g < (int)g_brushGroups.size(); g++) {
+        for (uint64_t id : g_brushGroups[g].entityIds) {
+            if (id == eid) return g;
+        }
+    }
+    return -1;
+}
+
+std::set<uint64_t> g_selectedBrushIds;
+std::set<uint64_t> g_selectedEntityIds;
+
+void ClearSelection() {
+    g_iSelectedBrush = -1;
+    g_iSelectedEntity = -1;
+    g_selectedBrushIds.clear();
+    g_selectedEntityIds.clear();
+    g_iSelectedGroup = -1;
+}
+
+void SelectSingleBrush(int index) {
+    ClearSelection();
+    if (index >= 0 && index < (int)g_brushes.size()) {
+        g_iSelectedBrush = index;
+        g_selectedBrushIds.insert(g_brushes[index].m_id);
+    }
+}
+
+void SelectSingleEntity(int index) {
+    ClearSelection();
+    if (index >= 0 && index < (int)g_entities.size()) {
+        g_iSelectedEntity = index;
+        g_selectedEntityIds.insert(g_entities[index].m_id);
+    }
+}
+
+void AddBrushToSelection(int index) {
+    if (index >= 0 && index < (int)g_brushes.size()) {
+        g_iSelectedBrush = index; // 最后点击的作为主项
+        g_iSelectedEntity = -1;
+        g_selectedBrushIds.insert(g_brushes[index].m_id);
+    }
+}
+
+void AddEntityToSelection(int index) {
+    if (index >= 0 && index < (int)g_entities.size()) {
+        g_iSelectedEntity = index; // 最后点击的作为主项
+        g_iSelectedBrush = -1;
+        g_selectedEntityIds.insert(g_entities[index].m_id);
+    }
+}
+
+void ToggleBrushSelection(int index) {
+    if (index >= 0 && index < (int)g_brushes.size()) {
+        uint64_t id = g_brushes[index].m_id;
+        if (g_selectedBrushIds.count(id)) {
+            g_selectedBrushIds.erase(id);
+            if (g_iSelectedBrush == index) g_iSelectedBrush = -1;
+        } else {
+            AddBrushToSelection(index);
+        }
+    }
+}
+
+void ToggleEntitySelection(int index) {
+    if (index >= 0 && index < (int)g_entities.size()) {
+        uint64_t id = g_entities[index].m_id;
+        if (g_selectedEntityIds.count(id)) {
+            g_selectedEntityIds.erase(id);
+            if (g_iSelectedEntity == index) g_iSelectedEntity = -1;
+        } else {
+            AddEntityToSelection(index);
+        }
+    }
+}

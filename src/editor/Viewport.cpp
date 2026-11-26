@@ -62,16 +62,21 @@ void Draw3DView(bool& outClickedLeft, bool& outClickedRight, bool& outClickedMid
     DrawBrushWireframe(vp);
     if (g_bLoadedBvh && g_bShowBrushes) DrawLoadedBvh(vp);
 
-    if (g_bShowBrushes && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {
-        const auto& b = g_brushes[g_iSelectedBrush];
-        std::vector<float> buf;
-        for (int e = 0; e < 12; e++) {
-            const auto& p0 = b.m_vertices[kEdgeVertexIndices[e][0]];
-            const auto& p1 = b.m_vertices[kEdgeVertexIndices[e][1]];
-            buf.insert(buf.end(), {p0.x,p0.y,p0.z, 1,1,0, p1.x,p1.y,p1.z, 1,1,0});
+    if (g_bShowBrushes) {
+        for (size_t i = 0; i < g_brushes.size(); i++) {
+            // 👈 判断是否在多选集合里
+            if (g_selectedBrushIds.count(g_brushes[i].m_id)) {
+                const auto& b = g_brushes[i];
+                std::vector<float> buf;
+                for (int e = 0; e < 12; e++) {
+                    const auto& p0 = b.m_vertices[kEdgeVertexIndices[e][0]];
+                    const auto& p1 = b.m_vertices[kEdgeVertexIndices[e][1]];
+                    buf.insert(buf.end(), {p0.x,p0.y,p0.z, 1,1,0, p1.x,p1.y,p1.z, 1,1,0});
+                }
+                glDisable(GL_DEPTH_TEST); DrawColorLines(buf, vp); glEnable(GL_DEPTH_TEST);
+            }
         }
-        glDisable(GL_DEPTH_TEST); DrawColorLines(buf, vp); glEnable(GL_DEPTH_TEST);
-    }    
+    }  
     DrawEntityBBoxes(vp);
 
     if (bIsSubEdit && g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size()) {

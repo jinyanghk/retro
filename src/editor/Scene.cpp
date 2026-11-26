@@ -14,29 +14,18 @@ extern std::string GetEntitySearchString(const CEntity& e);
 extern bool InputTextString(const char* label, std::string& value);
 extern glm::vec3* GetEditorCamTarget();
 extern float* GetEditorCamDist();
+extern int FindGroupIndexById(uint64_t groupId);
+extern bool IsGroupAncestor(uint64_t ancestorId, uint64_t childId);
+extern int FindBrushGroupIndex(uint64_t bid);
+extern int FindEntityGroupIndex(uint64_t eid);
+
+// 需要在 Internal.h 或 main.cpp 暴露这两个（用于批量删除）
+extern std::set<uint64_t> g_pendingDeleteBrushIds;
+extern std::set<uint64_t> g_pendingDeleteEntityIds;
 
 static char s_sceneFilter[128] = "";
 static int pendingDeleteGroupIdx = -1;
 
-// 👈 辅助函数：查找某物体所在的组
-static int FindBrushGroupIndex(uint64_t bid) {
-    for (int g = 0; g < (int)g_brushGroups.size(); g++) {
-        for (uint64_t id : g_brushGroups[g].brushIds) {
-            if (id == bid) return g;
-        }
-    }
-    return -1;
-}
-static int FindEntityGroupIndex(uint64_t eid) {
-    for (int g = 0; g < (int)g_brushGroups.size(); g++) {
-        for (uint64_t id : g_brushGroups[g].entityIds) {
-            if (id == eid) return g;
-        }
-    }
-    return -1;
-}
-
-// 👈 递归设置组及其所有子孙节点的可见性
 static void SetGroupVisibilityRecursive(uint64_t groupId, bool visible) {
     int gIdx = FindGroupIndexById(groupId);
     if (gIdx < 0) return;
@@ -44,7 +33,6 @@ static void SetGroupVisibilityRecursive(uint64_t groupId, bool visible) {
     auto& grp = g_brushGroups[gIdx];
     grp.visible = visible;
     
-    // 改直接成员
     for (uint64_t bid : grp.brushIds) {
         for (int i = 0; i < (int)g_brushes.size(); i++)
             if (g_brushes[i].m_id == bid && i < (int)g_brushVisible.size()) g_brushVisible[i] = visible;
@@ -54,11 +42,8 @@ static void SetGroupVisibilityRecursive(uint64_t groupId, bool visible) {
             if (g_entities[i].m_id == eid && i < (int)g_entityVisible.size()) g_entityVisible[i] = visible;
     }
     
-    // 递归改子组
     for (auto& sub : g_brushGroups) {
-        if (sub.parentId == groupId) {
-            SetGroupVisibilityRecursive(sub.id, visible);
-        }
+        if (sub.parentId == groupId) SetGroupVisibilityRecursive(sub.id, visible);
     }
 }
 
@@ -77,13 +62,11 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     ImGui::BeginChild("##SceneTreeChild", ImVec2(0, treeHeight), true);
     
     static bool dragIsEntity = false;
+    bool ctrlDown = ImGui::GetIO().KeyCtrl;
 
     if (ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
         
-        // 👈 改成 Lambda 形式的递归渲染
         std::function<void(uint64_t, int)> RenderGroupRecursive = [&](uint64_t parentId, int depth) {
-            // 👈 用拷贝或者局部快照，避免循环中容器改变导致迭代器失效
-            // 为了性能，我们只拷贝一层 ID
             std::vector<uint64_t> childGroupIds;
             for (const auto& g : g_brushGroups) {
                 if (g.parentId == parentId) childGroupIds.push_back(g.id);
@@ -91,30 +74,24 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
 
             for (uint64_t childId : childGroupIds) {
                 int gIdx = FindGroupIndexById(childId);
-                if (gIdx < 0) continue; // 可能在渲染过程中被删了
-
-                // 每次用的时候，安全地拿一下引用
-                auto& grp = g_brushGroups[gIdx]; 
-                if (grp.parentId != parentId) continue;
+                if (gIdx < 0) continue; 
+                auto& grp = g_brushGroups[gIdx];
 
                 ImGui::PushID(grp.id + 30000);
                 if (depth > 0) ImGui::Indent(16.0f);
 
                 bool groupVis = (grp.visible != 0);
-                if (ImGui::Checkbox("##vis", &groupVis)) {
-                    SetGroupVisibilityRecursive(grp.id, groupVis);
-                }
+                if (ImGui::Checkbox("##vis", &groupVis)) SetGroupVisibilityRecursive(grp.id, groupVis);
                 ImGui::SameLine();
                 
                 bool isOpen = ImGui::TreeNodeEx(grp.name.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow);
                 
                 if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
                     g_iSelectedGroup = gIdx;
-                    *pSelBrush = -1;
-                    *pSelEntity = -1;
+                    *pSelBrush = -1; *pSelEntity = -1;
+                    ClearSelection(); // 点组时清空物体选择
                 }
 
-                // 右键菜单
                 std::string popupName = "GroupCtx_" + std::to_string(grp.id);
                 if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup(popupName.c_str());
                 if (ImGui::BeginPopup(popupName.c_str())) {
@@ -122,9 +99,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     ImGui::EndPopup();
                 }
 
-                // 接收拖拽
                 if (ImGui::BeginDragDropTarget()) {
-                    // 接收 Brush/Entity
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_ITEM")) {
                         uint64_t draggedId = *(const uint64_t*)payload->Data;
                         if (dragIsEntity) {
@@ -143,20 +118,16 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                             grp.brushIds.push_back(draggedId);
                         }
                     }
-                    // 接收 Group（多级嵌套）
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DRAG_GROUP")) {
                         uint64_t draggedGroupId = *(const uint64_t*)payload->Data;
                         if (draggedGroupId != grp.id && !IsGroupAncestor(draggedGroupId, grp.id)) {
                             int draggedIdx = FindGroupIndexById(draggedGroupId);
-                            if (draggedIdx >= 0) {
-                                g_brushGroups[draggedIdx].parentId = grp.id;
-                            }
+                            if (draggedIdx >= 0) g_brushGroups[draggedIdx].parentId = grp.id;
                         }
                     }
                     ImGui::EndDragDropTarget();
                 }
 
-                // 拖拽源（将 Group 拖走）
                 if (ImGui::BeginDragDropSource()) {
                     ImGui::SetDragDropPayload("DRAG_GROUP", &grp.id, sizeof(uint64_t));
                     ImGui::Text("Group: %s", grp.name.c_str());
@@ -182,10 +153,10 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                         }
                         ImGui::SameLine();
                         
-                        bool sel = (*pSelBrush == bi);
-                        if (ImGui::Selectable(("Brush #" + std::to_string(bid)).c_str(), sel)) {
-                            *pSelBrush = bi;
-                            *pSelEntity = -1;
+                        bool isSel = g_selectedBrushIds.count(bid) > 0;
+                        if (ImGui::Selectable(("Brush #" + std::to_string(bid)).c_str(), isSel)) {
+                            if (ctrlDown) ToggleBrushSelection(bi);
+                            else SelectSingleBrush(bi);
                             g_iSelectedGroup = -1;
                         }
                         
@@ -234,10 +205,10 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                         }
                         ImGui::SameLine();
                         
-                        bool sel = (*pSelEntity == ei);
-                        if (ImGui::Selectable(label.c_str(), sel)) {
-                            *pSelEntity = ei;
-                            *pSelBrush = -1;
+                        bool isSel = g_selectedEntityIds.count(eid) > 0;
+                        if (ImGui::Selectable(label.c_str(), isSel)) {
+                            if (ctrlDown) ToggleEntitySelection(ei);
+                            else SelectSingleEntity(ei);
                             g_iSelectedGroup = -1;
                         }
                         
@@ -254,9 +225,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     }
                     if (removeEntityIdx >= 0) grp.entityIds.erase(grp.entityIds.begin() + removeEntityIdx);
                     
-                    // 👈 递归渲染子组
                     RenderGroupRecursive(grp.id, depth + 1);
-                    
                     ImGui::TreePop();
                 }
 
@@ -265,21 +234,14 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             }
         };
 
-        // 启动递归渲染
         RenderGroupRecursive(0, 0);
 
-        // 删除 Group（安全处理子组）
         if (pendingDeleteGroupIdx >= 0) {
             uint64_t deletedId = g_brushGroups[pendingDeleteGroupIdx].id;
             uint64_t parentOfDeleted = g_brushGroups[pendingDeleteGroupIdx].parentId;
-            
-            for (auto& g : g_brushGroups) {
-                if (g.parentId == deletedId) g.parentId = parentOfDeleted;
-            }
-            
+            for (auto& g : g_brushGroups) if (g.parentId == deletedId) g.parentId = parentOfDeleted;
             g_brushGroups.erase(g_brushGroups.begin() + pendingDeleteGroupIdx);
-            pendingDeleteGroupIdx = -1;
-            g_iSelectedGroup = -1;
+            pendingDeleteGroupIdx = -1; g_iSelectedGroup = -1;
         }
 
         // ====== 渲染散落的 Entities ======
@@ -293,11 +255,9 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             if (inAnyGroup) continue;
 
             auto& e = g_entities[i];
-            
             std::string tname = "";
             auto it = e.m_properties.find("targetname");
             if (it != e.m_properties.end()) tname = it->second;
-            
             std::string label = e.m_szName + " #" + std::to_string(eid);
             if (!tname.empty()) label += " [" + tname + "]";
             
@@ -314,10 +274,10 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             }
             ImGui::SameLine();
 
-            bool sel = (*pSelEntity == i);
-            if (ImGui::Selectable(label.c_str(), sel)) {
-                *pSelEntity = i;
-                *pSelBrush = -1;
+            bool isSel = g_selectedEntityIds.count(eid) > 0;
+            if (ImGui::Selectable(label.c_str(), isSel)) {
+                if (ctrlDown) ToggleEntitySelection(i);
+                else SelectSingleEntity(i);
                 g_iSelectedGroup = -1;
             }
             
@@ -333,7 +293,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     uint64_t draggedId = *(const uint64_t*)payload->Data;
                     if (draggedId != eid) {
                         BrushGroup newGrp;
-                        newGrp.id = GenerateUniqueID();      // 👈 分配 ID
+                        newGrp.id = GenerateUniqueID();
                         newGrp.parentId = 0;
                         newGrp.name = "Group_" + std::to_string(newGrp.id);
                         if (dragIsEntity) {
@@ -384,10 +344,10 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
             }
             ImGui::SameLine();
 
-            bool sel = (*pSelBrush == i);
-            if (ImGui::Selectable(label.c_str(), sel)) {
-                *pSelBrush = i;
-                *pSelEntity = -1;
+            bool isSel = g_selectedBrushIds.count(bid) > 0;
+            if (ImGui::Selectable(label.c_str(), isSel)) {
+                if (ctrlDown) ToggleBrushSelection(i);
+                else SelectSingleBrush(i);
                 g_iSelectedGroup = -1;
             }
 
@@ -403,7 +363,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                     uint64_t draggedId = *(const uint64_t*)payload->Data;
                     if (draggedId != bid) {
                         BrushGroup newGrp;
-                        newGrp.id = GenerateUniqueID();      // 👈 分配 ID
+                        newGrp.id = GenerateUniqueID();
                         newGrp.parentId = 0;
                         newGrp.name = "Group_" + std::to_string(newGrp.id);
                         if (dragIsEntity) {
@@ -440,21 +400,43 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
     // ================= 下半部分：属性面板 =================
     ImGui::BeginChild("##PropertiesChild", ImVec2(0, 0), true);
     
-    if (g_iSelectedGroup >= 0 && g_iSelectedGroup < (int)g_brushGroups.size()) {
+    // 👈 新增：多选状态检测
+    int totalSelected = (int)g_selectedBrushIds.size() + (int)g_selectedEntityIds.size();
+
+    if (totalSelected > 1) {
+        ImGui::TextColored(ImVec4(0, 1, 1, 1), "Multi-Selection (%d items)", totalSelected);
+        ImGui::Text("Brushes: %zu, Entities: %zu", g_selectedBrushIds.size(), g_selectedEntityIds.size());
+        
+        ImGui::Separator();
+        if (ImGui::Button("Clear Selection")) ClearSelection();
+        
+        ImGui::SameLine();
+        if (ImGui::Button("Delete All Selected")) {
+            // 直接调用延迟删除队列（注意这里需要在 main.cpp 暴露 extern）
+            for (uint64_t id : g_selectedBrushIds) g_pendingDeleteBrushIds.insert(id);
+            for (uint64_t id : g_selectedEntityIds) g_pendingDeleteEntityIds.insert(id);
+            ClearSelection();
+        }
+        
+        ImGui::Separator();
+        ImGui::TextDisabled("(Individual properties hidden for multi-select)");
+    } 
+    // ================= 单选逻辑开始 =================
+    else if (g_iSelectedGroup >= 0 && g_iSelectedGroup < (int)g_brushGroups.size()) {
+        // ... (保留你原来的组属性逻辑，不用动) ...
         auto& grp = g_brushGroups[g_iSelectedGroup];
         ImGui::TextColored(ImVec4(0, 1, 1, 1), "Selected Group");
         
         char nameBuf[128];
         strncpy(nameBuf, grp.name.c_str(), sizeof(nameBuf));
-        if (ImGui::InputText("Group Name", nameBuf, sizeof(nameBuf))) {
-            grp.name = nameBuf;
-        }
+        if (ImGui::InputText("Group Name", nameBuf, sizeof(nameBuf))) grp.name = nameBuf;
         
         ImGui::Text("Contains: %zu Brushes, %zu Entities", grp.brushIds.size(), grp.entityIds.size());
         ImGui::Separator();
         ImGui::TextDisabled("(Click a child inside the tree to edit its properties)");
     } 
     else if (*pSelEntity >= 0 && *pSelEntity < (int)g_entities.size()) {
+        // ... (保留你原来的 Entity 属性逻辑) ...
         CEntity& e = g_entities[*pSelEntity];
         
         if (ImGui::Button("Teleport")) {
@@ -468,7 +450,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         }
         ImGui::Separator();
 
-        // Entity Group 分配
         int curGroup = FindEntityGroupIndex(e.m_id);
         if (curGroup >= 0) {
             ImGui::Text("Group: %s", g_brushGroups[curGroup].name.c_str());
@@ -511,9 +492,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         }
         if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Entity Pos");
         
-        if (ImGui::DragFloat3("Angles", glm::value_ptr(e.m_angRot), 0.5f)) {
-            UpdateEntityBBox(e);
-        }
+        if (ImGui::DragFloat3("Angles", glm::value_ptr(e.m_angRot), 0.5f)) UpdateEntityBBox(e);
         if (ImGui::IsItemActivated()) UndoStack::Instance().PushSnapshot("Entity Rot");
 
         ImGui::Separator();
@@ -623,7 +602,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
                 }
             }
         }        
-
     } 
     else if (*pSelBrush >= 0 && *pSelBrush < (int)g_brushes.size()) {
         CBrush& b = g_brushes[*pSelBrush];
@@ -644,7 +622,6 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         }
         ImGui::Separator();
 
-        // Brush Group 分配
         int curGroup = FindBrushGroupIndex(b.m_id);
         if (curGroup >= 0) {
             ImGui::Text("Group: %s", g_brushGroups[curGroup].name.c_str());

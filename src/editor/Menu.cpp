@@ -99,7 +99,7 @@ void DrawToolsPanel()
             //ImGui::SameLine();
         };
         ToolRadio("Select",        TOOL_SELECT);
-        ToolRadio("Multi-Select",  TOOL_MULTI_SELECT);
+        //ToolRadio("Multi-Select",  TOOL_MULTI_SELECT);
         ToolRadio("Create Brush",  TOOL_CREATE_BRUSH);
         ToolRadio("Create Entity", TOOL_CREATE_ENTITY);
         ImGui::NewLine();
