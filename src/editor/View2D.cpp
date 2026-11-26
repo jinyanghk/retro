@@ -3,6 +3,8 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <unordered_map>
+
 #include "imgui.h"
 #include "Globals.h"
 #include "Brush.h"
@@ -63,6 +65,16 @@ struct View2D
     bool   bPushedDragSnapshot  = false;
     PanelResult pendingCreate;  // 本帧待提交的创建请求
 
+    // 拖动状态：多选
+    bool   bDraggingMulti = false;
+    float  fMultiDragStartWorldX = 0.0f;
+    float  fMultiDragStartWorldY = 0.0f;
+    // 记录所有选中物体的初始位置（用 ID 映射，防删除后错位）
+    std::unordered_map<uint64_t, glm::vec3> multiDragStartBrushPos;
+    std::unordered_map<uint64_t, glm::vec3> multiDragStartEntityPos;
+    std::unordered_map<uint64_t, glm::vec3> multiDragStartBBoxMins;
+    std::unordered_map<uint64_t, glm::vec3> multiDragStartBBoxMaxs;
+
     View2D() = default;
     View2D(float cx, float cy, float z, int ax, int ay, int ad)
         : centerX(cx), centerY(cy), zoom(z)
@@ -73,7 +85,7 @@ struct View2D
 // 2D 视图专用的 UI 状态机 —— 每个视图独立一份！
 struct View2DUIState {
     bool isDragging = false;
-    enum Mode { NONE, DRAG_BRUSH, DRAG_ENTITY, RESIZE_BRUSH, RESIZE_ENTITY, BOX_CREATE } mode = NONE;
+    enum Mode { NONE, DRAG_BRUSH, DRAG_ENTITY, RESIZE_BRUSH, RESIZE_ENTITY, BOX_CREATE, DRAG_MULTI } mode = NONE;
 };
 
 // 每个视图独立的状态，解决"只有 Side View 能拖"的 bug
@@ -250,7 +262,7 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
         if (maxP.x - minP.x < 4.0f) maxP.x = minP.x + 4.0f;
         if (maxP.y - minP.y < 4.0f) maxP.y = minP.y + 4.0f;
 
-        bool bSelected = ((int)i == g_iSelectedBrush);
+        bool bSelected = (g_selectedBrushIds.count(b.m_id) > 0);
         ImU32 color = bSelected ? IM_COL32(255, 255, 0, 255) : IM_COL32(200, 200, 200, 255);
 
         draw->AddRectFilled(minP, maxP, IM_COL32(120, 120, 120, 80));
@@ -284,7 +296,7 @@ static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& c
         if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue;
 
         const CEntity& e = g_entities[i];
-        bool bSelected = ((int)i == g_iSelectedEntity);
+        bool bSelected = (g_selectedEntityIds.count(e.m_id) > 0); 
         ImU32 color = bSelected ? IM_COL32(255, 255, 0, 255) : IM_COL32(0, 200, 0, 255);
 
         float minX, maxX, minY, maxY;
@@ -563,6 +575,38 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
             if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitBrush = i; break; }
         }
         if (hitBrush >= 0) {
+            // 检查是否点击了多选集合里的物体
+            bool isMultiDrag = g_selectedBrushIds.count(g_brushes[hitBrush].m_id) > 0 && 
+                               (g_selectedBrushIds.size() + g_selectedEntityIds.size() > 1);
+
+            if (isMultiDrag) {
+                view.bDraggingMulti = true;
+                view.fMultiDragStartWorldX = wx;
+                view.fMultiDragStartWorldY = wy;
+                view.multiDragStartBrushPos.clear();
+                view.multiDragStartEntityPos.clear();
+
+                for (uint64_t bid : g_selectedBrushIds) {
+                    for (const auto& b : g_brushes) {
+                        if (b.m_id == bid) { view.multiDragStartBrushPos[bid] = b.m_vecPos; break; }
+                    }
+                }
+                for (uint64_t eid : g_selectedEntityIds) {
+                    for (const auto& e : g_entities) {
+                        if (e.m_id == eid) { 
+                            view.multiDragStartEntityPos[eid] = e.m_vecPos; 
+                            view.multiDragStartBBoxMins[eid] = e.m_vecBBoxMins;
+                            view.multiDragStartBBoxMaxs[eid] = e.m_vecBBoxMaxs;
+                            break; 
+                        }
+                    }
+                }
+                view.bPushedDragSnapshot = false;
+                uiState.isDragging = true;
+                uiState.mode = View2DUIState::DRAG_MULTI; // 👈 新增一个枚举状态
+                return true;
+            }
+
             g_iSelectedBrush = hitBrush; g_iSelectedEntity = -1;
             view.bDraggingBrush = true; view.iDraggingBrush = hitBrush;
             view.fDragStartWorldX = wx; view.fDragStartWorldY = wy;
@@ -589,6 +633,11 @@ static bool TickDrag(View2D& view, View2DUIState& uiState,
         }
         view.bDraggingBrush = false; view.iDraggingBrush = -1;
         view.bDraggingEntity = false; view.iDraggingEntity = -1;
+        // 👈 加这行
+        view.bDraggingMulti = false;
+        view.multiDragStartBrushPos.clear();
+        view.multiDragStartEntityPos.clear();
+
         view.bResizingBrush = false; view.iResizingBrush = -1; view.iResizeHandle = -1;
         view.bResizingEntity = false; view.iResizingEntity = -1; view.iResizeEntityHandle = -1;
         view.bPushedDragSnapshot = false;
@@ -603,6 +652,66 @@ static bool TickDrag(View2D& view, View2DUIState& uiState,
         UpdateEntityResize(view, io, canvasPos, canvasSize);
     } else if (uiState.mode == View2DUIState::BOX_CREATE) {
         ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, view.fBoxCreateEndX, view.fBoxCreateEndY);
+    } 
+    else if (uiState.mode == View2DUIState::DRAG_MULTI) {  // 👈 处理多选拖拽
+        float wx, wy; 
+        ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wx, wy);
+        float deltaX = wx - view.fMultiDragStartWorldX;
+        float deltaY = wy - view.fMultiDragStartWorldY;
+
+        if (!view.bPushedDragSnapshot && (fabsf(deltaX) > 0.01f || fabsf(deltaY) > 0.01f)) {
+            UndoStack::Instance().PushSnapshot("2D Multi Drag");
+            view.bPushedDragSnapshot = true;
+        }
+
+        // 应用网格吸附（可选，看你需求）
+        float adjDeltaX = deltaX;
+        float adjDeltaY = deltaY;
+        if (g_flGridSize > 0.0f) {
+            // 吸附逻辑（这里简单做一下，具体参考你单选时的逻辑）
+        }
+
+        for (auto& kv : view.multiDragStartBrushPos) {
+            for (auto& b : g_brushes) {
+                if (b.m_id == kv.first) {
+                    glm::vec3 newPos = kv.second;
+                    // 注意使用正确的 axisMap 映射
+                    if (view.axisMapX == 0) newPos.x = kv.second.x + deltaX;
+                    if (view.axisMapX == 1) newPos.y = kv.second.y + deltaX;
+                    if (view.axisMapX == 2) newPos.z = kv.second.z + deltaX;
+
+                    if (view.axisMapY == 0) newPos.x = kv.second.x + deltaY;
+                    if (view.axisMapY == 1) newPos.y = kv.second.y + deltaY;
+                    if (view.axisMapY == 2) newPos.z = kv.second.z + deltaY;
+
+                    glm::vec3 offset = newPos - b.m_vecPos;
+                    for (auto& v : b.m_vertices) v += offset;
+                    b.m_vecPos = newPos;
+                    break;
+                }
+            }
+        }
+
+        for (auto& kv : view.multiDragStartEntityPos) {
+            for (auto& e : g_entities) {
+                if (e.m_id == kv.first) {
+                    glm::vec3 newPos = kv.second;
+                    if (view.axisMapX == 0) newPos.x = kv.second.x + deltaX;
+                    if (view.axisMapX == 1) newPos.y = kv.second.y + deltaX;
+                    if (view.axisMapX == 2) newPos.z = kv.second.z + deltaX;
+
+                    if (view.axisMapY == 0) newPos.x = kv.second.x + deltaY;
+                    if (view.axisMapY == 1) newPos.y = kv.second.y + deltaY;
+                    if (view.axisMapY == 2) newPos.z = kv.second.z + deltaY;
+
+                    glm::vec3 offset = newPos - e.m_vecPos;
+                    e.m_vecPos = newPos;
+                    e.m_vecBBoxMins += offset;
+                    e.m_vecBBoxMaxs += offset;
+                    break;
+                }
+            }
+        }
     } else {
         bool bAnyDragging = view.bDraggingBrush || view.bDraggingEntity;
         if (bAnyDragging) {

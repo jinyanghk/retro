@@ -229,7 +229,7 @@ void DrawEntityBBoxes(const glm::mat4& viewProj) {
             {mn.x,mn.y,mx.z},{mx.x,mn.y,mx.z},{mx.x,mx.y,mx.z},{mn.x,mx.y,mx.z},
         };
         int edges[12][2] = {{0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}};
-        bool sel = ((int)i == g_iSelectedEntity);
+        bool sel = (g_selectedEntityIds.count(e.m_id) > 0);
         glm::vec3 col = sel ? glm::vec3(1, 1, 0) : (isTrigger ? glm::vec3(1, 0.2f, 0.2f) : glm::vec3(0.4f, 1, 0.4f));
         std::vector<float> buf;
         for (auto& ed : edges) {
