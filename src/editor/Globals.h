@@ -2,7 +2,10 @@
 #pragma once
 
 #include <glm/glm.hpp>
+
 #include <vector>
+#include <set>
+
 #include "imgui.h"      // ★ 必须加这一行
 #include "Brush.h"
 #include "Entity.h"
@@ -77,6 +80,8 @@ extern uint64_t g_nextUniqueId;
 extern uint64_t GenerateUniqueID();
 extern int FindGroupIndexById(uint64_t groupId);
 extern bool IsGroupAncestor(uint64_t ancestorId, uint64_t childId);
+extern int FindBrushGroupIndex(uint64_t bid);
+extern int FindEntityGroupIndex(uint64_t eid);
 
 // 👈 新增：工具模式
 enum EditorTool {
@@ -88,3 +93,16 @@ enum EditorTool {
 
 extern EditorTool  g_iCurrentTool;
 extern std::string g_szPendingEntityClass;  // Create Entity 当前选中的类名
+
+// 新增多选 ID 集合
+extern std::set<uint64_t> g_selectedBrushIds;
+extern std::set<uint64_t> g_selectedEntityIds;
+
+// 辅助函数
+void ClearSelection();
+void SelectSingleBrush(int index);
+void SelectSingleEntity(int index);
+void AddBrushToSelection(int index);
+void AddEntityToSelection(int index);
+void ToggleBrushSelection(int index);
+void ToggleEntitySelection(int index);

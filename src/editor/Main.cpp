@@ -44,8 +44,8 @@ static SDL_GLContext g_glContext = nullptr;
 static int g_winW = 1280, g_winH = 800;
 static float main_scale = 1.0f;
 
-static std::set<uint64_t> g_pendingDeleteBrushIds;
-static std::set<uint64_t> g_pendingDeleteEntityIds;
+std::set<uint64_t> g_pendingDeleteBrushIds;
+std::set<uint64_t> g_pendingDeleteEntityIds;
 
 // 材质的全局缓存
 std::unordered_map<std::string, std::string> g_materialPathMap;
