@@ -178,8 +178,14 @@ jobs:
           repository: jrouwe/JoltPhysics
           path: JoltPhysics
 
+      - name: Checkout stb (header-only)
+        uses: actions/checkout@v4
+        with:
+          repository: nothings/stb
+          path: stb
+
       - name: Install macOS dependencies
-        run: brew install sdl2 sdl2_mixer glew glm nlohmann-json assimp stb
+        run: brew install sdl2 sdl2_mixer glew glm nlohmann-json assimp
 
       - name: Cache JoltPhysics (macOS)
         id: cache-jolt-macos
@@ -201,7 +207,8 @@ jobs:
 
       - name: Configure & Build retro
         run: |
-          cmake -S retro -B build-macos -DCMAKE_BUILD_TYPE=Release
+          cmake -S retro -B build-macos -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/stb
           cmake --build build-macos -j
 
       - name: Upload macOS Artifacts
