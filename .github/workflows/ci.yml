@@ -1,4 +1,4 @@
-name: Build Cross-Platform (Windows & Linux x64)
+name: Build Cross-Platform (Windows & Linux & macOS x64)
 
 on:
   push:
@@ -150,3 +150,66 @@ jobs:
           path: |
             build-msvc/Release/*.exe
             build-msvc/Release/*.dll
+
+  build-macos:
+    runs-on: macos-15
+    steps:
+      - name: Checkout retro
+        uses: actions/checkout@v4
+        with:
+          path: retro
+
+      - name: Checkout imgui
+        uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: docking
+          path: imgui
+
+      - name: Checkout ImGuizmo
+        uses: actions/checkout@v4
+        with:
+          repository: CedricGuillemet/ImGuizmo
+          path: ImGuizmo
+
+      - name: Checkout JoltPhysics
+        uses: actions/checkout@v4
+        with:
+          repository: jrouwe/JoltPhysics
+          path: JoltPhysics
+
+      - name: Install macOS dependencies
+        run: brew install sdl2 sdl2_mixer glew glm nlohmann-json assimp stb
+
+      - name: Cache JoltPhysics (macOS)
+        id: cache-jolt-macos
+        uses: actions/cache@v4
+        with:
+          path: JoltPhysics/Build/Build-macOS
+          key: macos-jolt-${{ hashFiles('JoltPhysics/Build/CMakeLists.txt') }}
+
+      - name: Build & Install JoltPhysics
+        run: |
+          if [ "${{ steps.cache-jolt-macos.outputs.cache-hit }}" != "true" ]; then
+            cmake -S JoltPhysics/Build -B JoltPhysics/Build/Build-macOS \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+              -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF -DTARGET_SAMPLES=OFF
+            cmake --build JoltPhysics/Build/Build-macOS
+          fi
+          sudo cmake --install JoltPhysics/Build/Build-macOS
+
+      - name: Configure & Build retro
+        run: |
+          cmake -S retro -B build-macos -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-macos -j
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: retro-macos-arm64
+          path: |
+            build-macos/retro
+            build-macos/editor
+            build-macos/bvh
+            build-macos/*.dylib
