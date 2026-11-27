@@ -247,9 +247,9 @@ target_include_directories(editor PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_BI
 
 if(MSVC AND NOT USE_VCPKG)
     target_include_directories(editor PRIVATE ${SDL2_INCLUDE_DIR} ${GLEW_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(editor PRIVATE imgui imguizmo ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} OpenGL::GL core geometry assets game)
+    target_link_libraries(editor PRIVATE imgui imguizmo ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} OpenGL::GL core geometry assets)
 else()
-    target_link_libraries(editor PRIVATE imgui imguizmo SDL2::SDL2main SDL2::SDL2 glm::glm GLEW::GLEW OpenGL::GL nlohmann_json::nlohmann_json core geometry assets game)
+    target_link_libraries(editor PRIVATE imgui imguizmo SDL2::SDL2main SDL2::SDL2 glm::glm GLEW::GLEW OpenGL::GL nlohmann_json::nlohmann_json core geometry assets)
 endif()
 
 # ---------- bvh (map) ----------

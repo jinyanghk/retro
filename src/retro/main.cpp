@@ -107,7 +107,8 @@ int main(int argc, char* argv[]) {
     }
 
     InitPhysics();
-    CreateStaticMesh(mapData.verts, mapData.indices, (uint32_t)(mapData.verts.size() / 11), (uint32_t)mapData.indices.size());
+    CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices,
+                    mapData.cnv, mapData.cni);
 
     RenderAssets render;
     InitRender(render, mapData);
@@ -115,7 +116,6 @@ int main(int argc, char* argv[]) {
     PlayerState player;
     player.pos = glm::make_vec3(mapData.spawnPos) + glm::vec3(0.0f, 36.0f, 0.0f);
     player.camYaw = 0;
-    player.hp = 100.0f;
     player.health = 100.0f;
 
     JPH::BodyID player_body = CreatePlayerBody(player.pos.x, player.pos.y, player.pos.z);
@@ -160,7 +160,6 @@ int main(int argc, char* argv[]) {
                 } else if (sc == SDL_SCANCODE_E) {
                     levelInput.useJustPressed = true;
                 } else if (sc == SDL_SCANCODE_R) {
-                    player.hp = 100.0f;
                     player.health = 100.0f;
                     player.pos = glm::make_vec3(mapData.spawnPos) + glm::vec3(0.0f, 36.0f, 0.0f);
                     player.camYaw = 0.0f;
@@ -208,21 +207,20 @@ int main(int argc, char* argv[]) {
         if (mouseCaptured && keys[SDL_SCANCODE_SPACE] && player.isGrounded) {
             player.vel.y = player.jumpSpeed;
             player.isGrounded = false;
-            player.onGround = false;
         }
 
         // Update Player, Physics, and World Entities
         UpdatePlayer(player, deltaTime, player_body);
 
-        float prevHp = player.hp;
+        float prevHp = player.health;
         UpdateLevel(player, levelInput, deltaTime);
-        if (player.hp < prevHp) {
+        if (player.health < prevHp) {
             player.damageTimer = 0.2f;
             player.shakeAmount = 4.0f;
             player.shakeTimer = 0.25f;
         }
-        if (player.hp <= 0.0f) {
-            player.hp = 100.0f;
+        if (player.health <= 0.0f) {
+            player.health = 100.0f;
             player.health = 100.0f;
             player.pos = glm::make_vec3(mapData.spawnPos) + glm::vec3(0.0f, 36.0f, 0.0f);
             player.camYaw = 0.0f;
@@ -268,7 +266,7 @@ int main(int argc, char* argv[]) {
         }
 
         char hpText[32];
-        std::snprintf(hpText, sizeof(hpText), "HP: %.0f", player.hp);
+        std::snprintf(hpText, sizeof(hpText), "HP: %.0f", player.health);
         drawList->AddText(ImVec2(24.0f, (float)scrH - 42.0f), IM_COL32(255, 220, 50, 255), hpText);
 
         ImGui::Render();
@@ -293,7 +291,9 @@ int main(int argc, char* argv[]) {
             }
 
             InitPhysics();
-            CreateStaticMesh(mapData.verts, mapData.indices, (uint32_t)(mapData.verts.size() / 11), (uint32_t)mapData.indices.size());
+            CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices,
+                            mapData.cnv, mapData.cni);
+
             InitRender(render, mapData);
             player.pos = glm::make_vec3(mapData.spawnPos) + glm::vec3(0.0f, 36.0f, 0.0f);
             player.camYaw = 0;

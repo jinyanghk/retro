@@ -19,10 +19,10 @@ void UpdatePlayer(PlayerState& p, float dt, JPH::BodyID player_body) {
         if (dist < checkDist) {
             p.pos.y -= (dist - p.halfHeight);
             p.vel.y = 0.0f;
-            p.onGround = true;
+            p.isGrounded = true;
         } else {
             p.pos.y += dy;
-            p.onGround = false;
+            p.isGrounded = false;
         }
     } else {
         float checkDist = dy + p.halfHeight;
@@ -33,7 +33,7 @@ void UpdatePlayer(PlayerState& p, float dt, JPH::BodyID player_body) {
         } else {
             p.pos.y += dy;
         }
-        p.onGround = false;
+        p.isGrounded = false;
     }
 
     // Horizontal X sweep

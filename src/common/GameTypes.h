@@ -18,10 +18,8 @@ struct PlayerState {
     float jumpSpeed = 260.0f;
     float mouseSensitivity = 0.15f;
 
-    float hp = 100.0f;
     float health = 100.0f;
     bool isGrounded = false;
-    bool onGround = false;
 
     float damageTimer = 0.0f;
     float shakeTimer = 0.0f;

@@ -90,12 +90,12 @@ void InitLevel(const MapData& mapData, PlayerState& outPlayer) {
     outPlayer.camPitch = 0.0f;
     outPlayer.vel = glm::vec3(0.0f);
 
-    g_world.SetPlayerState(outPlayer.pos, outPlayer.hp);
+    g_world.SetPlayerState(outPlayer.pos, outPlayer.health);
     RebuildRenderSnapshot();
 }
 
 void UpdateLevel(PlayerState& player, const LevelInput& input, float dt) {
-    g_world.SetPlayerState(player.pos, player.hp);
+    g_world.SetPlayerState(player.pos, player.health);
 
     if (input.switchWeaponSlot >= 0 && input.switchWeaponSlot <= 2) {
         g_weapon.current = static_cast<WeaponType>(input.switchWeaponSlot);
