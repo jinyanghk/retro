@@ -233,7 +233,7 @@ add_custom_target(shaders_gen DEPENDS ${SHADER_GEN})
 add_executable(editor
     src/editor/Main.cpp src/editor/Globals.cpp src/editor/Brush.cpp
     src/editor/Entity.cpp src/editor/UndoStack.cpp src/editor/Layout.cpp
-    src/editor/GameDatabase.cpp src/editor/Material.cpp
+    src/editor/Property.cpp src/editor/Material.cpp
     src/editor/View2D.cpp src/editor/MapIO.cpp src/editor/Menu.cpp
     src/editor/GL.cpp src/editor/Picking.cpp src/editor/Gizmo.cpp
     src/editor/Viewport.cpp src/editor/Input.cpp

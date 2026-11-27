@@ -1,7 +1,7 @@
 #include "Panels.h"
 #include "Globals.h"
 #include "UndoStack.h"
-#include "GameDatabase.h"
+#include "Property.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include <algorithm>
@@ -499,7 +499,7 @@ void DrawScenePanel(int* pSelEntity, int* pSelBrush, PanelResult& out)
         ImGui::Text("Properties:");
 
         std::vector<GdbKeyValue> kvs;
-        if (GameDatabase::Instance().GetKeyValues(e.m_szName, kvs)) {
+        if (Property::Instance().GetKeyValues(e.m_szName, kvs)) {
             for (const auto& kv : kvs) {
                 ImGui::PushID(kv.name.c_str());
                 std::string cur;

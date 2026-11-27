@@ -19,7 +19,7 @@
 #include "version.h"
 #include "Log.h"
 #include "FileSystem.h"
-#include "GameDatabase.h"
+#include "Property.h"
 #include "UndoStack.h"
 
 #ifdef _WIN32
@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_Init("#version 330");
 
     InitGL();
-    if (!GameDatabase::Instance().LoadFromFile("editor.json")) LogAdd("[GameDatabase] FAILED to load");
+    if (!Property::Instance().LoadFromFile("editor.json")) LogAdd("[Property] FAILED to load");
     BuildDefaultScene();
     SetExportMapHandler(OnExportMap); SetImportMapHandler(OnImportMap);
     SetCompileAndRunHandler(OnCompileAndRun); SetLoadBvhHandler(OnLoadBvh);

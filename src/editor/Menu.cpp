@@ -1,7 +1,7 @@
 #include "Panels.h"
 #include "Globals.h"
 #include "UndoStack.h"
-#include "GameDatabase.h"
+#include "Property.h"
 #include "Layout.h"
 #include "Log.h"
 #include "Internal.h"
@@ -110,7 +110,7 @@ void DrawToolsPanel()
             ImGui::InputTextWithHint("##ToolEntFilter", "Search classname...",
                                     s_toolEntFilter, sizeof(s_toolEntFilter));
 
-            std::vector<std::string> allClasses = GameDatabase::Instance().GetClassList();
+            std::vector<std::string> allClasses = Property::Instance().GetClassList();
             std::sort(allClasses.begin(), allClasses.end());
 
             std::string filterStr = s_toolEntFilter;

@@ -1,5 +1,5 @@
 #include "Entity.h"
-#include "GameDatabase.h"
+#include "Property.h"
 
 #include <cmath>
 
@@ -25,9 +25,9 @@ void UpdateEntityBBox(CEntity& ent)
         return;  // 已经算过了
     }
 
-    // 否则走 GameDatabase
+    // 否则走 Property
     glm::vec3 mins, maxs;
-    if (GameDatabase::Instance().GetBBox(ent.m_szName, mins, maxs)) {
+    if (Property::Instance().GetBBox(ent.m_szName, mins, maxs)) {
         ent.m_vecBBoxMins = ent.m_vecPos + mins;
         ent.m_vecBBoxMaxs = ent.m_vecPos + maxs;
     } else {
