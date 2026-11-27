@@ -1,7 +1,7 @@
 #include "Panels.h"
 #include "Globals.h"
 #include "UndoStack.h"
-#include "GameDatabase.h"
+#include "Property.h"
 #include "Layout.h"
 #include "Log.h"
 #include "Internal.h"
@@ -44,6 +44,11 @@ void DrawMenuBar()
                 UndoStack::Instance().Redo();
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Material")) {
+            ImGui::MenuItem("Render Textures", nullptr, &g_bRenderTexture);
+            
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("Nav")) {
             ImGui::MenuItem("Show Nav Nodes", nullptr, &g_bShowNav);
             if (ImGui::MenuItem("Check Nav Collisions")) {
@@ -71,13 +76,11 @@ void DrawMenuBar()
 
             ImGui::Separator();
             // 👈 新增：飞行模式勾选
-            if (ImGui::MenuItem("Fly Mode (WASD + Mouse Look)", nullptr, g_bFlyMode)) {
+            if (ImGui::MenuItem("Fly Mode", nullptr, g_bFlyMode)) {
                 g_bFlyMode = !g_bFlyMode;
                 // 开启飞行模式时，取消锁定，防止鼠标卡死在屏幕中间
                 SetFlyMode(g_bFlyMode);
             }
-
-            ImGui::MenuItem("Render Textures", nullptr, &g_bRenderTexture);
 
             ImGui::EndMenu();
         }        
@@ -110,7 +113,7 @@ void DrawToolsPanel()
             ImGui::InputTextWithHint("##ToolEntFilter", "Search classname...",
                                     s_toolEntFilter, sizeof(s_toolEntFilter));
 
-            std::vector<std::string> allClasses = GameDatabase::Instance().GetClassList();
+            std::vector<std::string> allClasses = Property::Instance().GetClassList();
             std::sort(allClasses.begin(), allClasses.end());
 
             std::string filterStr = s_toolEntFilter;

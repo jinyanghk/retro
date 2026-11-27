@@ -1,4 +1,4 @@
-// src/editor/GameDatabase.h
+// src/editor/Property.h
 #pragma once
 
 #include <glm/glm.hpp>
@@ -27,9 +27,9 @@ struct GdbClass {
     std::vector<GdbKeyValue> keyValues;
 };
 
-class GameDatabase {
+class Property {
 public:
-    static GameDatabase& Instance();
+    static Property& Instance();
 
     bool LoadFromFile(const std::string& jsonPath);
     void Clear();
@@ -43,6 +43,6 @@ public:
     bool GetModelPath(const std::string& classname, std::string& outPath) const;
 
 private:
-    GameDatabase() = default;
+    Property() = default;
     std::map<std::string, GdbClass> m_classes;
 };

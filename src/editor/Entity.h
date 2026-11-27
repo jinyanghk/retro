@@ -27,10 +27,10 @@ struct CEntity {
     glm::vec3   m_vecPos = glm::vec3(0);
     glm::vec3   m_angRot = glm::vec3(0);   // pitch,yaw,roll
 
-    // GameDatabase keyvalues（字符串存储）
+    // Property keyvalues（字符串存储）
     std::map<std::string, std::string> m_properties;
 
-    // 🔥 新增：完全自由的自定义属性，不受 GameDatabase 约束
+    // 🔥 新增：完全自由的自定义属性，不受 Property 约束
     std::map<std::string, std::string> m_customProperties;
 
     // bbox（由 UpdateEntityBBox 每帧算）
@@ -43,7 +43,7 @@ struct CEntity {
     glm::vec3 GetCenter() const { return (m_vecBBoxMins + m_vecBBoxMaxs) * 0.5f; }
 };
 
-// GameDatabase bbox 或默认 ±8；retro 没有 MDL，所以永远走这条
+// Property bbox 或默认 ±8；retro 没有 MDL，所以永远走这条
 void UpdateEntityBBox(CEntity& ent);
 
 #endif

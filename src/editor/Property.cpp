@@ -1,4 +1,4 @@
-#include "GameDatabase.h"
+#include "Property.h"
 #include "FileSystem.h"
 
 #include <sstream>   // 👈 必须显式加这一行
@@ -8,7 +8,7 @@
 
 using json = nlohmann::json;
 
-GameDatabase& GameDatabase::Instance() { static GameDatabase i; return i; }
+Property& Property::Instance() { static Property i; return i; }
 
 static glm::vec3 ParseVec3(const std::string& s, const glm::vec3& fallback)
 {
@@ -24,16 +24,16 @@ static glm::vec3 ParseVec3(const std::string& s, const glm::vec3& fallback)
     return glm::vec3(nums[0], nums[1], nums[2]);
 }
 
-void GameDatabase::Clear() { m_classes.clear(); }
+void Property::Clear() { m_classes.clear(); }
 
-bool GameDatabase::LoadFromFile(const std::string& path)
+bool Property::LoadFromFile(const std::string& path)
 {
     // 1. 调用 FileSystem 读取文件
     std::string content = FileSystem::ReadFile(path);
     
     // 2. 判断是否读取成功（ReadFile 失败会返回空字符串）
     if (content.empty()) {
-        printf("[GameDatabase] cannot open or empty file: %s\n", path.c_str());
+        printf("[Property] cannot open or empty file: %s\n", path.c_str());
         return false;
     }
 
@@ -42,10 +42,10 @@ bool GameDatabase::LoadFromFile(const std::string& path)
     try { 
         j = json::parse(content); 
     } catch (const std::exception& e) {
-        printf("[GameDatabase] json parse error: %s\n", e.what());
+        printf("[Property] json parse error: %s\n", e.what());
         return false;
     }
-    if (!j.is_object()) { printf("[GameDatabase] root not object\n"); return false; }
+    if (!j.is_object()) { printf("[Property] root not object\n"); return false; }
 
     for (auto it = j.begin(); it != j.end(); ++it) {
         const std::string& classname = it.key();
@@ -87,32 +87,32 @@ bool GameDatabase::LoadFromFile(const std::string& path)
         }
         m_classes[classname] = std::move(c);
     }
-    printf("[GameDatabase] loaded %zu classes from %s\n", m_classes.size(), path.c_str());
+    printf("[Property] loaded %zu classes from %s\n", m_classes.size(), path.c_str());
     return true;
 }
 
-bool GameDatabase::HasClass(const std::string& n) const { return m_classes.count(n) > 0; }
+bool Property::HasClass(const std::string& n) const { return m_classes.count(n) > 0; }
 
-const GdbClass* GameDatabase::GetClass(const std::string& n) const {
+const GdbClass* Property::GetClass(const std::string& n) const {
     auto it = m_classes.find(n);
     return it == m_classes.end() ? nullptr : &it->second;
 }
 
-std::vector<std::string> GameDatabase::GetClassList() const {
+std::vector<std::string> Property::GetClassList() const {
     std::vector<std::string> out;
     out.reserve(m_classes.size());
     for (auto& kv : m_classes) out.push_back(kv.first);
     return out;
 }
 
-bool GameDatabase::GetKeyValues(const std::string& n, std::vector<GdbKeyValue>& out) const {
+bool Property::GetKeyValues(const std::string& n, std::vector<GdbKeyValue>& out) const {
     auto* c = GetClass(n);
     if (!c) return false;
     out = c->keyValues;
     return true;
 }
 
-bool GameDatabase::GetBBox(const std::string& n, glm::vec3& mins, glm::vec3& maxs) const {
+bool Property::GetBBox(const std::string& n, glm::vec3& mins, glm::vec3& maxs) const {
     auto* c = GetClass(n);
     if (!c || !c->hasSize) return false;
     mins = c->sizeMins;
@@ -120,7 +120,7 @@ bool GameDatabase::GetBBox(const std::string& n, glm::vec3& mins, glm::vec3& max
     return true;
 }
 
-bool GameDatabase::GetModelPath(const std::string& n, std::string& outPath) const {
+bool Property::GetModelPath(const std::string& n, std::string& outPath) const {
     auto* c = GetClass(n);
     if (!c || c->studio.empty()) return false;
     outPath = c->studio;

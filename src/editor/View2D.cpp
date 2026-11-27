@@ -248,7 +248,6 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
 {
     if (!g_bShowBrushes) return;
     for (size_t i = 0; i < g_brushes.size(); i++) {
-        // 👈 新增：如果 Brush 被隐藏，直接跳过
         if (i < g_brushVisible.size() && g_brushVisible[i] == 0) continue;
 
         const CBrush& b = g_brushes[i];
@@ -269,8 +268,9 @@ static void DrawBrushes2D(ImDrawList* draw, const View2D& view, const ImVec2& ca
         draw->AddRect(minP, maxP, color, 0.0f, 0, bSelected ? 2.0f : 1.0f);
     }
 
-    // 选中手柄也只在总开关 + 个体可见时才画
-    if (g_bShowBrushes &&
+    // 👈 关键修改：如果是多选，不要画手柄。只有在单选且物体可见时才画。
+    int totalSelected = g_selectedBrushIds.size() + g_selectedEntityIds.size();
+    if (g_bShowBrushes && totalSelected <= 1 &&
         g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size() &&
         (g_iSelectedBrush >= (int)g_brushVisible.size() || g_brushVisible[g_iSelectedBrush] != 0))
     {
@@ -292,7 +292,6 @@ static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& c
     if (!g_bShowEntities) return;
 
     for (size_t i = 0; i < g_entities.size(); i++) {
-        // 👈 新增：如果 Entity 被隐藏，直接跳过
         if (i < g_entityVisible.size() && g_entityVisible[i] == 0) continue;
 
         const CEntity& e = g_entities[i];
@@ -322,7 +321,9 @@ static void DrawEntities2D(ImDrawList* draw, const View2D& view, const ImVec2& c
         draw->AddLine(ImVec2(p.x, p.y - 8), ImVec2(p.x, p.y + 8), color);
     }
 
-    if (g_bShowEntities &&
+    // 👈 关键修改：如果是多选，不要画手柄。
+    int totalSelected = g_selectedBrushIds.size() + g_selectedEntityIds.size();
+    if (g_bShowEntities && totalSelected <= 1 &&
         g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size() &&
         (g_iSelectedEntity >= (int)g_entityVisible.size() || g_entityVisible[g_iSelectedEntity] != 0))
     {
@@ -467,7 +468,7 @@ static void CreateBrushFromBox(View2D& view)
     minCoords[view.axisDepth] = depthMin; maxCoords[view.axisDepth] = depthMax;
 
     CBrush newBrush;
-    newBrush.m_id = GenerateUniqueID();   // 👈 补这句
+    newBrush.m_id = GenerateUniqueID();
     newBrush.m_vecPos = glm::vec3((minCoords[0]+maxCoords[0])*0.5f, (minCoords[1]+maxCoords[1])*0.5f, (minCoords[2]+maxCoords[2])*0.5f);
     newBrush.m_vecSize = glm::vec3((maxCoords[0]-minCoords[0])*0.5f, (maxCoords[1]-minCoords[1])*0.5f, (maxCoords[2]-minCoords[2])*0.5f);
     newBrush.m_szMaterial = "DEV/DEV_MEASUREGENERIC01";
@@ -475,7 +476,7 @@ static void CreateBrushFromBox(View2D& view)
 
     UndoStack::Instance().PushSnapshot("Create Brush (2D Block)");
     g_brushes.push_back(newBrush);
-    g_brushVisible.push_back(1);          // 👈 补这句
+    g_brushVisible.push_back(1);
     g_iSelectedBrush  = (int)g_brushes.size() - 1;
     g_iSelectedEntity = -1;
 }
@@ -508,8 +509,12 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
         return true;
     }
 
-    // 优先判定 Entity 手柄
-    if (g_bShowEntities &&
+    // 👈 检查是否处于多选状态
+    int totalSelected = g_selectedBrushIds.size() + g_selectedEntityIds.size();
+    bool isMulti = (totalSelected > 1);
+
+    // 优先判定 Entity 手柄 (多选时禁用)
+    if (!isMulti && g_bShowEntities &&
         g_iSelectedEntity >= 0 && g_iSelectedEntity < (int)g_entities.size() &&
         (g_iSelectedEntity >= (int)g_entityVisible.size() || g_entityVisible[g_iSelectedEntity] != 0))
     {
@@ -525,8 +530,8 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
         }
     }
 
-    // 其次判定 Brush 手柄
-    if (g_bShowBrushes &&
+    // 其次判定 Brush 手柄 (多选时禁用)
+    if (!isMulti && g_bShowBrushes &&
         g_iSelectedBrush >= 0 && g_iSelectedBrush < (int)g_brushes.size() &&
         (g_iSelectedBrush >= (int)g_brushVisible.size() || g_brushVisible[g_iSelectedBrush] != 0))
     {
@@ -545,14 +550,45 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     if (g_bShowEntities) {
         int hitEntity = -1;
         for (int i = (int)g_entities.size() - 1; i >= 0; i--) {
-            // 👈 个体可见性
             if (i < (int)g_entityVisible.size() && g_entityVisible[i] == 0) continue;
 
             float minX, maxX, minY, maxY; GetEntity2DRange(g_entities[i], view, minX, maxX, minY, maxY);
             if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitEntity = i; break; }
         }
         if (hitEntity >= 0) {
+            uint64_t eid = g_entities[hitEntity].m_id;
+            // 👈 如果点中多选集合内的物体，进入多选拖拽
+            if (isMulti && g_selectedEntityIds.count(eid) > 0) {
+                view.bDraggingMulti = true;
+                view.fMultiDragStartWorldX = wx;
+                view.fMultiDragStartWorldY = wy;
+                view.multiDragStartBrushPos.clear();
+                view.multiDragStartEntityPos.clear();
+
+                for (uint64_t bid : g_selectedBrushIds) {
+                    for (const auto& b : g_brushes) {
+                        if (b.m_id == bid) { view.multiDragStartBrushPos[bid] = b.m_vecPos; break; }
+                    }
+                }
+                for (uint64_t id : g_selectedEntityIds) {
+                    for (const auto& e : g_entities) {
+                        if (e.m_id == id) { 
+                            view.multiDragStartEntityPos[id] = e.m_vecPos; 
+                            view.multiDragStartBBoxMins[id] = e.m_vecBBoxMins;
+                            view.multiDragStartBBoxMaxs[id] = e.m_vecBBoxMaxs;
+                            break; 
+                        }
+                    }
+                }
+                view.bPushedDragSnapshot = false;
+                uiState.isDragging = true;
+                uiState.mode = View2DUIState::DRAG_MULTI;
+                return true;
+            }
+
+            // 否则单选
             g_iSelectedEntity = hitEntity; g_iSelectedBrush = -1;
+            SelectSingleEntity(hitEntity); 
             view.bDraggingEntity = true; view.iDraggingEntity = hitEntity;
             view.fDragStartWorldX = wx; view.fDragStartWorldY = wy;
             view.vecDragStartEntityPos = g_entities[hitEntity].m_vecPos; view.bPushedDragSnapshot = false;
@@ -568,46 +604,45 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
     if (g_bShowBrushes) {
         int hitBrush = -1;
         for (int i = (int)g_brushes.size() - 1; i >= 0; i--) {
-            // 👈 个体可见性
             if (i < (int)g_brushVisible.size() && g_brushVisible[i] == 0) continue;
                         
             float minX, maxX, minY, maxY; GetBrush2DRange(g_brushes[i], view, minX, maxX, minY, maxY);
             if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) { hitBrush = i; break; }
         }
         if (hitBrush >= 0) {
-            // 检查是否点击了多选集合里的物体
-            bool isMultiDrag = g_selectedBrushIds.count(g_brushes[hitBrush].m_id) > 0 && 
-                               (g_selectedBrushIds.size() + g_selectedEntityIds.size() > 1);
-
-            if (isMultiDrag) {
+            uint64_t bid = g_brushes[hitBrush].m_id;
+            // 👈 如果点中多选集合内的物体，进入多选拖拽
+            if (isMulti && g_selectedBrushIds.count(bid) > 0) {
                 view.bDraggingMulti = true;
                 view.fMultiDragStartWorldX = wx;
                 view.fMultiDragStartWorldY = wy;
                 view.multiDragStartBrushPos.clear();
                 view.multiDragStartEntityPos.clear();
 
-                for (uint64_t bid : g_selectedBrushIds) {
+                for (uint64_t id : g_selectedBrushIds) {
                     for (const auto& b : g_brushes) {
-                        if (b.m_id == bid) { view.multiDragStartBrushPos[bid] = b.m_vecPos; break; }
+                        if (b.m_id == id) { view.multiDragStartBrushPos[id] = b.m_vecPos; break; }
                     }
                 }
-                for (uint64_t eid : g_selectedEntityIds) {
+                for (uint64_t id : g_selectedEntityIds) {
                     for (const auto& e : g_entities) {
-                        if (e.m_id == eid) { 
-                            view.multiDragStartEntityPos[eid] = e.m_vecPos; 
-                            view.multiDragStartBBoxMins[eid] = e.m_vecBBoxMins;
-                            view.multiDragStartBBoxMaxs[eid] = e.m_vecBBoxMaxs;
+                        if (e.m_id == id) { 
+                            view.multiDragStartEntityPos[id] = e.m_vecPos; 
+                            view.multiDragStartBBoxMins[id] = e.m_vecBBoxMins;
+                            view.multiDragStartBBoxMaxs[id] = e.m_vecBBoxMaxs;
                             break; 
                         }
                     }
                 }
                 view.bPushedDragSnapshot = false;
                 uiState.isDragging = true;
-                uiState.mode = View2DUIState::DRAG_MULTI; // 👈 新增一个枚举状态
+                uiState.mode = View2DUIState::DRAG_MULTI;
                 return true;
             }
 
+            // 否则单选
             g_iSelectedBrush = hitBrush; g_iSelectedEntity = -1;
+            SelectSingleBrush(hitBrush); 
             view.bDraggingBrush = true; view.iDraggingBrush = hitBrush;
             view.fDragStartWorldX = wx; view.fDragStartWorldY = wy;
             view.vecDragStartBrushPos = g_brushes[hitBrush].m_vecPos; view.bPushedDragSnapshot = false;
@@ -617,8 +652,8 @@ static bool BeginDragOnClick(View2D& view, View2DUIState& uiState,
         }
     }
 
-    // 点空白 —— 取消选择（不进入拖拽状态）
-    g_iSelectedBrush = -1; g_iSelectedEntity = -1;
+    // 点空白 —— 取消选择
+    ClearSelection();
     return false;
 }
 
@@ -633,7 +668,6 @@ static bool TickDrag(View2D& view, View2DUIState& uiState,
         }
         view.bDraggingBrush = false; view.iDraggingBrush = -1;
         view.bDraggingEntity = false; view.iDraggingEntity = -1;
-        // 👈 加这行
         view.bDraggingMulti = false;
         view.multiDragStartBrushPos.clear();
         view.multiDragStartEntityPos.clear();
@@ -653,7 +687,7 @@ static bool TickDrag(View2D& view, View2DUIState& uiState,
     } else if (uiState.mode == View2DUIState::BOX_CREATE) {
         ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, view.fBoxCreateEndX, view.fBoxCreateEndY);
     } 
-    else if (uiState.mode == View2DUIState::DRAG_MULTI) {  // 👈 处理多选拖拽
+    else if (uiState.mode == View2DUIState::DRAG_MULTI) {
         float wx, wy; 
         ScreenToWorld2D(io.MousePos, view, canvasPos, canvasSize, wx, wy);
         float deltaX = wx - view.fMultiDragStartWorldX;
@@ -664,25 +698,25 @@ static bool TickDrag(View2D& view, View2DUIState& uiState,
             view.bPushedDragSnapshot = true;
         }
 
-        // 应用网格吸附（可选，看你需求）
-        float adjDeltaX = deltaX;
-        float adjDeltaY = deltaY;
+        // 👈 如果开启了网格吸附，对 Delta 进行吸附
+        float snappedDeltaX = deltaX;
+        float snappedDeltaY = deltaY;
         if (g_flGridSize > 0.0f) {
-            // 吸附逻辑（这里简单做一下，具体参考你单选时的逻辑）
+            snappedDeltaX = roundf(deltaX / g_flGridSize) * g_flGridSize;
+            snappedDeltaY = roundf(deltaY / g_flGridSize) * g_flGridSize;
         }
 
         for (auto& kv : view.multiDragStartBrushPos) {
             for (auto& b : g_brushes) {
                 if (b.m_id == kv.first) {
                     glm::vec3 newPos = kv.second;
-                    // 注意使用正确的 axisMap 映射
-                    if (view.axisMapX == 0) newPos.x = kv.second.x + deltaX;
-                    if (view.axisMapX == 1) newPos.y = kv.second.y + deltaX;
-                    if (view.axisMapX == 2) newPos.z = kv.second.z + deltaX;
+                    if (view.axisMapX == 0) newPos.x = kv.second.x + snappedDeltaX;
+                    if (view.axisMapX == 1) newPos.y = kv.second.y + snappedDeltaX;
+                    if (view.axisMapX == 2) newPos.z = kv.second.z + snappedDeltaX;
 
-                    if (view.axisMapY == 0) newPos.x = kv.second.x + deltaY;
-                    if (view.axisMapY == 1) newPos.y = kv.second.y + deltaY;
-                    if (view.axisMapY == 2) newPos.z = kv.second.z + deltaY;
+                    if (view.axisMapY == 0) newPos.x = kv.second.x + snappedDeltaY;
+                    if (view.axisMapY == 1) newPos.y = kv.second.y + snappedDeltaY;
+                    if (view.axisMapY == 2) newPos.z = kv.second.z + snappedDeltaY;
 
                     glm::vec3 offset = newPos - b.m_vecPos;
                     for (auto& v : b.m_vertices) v += offset;
@@ -696,13 +730,13 @@ static bool TickDrag(View2D& view, View2DUIState& uiState,
             for (auto& e : g_entities) {
                 if (e.m_id == kv.first) {
                     glm::vec3 newPos = kv.second;
-                    if (view.axisMapX == 0) newPos.x = kv.second.x + deltaX;
-                    if (view.axisMapX == 1) newPos.y = kv.second.y + deltaX;
-                    if (view.axisMapX == 2) newPos.z = kv.second.z + deltaX;
+                    if (view.axisMapX == 0) newPos.x = kv.second.x + snappedDeltaX;
+                    if (view.axisMapX == 1) newPos.y = kv.second.y + snappedDeltaX;
+                    if (view.axisMapX == 2) newPos.z = kv.second.z + snappedDeltaX;
 
-                    if (view.axisMapY == 0) newPos.x = kv.second.x + deltaY;
-                    if (view.axisMapY == 1) newPos.y = kv.second.y + deltaY;
-                    if (view.axisMapY == 2) newPos.z = kv.second.z + deltaY;
+                    if (view.axisMapY == 0) newPos.x = kv.second.x + snappedDeltaY;
+                    if (view.axisMapY == 1) newPos.y = kv.second.y + snappedDeltaY;
+                    if (view.axisMapY == 2) newPos.z = kv.second.z + snappedDeltaY;
 
                     glm::vec3 offset = newPos - e.m_vecPos;
                     e.m_vecPos = newPos;
