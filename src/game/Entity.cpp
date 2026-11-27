@@ -59,10 +59,19 @@ void Entity::Spawn(World& world, const EntitySpawnData& data) {
     if (!data.record) return;
 
     m_classname = data.record->classname;
-    m_position  = data.record->origin;
-    m_angles    = data.record->angles;
-    m_bboxMins  = data.record->bboxMins;
-    m_bboxMaxs  = data.record->bboxMaxs;
+    
+    // 👈 修复：优先用 JSON 里的 origin（如果有的话），否则用 record 里的
+    glm::vec3 finalPos = data.GetVec3("origin", data.record->origin);
+    
+    // 如果读出来还是 (0,0,0) 且 record 里明明有高精度坐标，那就强制用 record 的
+    if (glm::length(finalPos) < 0.1f && glm::length(data.record->origin) > 1.0f) {
+        finalPos = data.record->origin;
+    }
+    
+    m_position = finalPos;
+    m_angles   = data.GetVec3("angles", data.record->angles);
+    m_bboxMins = data.record->bboxMins;
+    m_bboxMaxs = data.record->bboxMaxs;
 
     m_targetname = data.GetString("targetname", "");
     m_health     = data.GetFloat("health", 0.0f);

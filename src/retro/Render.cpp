@@ -306,7 +306,7 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const GameRend
     for (int i = 0; i != snapshot.boxCount; ++i) {
         const GameRenderBox& box = snapshot.boxes[i];
         if (box.entityType != 3) continue;
-
+        
         glm::vec3 feetPos = box.center - glm::vec3(0.0f, box.halfExtents.y, 0.0f);
         glm::mat4 enemyModel = glm::mat4(1.0f);
         enemyModel = glm::translate(enemyModel, feetPos);

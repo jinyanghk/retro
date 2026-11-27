@@ -11,12 +11,15 @@ REGISTER_ENTITY("npc_zombie", EntityZombie);
 
 void EntityZombie::Spawn(World& world, const EntitySpawnData& data) {
     Entity::Spawn(world, data);
+    if (data.record) m_position = data.record->origin;
 
     if (m_health <= 0.0f) m_health = 100.0f;
     m_yaw = m_angles.y;
 
     m_charId = CreateEnemyCharacter(m_position.x, m_position.y + 36.0f, m_position.z);
-    JPH::BodyID hitboxId = CreateDoorBody(m_position.x, m_position.y + 36.0f, m_position.z, 17.0f, 36.0f, 17.0f);
+    
+    // 👇 换成不阻挡的 Hitbox
+    JPH::BodyID hitboxId = CreateEnemyHitbox(m_position.x, m_position.y + 36.0f, m_position.z, 17.0f, 36.0f, 17.0f);
     world.RegisterBody(hitboxId, this);
 }
 
@@ -65,6 +68,8 @@ void EntityZombie::Think(World& world, float dt) {
     bool grounded = false;
     glm::vec3 newPos = UpdateEnemyCharacter(m_charId, moveVel, dt, grounded);
     m_position = glm::vec3(newPos.x, newPos.y - 36.0f, newPos.z);
+    
+    // 👇 同步 Hitbox 的位置（Hitbox 在胸口中心）
     if (HasBody()) {
         MoveKinematicBody(m_bodyId, newPos.x, newPos.y, newPos.z);
     }

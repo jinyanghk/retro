@@ -1,5 +1,6 @@
 #include "World.h"
 #include "EntityFactory.h"
+#include "entities/EntityZombie.h" // 👈 必须包含
 #include "Physics.h"
 #include <iostream>
 #include <algorithm>
@@ -25,10 +26,29 @@ void World::LoadFromMap(const MapData& mapData) {
     Clear();
     m_mapData = &mapData;
 
+    printf("[World] Total entities in mapData: %zu\n", mapData.entities.size());
+
     int spawnedCount = 0;
     for (const auto& rec : mapData.entities) {
+        // 1. 抓取真正的僵尸
+        if (rec.classname == "npc_zombie") {
+            printf("[DEBUG] Found npc_zombie! Origin: %.2f %.2f %.2f\n", 
+                   rec.origin.x, rec.origin.y, rec.origin.z);
+        }
+
+        // 2. 尝试创建
         std::unique_ptr<Entity> ent = EntityFactory::Instance().Create(rec.classname);
-        if (!ent) continue;
+        
+        if (!ent) {
+            if (rec.classname == "npc_zombie") {
+                printf("[DEBUG] FAILED to create npc_zombie! Factory returned nullptr.\n");
+            }
+            continue;
+        }
+
+        if (rec.classname == "npc_zombie") {
+            printf("[DEBUG] Factory created npc_zombie successfully.\n");
+        }
 
         EntitySpawnData spawnData;
         spawnData.record = &rec;
@@ -61,7 +81,14 @@ void World::LoadFromMap(const MapData& mapData) {
         m_idLookup[rawPtr->m_id] = rawPtr;
         m_entities.push_back(std::move(ent));
 
+        // 3. 调用 Spawn
         rawPtr->Spawn(*this, spawnData);
+        
+        if (rec.classname == "npc_zombie") {
+            printf("[DEBUG] npc_zombie Spawn() completed. Position now: %.2f %.2f %.2f\n",
+                   rawPtr->GetPosition().x, rawPtr->GetPosition().y, rawPtr->GetPosition().z);
+        }
+        
         spawnedCount++;
     }
 

@@ -437,3 +437,18 @@ void SetBodyGravityFactor(JPH::BodyID id, float factor) {
     g_physics->GetBodyInterface().SetGravityFactor(id, factor);
     g_physics->GetBodyInterface().ActivateBody(id);
 }
+
+JPH::BodyID CreateEnemyHitbox(float x, float y, float z, float hx, float hy, float hz) {
+    JPH::BoxShapeSettings shape(JPH::Vec3(hx, hy, hz));
+    JPH::BodyCreationSettings settings(
+        shape.Create().Get(),
+        JPH::RVec3(x, y, z),
+        JPH::Quat::sIdentity(),
+        JPH::EMotionType::Kinematic, // 运动学
+        Layers::MOVING
+    );
+    settings.mCollideKinematicVsNonDynamic = false; // 👈 核心！不阻挡其他角色移动
+    settings.mGravityFactor = 0.0f;
+    settings.mFriction = 0.0f;
+    return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+}

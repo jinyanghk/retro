@@ -36,29 +36,54 @@ namespace {
             if (!ent || ent->IsPendingKill()) continue;
 
             GameRenderBox box{};
+            std::string cls = ent->GetClassname();
+
+            // 1. 僵尸（最优先拦截，直接用字符串匹配，绝不走 dynamic_cast 避免意外）
+            if (cls == "npc_zombie") {
+                glm::vec3 c = ent->GetPosition() + glm::vec3(0.0f, 36.0f, 0.0f);
+                
+                // 逐个字段赋值，彻底杜绝 {{...}, {...}, ..., 3} 导致 3 赋给 yaw 的灾难
+                box.center = c;
+                box.halfExtents = glm::vec3(16.0f, 36.0f, 16.0f);
+                box.color = glm::vec3(0.20f, 0.65f, 0.25f); 
+                box.yaw = 0.0f;
+                box.entityType = 3;        // 强制标识为模型
+                box.animState = 0;         // IDLE 动画
+                
+                g_renderBoxes.push_back(box);
+                continue; // 直接跳过，不参与后续任何 dynamic_cast
+            }
+
+            // 2. 门
             if (const auto* door = dynamic_cast<const EntityDoor*>(ent)) {
                 glm::vec3 mins = door->GetCurrentMins();
                 glm::vec3 maxs = door->GetCurrentMaxs();
-                glm::vec3 c = (mins + maxs) * 0.5f;
-                glm::vec3 h = (maxs - mins) * 0.5f;
-                box = {{c.x, c.y, c.z}, {h.x, h.y, h.z}, {0.45f, 0.35f, 0.25f}, 1};
-            } else if (const auto* barrel = dynamic_cast<const EntityBarrel*>(ent)) {
-                glm::vec3 c = barrel->GetPosition();
-                glm::vec3 h = barrel->GetHalfExtents();
-                glm::vec3 col = barrel->IsExplosive()
-                    ? glm::vec3(0.85f, 0.15f, 0.15f)
-                    : glm::vec3(0.35f, 0.55f, 0.75f);
-                box = {{c.x, c.y, c.z}, {h.x, h.y, h.z}, {col.x, col.y, col.z}, 2};
-            } else if (const auto* phys = dynamic_cast<const EntityPhysbox*>(ent)) {
-                glm::vec3 c = phys->GetPosition();
-                glm::vec3 h = phys->GetHalfExtents();
-                box = {{c.x, c.y, c.z}, {h.x, h.y, h.z}, {0.60f, 0.50f, 0.35f}, 0};
-            } else if (const auto* zombie = dynamic_cast<const EntityZombie*>(ent)) {
-                glm::vec3 c = zombie->GetPosition() + glm::vec3(0.0f, 36.0f, 0.0f);
-                box = {{c.x, c.y, c.z}, {16.0f, 36.0f, 16.0f}, {0.20f, 0.65f, 0.25f}, 3};
-            } else {
+                box.center = (mins + maxs) * 0.5f;
+                box.halfExtents = (maxs - mins) * 0.5f;
+                box.color = glm::vec3(0.45f, 0.35f, 0.25f);
+                box.yaw = 0.0f;
+                box.entityType = 1;
+            } 
+            // 3. 爆炸桶
+            else if (const auto* barrel = dynamic_cast<const EntityBarrel*>(ent)) {
+                box.center = barrel->GetPosition();
+                box.halfExtents = barrel->GetHalfExtents();
+                box.color = barrel->IsExplosive() ? glm::vec3(0.85f, 0.15f, 0.15f) : glm::vec3(0.35f, 0.55f, 0.75f);
+                box.yaw = 0.0f;
+                box.entityType = 2;
+            } 
+            // 4. 物理箱子
+            else if (const auto* phys = dynamic_cast<const EntityPhysbox*>(ent)) {
+                box.center = phys->GetPosition();
+                box.halfExtents = phys->GetHalfExtents();
+                box.color = glm::vec3(0.60f, 0.50f, 0.35f);
+                box.yaw = 0.0f;
+                box.entityType = 0;
+            } 
+            else {
                 continue;
             }
+            
             g_renderBoxes.push_back(box);
         }
 

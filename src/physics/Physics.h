@@ -71,3 +71,5 @@ PHYSICS_API void DestroyBodySafe(JPH::BodyID id);
 PHYSICS_API bool GetBodyPosition(JPH::BodyID id, float& x, float& y, float& z);
 PHYSICS_API void SetBodyVelocity(JPH::BodyID id, float vx, float vy, float vz);
 PHYSICS_API void SetBodyGravityFactor(JPH::BodyID id, float factor);
+
+PHYSICS_API JPH::BodyID CreateEnemyHitbox(float x, float y, float z, float hx, float hy, float hz);

@@ -15,6 +15,16 @@ public:
     AIState GetAIState() const { return m_state; }
     float GetYaw() const { return m_yaw; }
 
+    int GetRenderState() const {
+        if (m_state == AIState::Idle) return 0;
+        if (m_state == AIState::Chase) return 1;
+        if (m_state == AIState::Attack) return 2;
+        if (m_state == AIState::Dead) return 4;
+        return 0;
+    }
+
+    bool IsZombie() const { return true; } // 👈 加上这句！
+
 private:
     void UpdateNavigation(World& world, const glm::vec3& targetPos, float dt);
 
