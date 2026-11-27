@@ -10,7 +10,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/MotionProperties.h>
-// 形状
+
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -27,8 +27,9 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 
-// 约束
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
@@ -37,6 +38,45 @@
 #include <thread>
 #include <vector>
 #include <cstdint>
+
+class IgnoreSingleBodyFilter : public JPH::BodyFilter {
+public:
+    explicit IgnoreSingleBodyFilter(JPH::BodyID ignore) : m_ignore(ignore) {}
+    bool ShouldCollide(const JPH::BodyID& inBodyID) const override {
+        return m_ignore.IsInvalid() || inBodyID != m_ignore;
+    }
+private:
+    JPH::BodyID m_ignore;
+};
+
+PhysicsRayHit RaycastWorld(const glm::vec3& origin, const glm::vec3& dir, float maxDist, JPH::BodyID ignoreBody) {
+    PhysicsRayHit out;
+    if (!g_physics || maxDist <= 0.0f) return out;
+
+    JPH::RRayCast ray(
+        JPH::RVec3(origin.x, origin.y, origin.z),
+        JPH::Vec3(dir.x * maxDist, dir.y * maxDist, dir.z * maxDist)
+    );
+
+    JPH::RayCastResult result;
+    IgnoreSingleBodyFilter bodyFilter(ignoreBody);
+
+    if (g_physics->GetNarrowPhaseQuery().CastRay(ray, result, {}, {}, bodyFilter)) {
+        out.hit = true;
+        out.distance = result.mFraction * maxDist;
+        out.point = origin + dir * out.distance;
+        out.bodyId = result.mBodyID;
+
+        JPH::BodyLockRead lock(g_physics->GetBodyLockInterface(), result.mBodyID);
+        if (lock.Succeeded()) {
+            const JPH::Body& body = lock.GetBody();
+            out.userData = body.GetUserData();
+            JPH::Vec3 n = body.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, ray.GetPointOnRay(result.mFraction));
+            out.normal = glm::vec3(n.GetX(), n.GetY(), n.GetZ());
+        }
+    }
+    return out;
+}
 
 // 👈 给 CharacterVirtual 一个基础设置
 static JPH::Ref<JPH::CharacterVirtualSettings> g_enemyCharSettings;

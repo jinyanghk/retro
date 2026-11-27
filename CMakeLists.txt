@@ -271,8 +271,17 @@ endif()
 #==========================================
 
 add_library(game SHARED
-    src/game/Player.cpp src/game/Weapon.cpp src/game/Enemy.cpp
-    src/game/AStar.cpp src/game/Level.cpp
+    src/game/Player.cpp
+    src/game/Weapon.cpp
+    src/game/AStar.cpp
+    src/game/Render.cpp
+    src/game/Entity.cpp
+    src/game/World.cpp
+    src/game/entities/EntityDoor.cpp
+    src/game/entities/EntityTrigger.cpp
+    src/game/entities/EntityPhysbox.cpp
+    src/game/entities/EntityBarrel.cpp
+    src/game/entities/EntityZombie.cpp
 )
 target_compile_definitions(game PRIVATE GAME_EXPORTS)
 target_include_directories(game PUBLIC src/game src/common src/physics ${CMAKE_CURRENT_BINARY_DIR})

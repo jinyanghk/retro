@@ -10,6 +10,23 @@
 
 #include "PhyExport.h"
 
+// Add to Physics.h
+struct PhysicsRayHit {
+    bool hit = false;
+    float distance = 0.0f;
+    glm::vec3 point{0.0f};
+    glm::vec3 normal{0.0f, 1.0f, 0.0f};
+    JPH::BodyID bodyId;
+    uint64_t userData = 0;
+};
+
+PHYSICS_API PhysicsRayHit RaycastWorld(
+    const glm::vec3& origin,
+    const glm::vec3& dir,
+    float maxDist,
+    JPH::BodyID ignoreBody = JPH::BodyID()
+);
+
 // 初始化 Jolt
 PHYSICS_API void InitPhysics();
 // 关闭 Jolt 并清理内存

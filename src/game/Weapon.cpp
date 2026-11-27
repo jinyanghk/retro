@@ -1,151 +1,117 @@
 #include "Weapon.h"
-#include "Trace.h"
+#include "World.h"
+#include "Entity.h"
+#include "Physics.h"
+#include <algorithm>
 
-void FireWeapon(PlayerState& p, WeaponState& w, GravityGunState& g, float dt,
-                JPH::BodyInterface& body_interface,
-                const std::vector<JPH::BodyID>& physboxIds,
-                const std::vector<DoorStateForTrace>& doorTrace,
-                std::vector<EnemyInfo>& enemies,
-                std::vector<ExplosiveBarrel>& barrels,
-                std::vector<struct BulletHole>& bulletHoles,
-                Mix_Chunk* sndShoot, Mix_Chunk* sndHit, Mix_Chunk* sndExplosion) {
-    w.recoilTimer = w.recoilDuration;
-    if (sndShoot) Mix_PlayChannel(-1, sndShoot, 0);
+void ReleaseHeldObject(WeaponState& weapon, World& world) {
+    if (!weapon.heldBodyId.IsInvalid()) {
+        SetBodyGravityFactor(weapon.heldBodyId, 1.0f);
+        weapon.heldBodyId = JPH::BodyID();
+    }
+    weapon.heldEntityId = 0;
+}
 
-    glm::vec3 eyePos = p.GetEyePos();
-    glm::vec3 front = p.GetForward();
+static void FireHitscan(World& world, const glm::vec3& eyePos, const glm::vec3& viewDir, float damage, float impulse) {
+    WorldRaycastHit hit = world.Raycast(eyePos, viewDir, 4000.0f);
+    if (!hit.hit) return;
 
-    glm::vec3 hitNormal;
-    int hitType = 0, hitIndex = -1;
-    float hitDist = TraceFire(eyePos, front, body_interface, physboxIds, 
-        doorTrace, enemies, barrels, hitNormal, hitType, hitIndex);
-
-    if (hitDist >= 0.0f) {
-        glm::vec3 hitPos = eyePos + front * hitDist;
-        bulletHoles.push_back({hitPos + hitNormal * 0.1f, hitNormal, 10.0f});
-        w.crosshairHitTimer = 0.15f;
-
-        if (hitType == 2 && hitIndex >= 0) {
-            if (!(g.holding && physboxIds[hitIndex] == g.heldBody)) {
-                body_interface.ActivateBody(physboxIds[hitIndex]);
-                float shootForce = 800.0f;
-                JPH::Vec3 newV(front.x * shootForce, 200.0f, front.z * shootForce);
-                body_interface.SetLinearVelocity(physboxIds[hitIndex], newV);
-            }
-        } else if (hitType == 4 && hitIndex >= 0) {
-            // 1. 基础伤害
-            enemies[hitIndex].hp -= 34.0f;
-            if (sndHit) Mix_PlayChannel(-1, sndHit, 0);
-            
-            if (enemies[hitIndex].hp <= 0.0f) {
-                enemies[hitIndex].state = EnemyState::DEAD;
-            } else {
-                // 2. 👈 核心打法：没死的话，进入 STUNNED 状态，被打飞！
-                enemies[hitIndex].state = EnemyState::STUNNED;
-                enemies[hitIndex].stunTimer = 0.6f; // 眩晕 0.6 秒
-                
-                // 3. 沿着子弹方向给一个极强的物理推力
-                glm::vec3 pushDir = glm::normalize(front);
-                enemies[hitIndex].vel.x += pushDir.x * 300.0f;
-                enemies[hitIndex].vel.z += pushDir.z * 300.0f;
-            }
-        } else if (hitType == 5 && hitIndex >= 0) {
-            ExplodeBarrel(hitIndex, body_interface, barrels, (std::vector<JPH::BodyID>&)physboxIds, 
-                          enemies, p.pos, p.hp, sndExplosion);
-        }
+    if (hit.entity) {
+        hit.entity->TakeDamage(world, damage, nullptr, viewDir * impulse);
+    } else if (!hit.bodyId.IsInvalid()) {
+        // Fallback for non-entity dynamic bodies
+        SetBodyVelocity(hit.bodyId, viewDir.x * impulse, viewDir.y * impulse, viewDir.z * impulse);
     }
 }
 
-void UpdateGravityGun(PlayerState& p, GravityGunState& g, bool bGrabPressed, bool bThrowPressed, float dt,
-                      JPH::BodyInterface& body_interface,
-                      const std::vector<JPH::BodyID>& physboxIds,
-                      const std::vector<DoorStateForTrace>& doorTrace,
-                      const std::vector<EnemyInfo>& enemies,
-                      std::vector<ExplosiveBarrel>& barrels,
-                      Mix_Chunk* sndDoor, Mix_Chunk* sndShoot) {
-    
-    glm::vec3 eye = p.GetEyePos();
-    glm::vec3 front = p.GetForward();
-
-    // 持续拉取
-    if (g.holding) {
-        float dynamic_hold_dist = g.holdDistance;
-        JPH::RVec3 jpos = body_interface.GetCenterOfMassPosition(g.heldBody);
-        glm::vec3 cur((float)jpos.GetX(), (float)jpos.GetY(), (float)jpos.GetZ());
-        float distToPlayer = glm::length(cur - eye);
-        if (distToPlayer < 60.0f) dynamic_hold_dist = 60.0f; 
-
-        glm::vec3 target = eye + front * dynamic_hold_dist;
-        glm::vec3 delta = target - cur;
-        float distToTarget = glm::length(delta);
-
-        if (distToTarget > 600.0f) {
-            body_interface.SetLinearVelocity(g.heldBody, JPH::Vec3(0,0,0));
-            g.holding = false;
-            g.heldBody = JPH::BodyID();
-        } else {
-            const float stiffness = 15.0f;
-            const float maxSpeed  = 1200.0f;
-            glm::vec3 desiredVel = delta * stiffness;
-            float spd = glm::length(desiredVel);
-            if (spd > maxSpeed) desiredVel *= (maxSpeed / spd);
-
-            body_interface.ActivateBody(g.heldBody);
-            body_interface.SetLinearVelocity(g.heldBody, JPH::Vec3(desiredVel.x, desiredVel.y, desiredVel.z));
-            JPH::Vec3 av = body_interface.GetAngularVelocity(g.heldBody);
-            body_interface.SetAngularVelocity(g.heldBody, av * 0.85f);
+static void UpdateGravityGun(WeaponState& weapon, World& world, const glm::vec3& eyePos, const glm::vec3& viewDir,
+                             bool primaryJustPressed, bool secondaryJustPressed, float dt) {
+    // Validate currently held entity still exists
+    Entity* heldEnt = (weapon.heldEntityId != 0) ? world.GetEntityById(weapon.heldEntityId) : nullptr;
+    if (!heldEnt || heldEnt->IsPendingKill() || !heldEnt->HasBody()) {
+        if (weapon.heldEntityId != 0) {
+            ReleaseHeldObject(weapon, world);
         }
     }
 
-    // 抓取/放下
-    if (bGrabPressed) {
-        if (g.holding) {
-            glm::vec3 safePos = eye + front * 50.0f;
-            body_interface.SetPositionAndRotation(g.heldBody, JPH::RVec3(safePos.x, safePos.y, safePos.z), JPH::Quat::sIdentity(), JPH::EActivation::Activate);
-            body_interface.SetLinearVelocity(g.heldBody, JPH::Vec3(p.vel.x * 0.5f, 0.0f, p.vel.z * 0.5f));
-            body_interface.SetAngularVelocity(g.heldBody, JPH::Vec3(0,0,0));
-            
-            g.justReleasedBody = g.heldBody;
-            g.releaseCooldown = 0.05f;
-            g.holding = false;
-            g.heldBody = JPH::BodyID();
-            if (sndDoor) Mix_PlayChannel(-1, sndDoor, 0); 
+    // Secondary Fire (Right Click): Grab or Drop
+    if (secondaryJustPressed) {
+        if (heldEnt) {
+            ReleaseHeldObject(weapon, world);
+            return;
         }
-        else {
-            glm::vec3 n; int hitType, hitIdx;
-            float dist = TraceFire(eye, front, body_interface, physboxIds, doorTrace, enemies, barrels, n, hitType, hitIdx);
-            if ((hitType == 2 || hitType == 5) && hitIdx >= 0 && dist >= 0.0f && dist < 400.0f) {
-                if (hitType == 2) g.heldBody = physboxIds[hitIdx];
-                else if (hitType == 5) g.heldBody = barrels[hitIdx].bodyId;
-                
-                g.holding = true;
-                body_interface.ActivateBody(g.heldBody);
-                if (sndDoor) Mix_PlayChannel(-1, sndDoor, 0);
-            }
+
+        WorldRaycastHit hit = world.Raycast(eyePos, viewDir, 320.0f);
+        if (hit.hit && hit.entity && hit.entity->CanBePickedUp()) {
+            weapon.heldEntityId = hit.entity->GetId();
+            weapon.heldBodyId = hit.entity->GetBodyId();
+            weapon.holdDistance = std::clamp(hit.distance, 65.0f, 120.0f);
+            SetBodyGravityFactor(weapon.heldBodyId, 0.0f);
         }
+        return;
     }
 
-    // 投掷
-    if (bThrowPressed && g.holding) {
-        const float throwSpeed = 1800.0f;
-        glm::vec3 throwPos = eye + front * 60.0f;
-        body_interface.SetPositionAndRotation(g.heldBody, JPH::RVec3(throwPos.x, throwPos.y, throwPos.z), JPH::Quat::sIdentity(), JPH::EActivation::Activate);
-        body_interface.SetLinearVelocity(g.heldBody, JPH::Vec3(front.x * throwSpeed, front.y * throwSpeed + 80.0f, front.z * throwSpeed));
-        body_interface.SetAngularVelocity(g.heldBody, JPH::Vec3(0,0,0));
-        
-        g.holding = false;
-        g.heldBody = JPH::BodyID();
-        if (sndShoot) Mix_PlayChannel(-1, sndShoot, 0);
+    // Primary Fire (Left Click): Punt held object OR blast target in front
+    if (primaryJustPressed) {
+        if (heldEnt) {
+            JPH::BodyID body = heldEnt->GetBodyId();
+            ReleaseHeldObject(weapon, world);
+            glm::vec3 launchVel = viewDir * 1400.0f;
+            SetBodyVelocity(body, launchVel.x, launchVel.y, launchVel.z);
+            heldEnt->TakeDamage(world, 25.0f, nullptr, launchVel);
+            weapon.fireCooldown = 0.25f;
+            return;
+        }
+
+        WorldRaycastHit hit = world.Raycast(eyePos, viewDir, 380.0f);
+        if (hit.hit && hit.entity) {
+            glm::vec3 puntForce = viewDir * 1100.0f + glm::vec3(0.0f, 180.0f, 0.0f);
+            hit.entity->TakeDamage(world, 20.0f, nullptr, puntForce);
+            weapon.fireCooldown = 0.35f;
+        }
+        return;
     }
 
-    // 释放冷却
-    if (g.releaseCooldown > 0.0f) {
-        g.releaseCooldown -= dt;
-        body_interface.SetLinearVelocity(g.justReleasedBody, JPH::Vec3(0, 0, 0));
-        body_interface.SetAngularVelocity(g.justReleasedBody, JPH::Vec3(0, 0, 0));
-        body_interface.ActivateBody(g.justReleasedBody);
-        if (g.releaseCooldown <= 0.0f) {
-            g.justReleasedBody = JPH::BodyID();
+    // Smooth spring-velocity pull while holding an object
+    if (heldEnt && !weapon.heldBodyId.IsInvalid()) {
+        glm::vec3 targetPos = eyePos + viewDir * weapon.holdDistance;
+        glm::vec3 currentPos = heldEnt->GetPosition();
+        glm::vec3 pullVel = (targetPos - currentPos) * 14.0f;
+        SetBodyVelocity(weapon.heldBodyId, pullVel.x, pullVel.y, pullVel.z);
+    }
+}
+
+void UpdateWeapon(WeaponState& weapon, World& world, const glm::vec3& eyePos, const glm::vec3& viewDir,
+                  bool primaryPressed, bool primaryJustPressed, bool secondaryJustPressed, float dt) {
+    if (weapon.fireCooldown > 0.0f) {
+        weapon.fireCooldown = std::max(0.0f, weapon.fireCooldown - dt);
+    }
+
+    if (weapon.current == WeaponType::GravityGun) {
+        UpdateGravityGun(weapon, world, eyePos, viewDir, primaryJustPressed, secondaryJustPressed, dt);
+        return;
+    }
+
+    // Drop held Gravity Gun object if player switched weapons
+    if (weapon.heldEntityId != 0) {
+        ReleaseHeldObject(weapon, world);
+    }
+
+    if (weapon.fireCooldown > 0.0f) return;
+
+    if (weapon.current == WeaponType::Pistol && primaryJustPressed) {
+        FireHitscan(world, eyePos, viewDir, 25.0f, 350.0f);
+        weapon.fireCooldown = 0.18f;
+    } else if (weapon.current == WeaponType::Shotgun && primaryJustPressed) {
+        // 6-pellet spread
+        for (int i = 0; i < 6; ++i) {
+            glm::vec3 jitter(
+                ((i % 3) - 1) * 0.03f,
+                ((i / 3) - 0.5f) * 0.03f,
+                (((i + 1) % 3) - 1) * 0.03f
+            );
+            FireHitscan(world, eyePos, glm::normalize(viewDir + jitter), 14.0f, 220.0f);
         }
+        weapon.fireCooldown = 0.75f;
     }
 }
