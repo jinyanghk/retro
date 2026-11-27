@@ -107,8 +107,9 @@ int main(int argc, char* argv[]) {
     }
 
     InitPhysics();
-    CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices,
-                    mapData.cnv, mapData.cni);
+    CreateStaticMesh(mapData.GetCollisionMeshView());
+    printf("[Main] Static mesh: cnv=%u, cni=%u (indices %%3=%u)\n",
+        mapData.cnv, mapData.cni, mapData.cni % 3);
 
     RenderAssets render;
     InitRender(render, mapData);
@@ -291,8 +292,7 @@ int main(int argc, char* argv[]) {
             }
 
             InitPhysics();
-            CreateStaticMesh(mapData.collisionVerts, mapData.collisionIndices,
-                            mapData.cnv, mapData.cni);
+            CreateStaticMesh(mapData.GetCollisionMeshView());
 
             InitRender(render, mapData);
             player.pos = glm::make_vec3(mapData.spawnPos) + glm::vec3(0.0f, 36.0f, 0.0f);

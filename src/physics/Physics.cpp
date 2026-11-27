@@ -203,13 +203,16 @@ void UpdatePhysics(float deltaTime) {
 // ============================================================================
 // 实体创建封装
 // ============================================================================
-void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_t>& indices, uint32_t nv, uint32_t ni) {
-    if (nv == 0 || ni < 3) {
-        printf("[Physics] WARNING: CreateStaticMesh called with empty data (nv=%u, ni=%u), skipping.\n", nv, ni);
+void CreateStaticMesh(const CollisionMeshView& mesh) {
+    if (mesh.IsEmpty()) {
+        printf("[Physics] WARNING: CreateStaticMesh called with empty mesh (nv=%u, ni=%u), skipping.\n", mesh.nv, mesh.ni);
         return;
     }
+    const float* verts = mesh.verts;
+    const uint32_t* indices = mesh.indices;
+    const uint32_t nv = mesh.nv;
+    const uint32_t ni = mesh.ni;
 
-    // 👈 加诊断：检查顶点里有没有 NaN
     int nanCount = 0;
     for (uint32_t i = 0; i < nv * 3; i++) {
         if (std::isnan(verts[i])) nanCount++;

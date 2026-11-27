@@ -206,7 +206,7 @@ add_library(assets SHARED
     src/assets/WeaponModel.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
-target_include_directories(assets PUBLIC src/assets src/common ${STB_INCLUDE_DIR})
+target_include_directories(assets PUBLIC src/assets src/common src/physics ${STB_INCLUDE_DIR})
 
 if(MSVC AND NOT USE_VCPKG)
     target_include_directories(assets PUBLIC ${GLEW_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${ASSIMP_INCLUDE_DIR} ${GLM_INCLUDE_DIR})

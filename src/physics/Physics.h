@@ -2,13 +2,13 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
-//#include <Jolt/Physics/Body/BodyID.h>
-#include <Jolt/Physics/Character/CharacterVirtual.h>  // 👈 新增
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <glm/glm.hpp>
 #include <vector>
 #include <cstdint>
 
 #include "PhyExport.h"
+#include "MeshView.h"
 
 // Add to Physics.h
 struct PhysicsRayHit {
@@ -39,8 +39,8 @@ PHYSICS_API JPH::BodyInterface& GetBodyInterface();
 // 更新物理世界
 PHYSICS_API void UpdatePhysics(float deltaTime);
 
-// 注册静态地图碰撞网格
-PHYSICS_API void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_t>& indices, uint32_t nv, uint32_t ni);
+// 新接口 —— 唯一推荐使用
+PHYSICS_API void CreateStaticMesh(const CollisionMeshView& mesh);
 
 // 创建玩家 Kinematic 刚体
 PHYSICS_API JPH::BodyID CreatePlayerBody(float x, float y, float z);
