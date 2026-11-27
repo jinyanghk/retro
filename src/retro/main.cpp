@@ -6,8 +6,13 @@
 #include "Level.h"
 #include "Audio.h"
 #include "Render.h"
+#include "FileSystem.h"
 
+#ifdef _MSC_VER
+#include "SDL.h"
+#else
 #include <SDL2/SDL.h>
+#endif
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -23,23 +28,46 @@
 #include <cmath>
 #include <cstdio>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+void MyTerminate() {
+    printf("[CRASH] Unhandled exception, terminating.\n");
+    fflush(stdout);
+    std::abort();
+}
+
+std::string currentMap = "";
+
 int main(int argc, char* argv[]) {
-    std::string currentMap = "d1_town_01";
-    for (int i = 1; i != argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--map" && (i + 1) != argc) {
+    std::cout << "branch: " << Version::GIT_BRANCH
+                << ", commit: " << Version::GIT_HASH << ", "
+                << Version::CMAKE_BUILD_TYPE << std::endl;
+
+    std::set_terminate(MyTerminate);
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "+map") == 0 && i + 1 < argc) {
             currentMap = argv[++i];
         }
     }
+
+    FileSystem::Init(".");
+#ifdef _WIN32
+    ::SetProcessDPIAware();
+#endif
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
         return 1;
     }
 
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
     int scrW = 1280;
@@ -52,6 +80,8 @@ int main(int argc, char* argv[]) {
     }
 
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
+    SDL_GL_MakeCurrent(window, glContext);
+    SDL_GL_SetSwapInterval(1);    
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
         std::cerr << "glewInit failed\n";
@@ -61,6 +91,9 @@ int main(int argc, char* argv[]) {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    ImGui::StyleColorsDark();
     ImGui_ImplSDL2_InitForOpenGL(window, glContext);
     ImGui_ImplOpenGL3_Init("#version 330");
 
