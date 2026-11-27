@@ -25,7 +25,6 @@ pacman -S   mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-nlohmann-json \
             mingw-w64-ucrt-x86_64-glew \
             mingw-w64-ucrt-x86_64-stb \
-            mingw-w64-ucrt-x86_64-python-scipy \
             mingw-w64-ucrt-x86_64-assimp
 ```
 
@@ -53,7 +52,6 @@ sudo apt install nlohmann-json3-dev \
                  libsdl2-mixer-dev \
                  libassimp-dev \
                  libstb-dev \
-                 python3-scipy \
                  cmake
 ```
 

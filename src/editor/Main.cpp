@@ -84,27 +84,6 @@ static void ScanMaterialsRecursive(const std::string& rootDir) {
     std::sort(g_allMaterials.begin(), g_allMaterials.end());
 }
 
-static void BuildDefaultScene() {
-    g_brushes.clear(); g_entities.clear();
-    const float HALF_W=4096.0f, WALL_TH=16.0f, FLOOR_H=16.0f, CEIL_H=16.0f, ROOM_H=2048.0f;
-    const float Y_CENTER=(ROOM_H+CEIL_H-FLOOR_H)*0.5f, Y_HALF=(ROOM_H+CEIL_H+FLOOR_H)*0.5f;
-    auto MakeBrush = [](glm::vec3 pos, glm::vec3 halfSize, const char* mat) {
-        CBrush b; b.m_id=GenerateUniqueID(); b.m_vecPos=pos; b.m_vecSize=halfSize; b.m_szMaterial=mat; b.RebuildPrimitiveMesh(); g_brushes.push_back(b);
-    };
-    MakeBrush({0, -FLOOR_H*0.5f, 0}, {HALF_W, FLOOR_H*0.5f, HALF_W}, "CONCRETE/CONCRETEFLOOR001A");
-    MakeBrush({0, ROOM_H+CEIL_H*0.5f, 0}, {HALF_W, CEIL_H*0.5f, HALF_W}, "CONCRETE/CONCRETECEILING001A");
-    MakeBrush({0, Y_CENTER, HALF_W+WALL_TH*0.5f}, {HALF_W+WALL_TH, Y_HALF, WALL_TH*0.5f}, "BRICK/BRICKWALL001A");
-    MakeBrush({0, Y_CENTER, -(HALF_W+WALL_TH*0.5f)}, {HALF_W+WALL_TH, Y_HALF, WALL_TH*0.5f}, "BRICK/BRICKWALL001A");
-    MakeBrush({-(HALF_W+WALL_TH*0.5f), Y_CENTER, 0}, {WALL_TH*0.5f, Y_HALF, HALF_W+WALL_TH}, "BRICK/BRICKWALL001A");
-    MakeBrush({ (HALF_W+WALL_TH*0.5f), Y_CENTER, 0}, {WALL_TH*0.5f, Y_HALF, HALF_W+WALL_TH}, "BRICK/BRICKWALL001A");
-
-    CEntity light; light.m_id=GenerateUniqueID(); light.m_iType=ENTITY_LIGHT; light.m_szName="light"; light.m_vecPos={0,2000,0};
-    light.m_properties["_light"]="2048 2000 2000"; light.m_properties["_distance"]="8192"; UpdateEntityBBox(light); g_entities.push_back(light);
-    CEntity spawn; spawn.m_id=GenerateUniqueID(); spawn.m_iType=ENTITY_PLAYER_START; spawn.m_szName="info_player_start"; spawn.m_vecPos={0,16,0};
-    UpdateEntityBBox(spawn); g_entities.push_back(spawn);
-    InitVisibilityArrays();
-}
-
 static void OnExportMap() { if (ExportMapJson(currentMap+".json")) LogAdd("[MAP] exported"); }
 static void OnImportMap() {
     if (ImportMapJson(currentMap+".json")) {
@@ -197,7 +176,7 @@ int main(int argc, char** argv) {
 
     InitGL();
     if (!Property::Instance().LoadFromFile("editor.json")) LogAdd("[Property] FAILED to load");
-    BuildDefaultScene();
+
     SetExportMapHandler(OnExportMap); SetImportMapHandler(OnImportMap);
     SetCompileAndRunHandler(OnCompileAndRun); SetLoadBvhHandler(OnLoadBvh);
     OnImportMap();
