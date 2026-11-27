@@ -41,7 +41,11 @@ struct EntityRegistrar {
     }
 };
 
+#define ENTITY_CONCAT_INNER(a, b) a##b
+#define ENTITY_CONCAT(a, b) ENTITY_CONCAT_INNER(a, b)
+
 #define REGISTER_ENTITY(CLASSNAME_STR, CLASS_TYPE) \
-    static EntityRegistrar g_reg_##CLASS_TYPE(CLASSNAME_STR, []() -> std::unique_ptr<Entity> { \
+    static EntityRegistrar ENTITY_CONCAT(g_reg_##CLASS_TYPE##_, __LINE__)(CLASSNAME_STR, []() -> std::unique_ptr<Entity> { \
         return std::make_unique<CLASS_TYPE>(); \
     })
+

@@ -42,7 +42,7 @@ void EntityBarrel::Spawn(World& world, const EntitySpawnData& data) {
     glm::vec3 spawnCenter = m_position + glm::vec3(0.0f, halfHeight, 0.0f);
     m_position = spawnCenter;
 
-    JPH::BodyID id = CreateBarrelBody(spawnCenter.x, spawnCenter.y, spawnCenter.z, radius, halfHeight);
+    JPH::BodyID id = CreateBarrelBody(spawnCenter.x, spawnCenter.y, spawnCenter.z);
     world.RegisterBody(id, this);
 }
 

@@ -59,13 +59,13 @@ void Entity::Spawn(World& world, const EntitySpawnData& data) {
     if (!data.record) return;
 
     m_classname = data.record->classname;
-    m_position = glm::vec3(data.record->origin[0], data.record->origin[1], data.record->origin[2]);
-    m_angles = glm::vec3(data.record->angles[0], data.record->angles[1], data.record->angles[2]);
-    m_bboxMins = glm::vec3(data.record->bboxMins[0], data.record->bboxMins[1], data.record->bboxMins[2]);
-    m_bboxMaxs = glm::vec3(data.record->bboxMaxs[0], data.record->bboxMaxs[1], data.record->bboxMaxs[2]);
+    m_position  = data.record->origin;
+    m_angles    = data.record->angles;
+    m_bboxMins  = data.record->bboxMins;
+    m_bboxMaxs  = data.record->bboxMaxs;
 
     m_targetname = data.GetString("targetname", "");
-    m_health = data.GetFloat("health", 0.0f);
+    m_health     = data.GetFloat("health", 0.0f);
 }
 
 void Entity::Destroy(World& world) {

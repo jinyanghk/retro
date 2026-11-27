@@ -3,6 +3,7 @@
 #include "Physics.h"
 #include <iostream>
 #include <algorithm>
+#include <string_view>
 #include <nlohmann/json.hpp>
 
 void World::Clear() {
@@ -19,45 +20,44 @@ void World::Clear() {
     m_nextEntityId = 1;
 }
 
-void World::LoadFromMap(const BvhMapData& mapData) {
+// In World.cpp:
+void World::LoadFromMap(const MapData& mapData) {
     Clear();
+    m_mapData = &mapData;
 
     int spawnedCount = 0;
     for (const auto& rec : mapData.entities) {
         std::unique_ptr<Entity> ent = EntityFactory::Instance().Create(rec.classname);
-        if (!ent) {
-            // Unregistered entity classes (e.g., info_node, light, info_player_start) are safely skipped
-            continue;
-        }
+        if (!ent) continue;
 
         EntitySpawnData spawnData;
         spawnData.record = &rec;
 
-        if (!rec.kvJson.empty()) {
-            try {
-                nlohmann::json j = nlohmann::json::parse(rec.kvJson);
-                if (j.contains("properties") && j["properties"].is_object()) {
-                    spawnData.properties = j["properties"];
-                }
-                if (j.contains("customs") && j["customs"].is_object()) {
-                    spawnData.customs = j["customs"];
-                }
-                if (j.contains("connections") && j["connections"].is_array()) {
-                    for (const auto& c : j["connections"]) {
-                        EntityConnection conn;
-                        conn.output = c.value("output", "");
-                        conn.target = c.value("target", "");
-                        conn.input  = c.value("input", "");
-                        conn.param  = c.value("param", "");
-                        conn.delay  = c.value("delay", 0.0f);
-                        conn.once   = c.value("once", false);
-                        if (!conn.output.empty() && !conn.target.empty()) {
-                            ent->m_connections.push_back(std::move(conn));
-                        }
+        if (rec.kv.is_object()) {
+            if (rec.kv.contains("properties") && rec.kv["properties"].is_object()) {
+                spawnData.properties = rec.kv["properties"];
+            }
+            if (rec.kv.contains("customs") && rec.kv["customs"].is_object()) {
+                spawnData.customs = rec.kv["customs"];
+            }
+            if (rec.kv.contains("connections") && rec.kv["connections"].is_array()) {
+                for (const auto& c : rec.kv["connections"]) {
+                    EntityConnection conn;
+                    conn.output = c.value("output", "");
+                    conn.target = c.value("target", "");
+                    conn.input  = c.value("input", "");
+                    conn.param  = c.value("param", "");
+                    conn.delay  = c.value("delay", 0.0f);
+                    conn.once   = c.value("once", false);
+                    if (!conn.output.empty() && !conn.target.empty()) {
+                        ent->m_connections.push_back(std::move(conn));
                     }
                 }
-            } catch (const std::exception& e) {
-                std::cerr m_id = m_nextEntityId++;
+            }
+        }
+
+        Entity* rawPtr = ent.get();
+        rawPtr->m_id = m_nextEntityId++;
         m_idLookup[rawPtr->m_id] = rawPtr;
         m_entities.push_back(std::move(ent));
 
@@ -65,14 +65,12 @@ void World::LoadFromMap(const BvhMapData& mapData) {
         spawnedCount++;
     }
 
-    std::cout << "[World] Spawned " << spawnedCount << " entities from LUMP_ENTITIES.\n";
+    std::printf("[World] Spawned %d entities from mapData.entities.\n", spawnedCount);
 }
 
 void World::Update(float dt) {
-    // 1. Fire any due Hammer I/O outputs
     ProcessIOEvents(dt);
 
-    // 2. Run Think() across all active entities (index-based loop allows safe spawning during Think)
     size_t count = m_entities.size();
     for (size_t i = 0; i < count; ++i) {
         Entity* ent = m_entities[i].get();
@@ -81,7 +79,6 @@ void World::Update(float dt) {
         }
     }
 
-    // 3. Clean up killed entities and free their Jolt bodies
     SweepDestroyedEntities();
 }
 
@@ -166,9 +163,25 @@ WorldRaycastHit World::Raycast(const glm::vec3& origin, const glm::vec3& dir, fl
     WorldRaycastHit out;
     JPH::BodyID ignoreBody = ignoreEntity ? ignoreEntity->GetBodyId() : JPH::BodyID();
 
-    // Uses your existing Physics::RaycastWorld helper (can be expanded to return hit BodyID in Step 2)
-    float hitDist = Physics::RaycastWorld(origin, dir, maxDist, ignoreBody, &out.bodyId, &out.hitNormal);
-    if (hitDist >= 0.0f && hitDist IsPendingKill() || ent == attacker) continue;
+    PhysicsRayHit hit = RaycastWorld(origin, dir, maxDist, ignoreBody);
+    if (hit.hit) {
+        out.hit = true;
+        out.distance = hit.distance;
+        out.fraction = (maxDist > 0.0f) ? (hit.distance / maxDist) : 0.0f;
+        out.hitPos = hit.point;
+        out.hitNormal = hit.normal;
+        out.bodyId = hit.bodyId;
+        out.entity = GetEntityFromBody(hit.bodyId);
+    }
+    return out;
+}
+
+void World::RadiusDamage(const glm::vec3& center, float radius, float maxDamage, float maxForce, Entity* attacker) {
+    if (radius <= 0.0f) return;
+
+    for (size_t i = 0; i < m_entities.size(); ++i) {
+        Entity* ent = m_entities[i].get();
+        if (!ent || ent->IsPendingKill() || ent == attacker) continue;
 
         glm::vec3 diff = ent->GetPosition() - center;
         float dist = glm::length(diff);

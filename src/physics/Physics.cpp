@@ -39,6 +39,8 @@
 #include <vector>
 #include <cstdint>
 
+static JPH::PhysicsSystem* g_physics = nullptr;
+
 class IgnoreSingleBodyFilter : public JPH::BodyFilter {
 public:
     explicit IgnoreSingleBodyFilter(JPH::BodyID ignore) : m_ignore(ignore) {}
@@ -143,7 +145,6 @@ public:
 // ============================================================================
 static JPH::TempAllocatorImpl* g_temp_allocator = nullptr;
 static JPH::JobSystemThreadPool* g_job_system = nullptr;
-static JPH::PhysicsSystem* g_physics = nullptr;
 static BPLayerInterfaceImpl g_bp_layer_interface;
 static ObjectVsBroadPhaseLayerFilterImpl g_obj_vs_bp_filter;
 static ObjectLayerPairFilterImpl g_obj_vs_obj_filter;
@@ -411,4 +412,25 @@ void DestroyBodySafe(JPH::BodyID id) {
         bi.RemoveBody(id);
     }
     bi.DestroyBody(id);
+}
+
+bool GetBodyPosition(JPH::BodyID id, float& x, float& y, float& z) {
+    if (!g_physics || id.IsInvalid()) return false;
+    JPH::RVec3 p = g_physics->GetBodyInterface().GetPosition(id);
+    x = (float)p.GetX();
+    y = (float)p.GetY();
+    z = (float)p.GetZ();
+    return true;
+}
+
+void SetBodyVelocity(JPH::BodyID id, float vx, float vy, float vz) {
+    if (!g_physics || id.IsInvalid()) return;
+    g_physics->GetBodyInterface().SetLinearVelocity(id, JPH::Vec3(vx, vy, vz));
+    g_physics->GetBodyInterface().ActivateBody(id);
+}
+
+void SetBodyGravityFactor(JPH::BodyID id, float factor) {
+    if (!g_physics || id.IsInvalid()) return;
+    g_physics->GetBodyInterface().SetGravityFactor(id, factor);
+    g_physics->GetBodyInterface().ActivateBody(id);
 }

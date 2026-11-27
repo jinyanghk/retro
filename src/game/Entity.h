@@ -8,6 +8,7 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include "MapFormat.h"
+#include "MapLoader.h"
 
 class World;
 
@@ -22,7 +23,7 @@ struct EntityConnection {
 };
 
 struct EntitySpawnData {
-    const EntityRecord* record = nullptr;
+    const MapData::EntityKV* record = nullptr;
     nlohmann::json properties = nlohmann::json::object();
     nlohmann::json customs = nlohmann::json::object();
 

@@ -172,7 +172,7 @@ endif()
 # flags need to match:
 # JoltPhysics\Build\Build-MSVC\CMakeFiles\Jolt.dir\flags.make
 # ==========================================
-add_library(physics SHARED src/physics/Physics.cpp src/physics/Trace.cpp)
+add_library(physics SHARED src/physics/Physics.cpp)
 target_compile_definitions(physics PRIVATE PHYSICS_EXPORTS)
 target_include_directories(physics PUBLIC src/common src/geometry)
 
@@ -271,10 +271,10 @@ endif()
 #==========================================
 
 add_library(game SHARED
+    src/game/Level.cpp
     src/game/Player.cpp
     src/game/Weapon.cpp
     src/game/AStar.cpp
-    src/game/Render.cpp
     src/game/Entity.cpp
     src/game/World.cpp
     src/game/entities/EntityDoor.cpp

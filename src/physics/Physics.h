@@ -67,3 +67,7 @@ PHYSICS_API glm::vec3 UpdateEnemyCharacter(int charId, const glm::vec3& vel, flo
 PHYSICS_API void DestroyEnemyCharacter(int charId);
 
 PHYSICS_API void DestroyBodySafe(JPH::BodyID id);
+
+PHYSICS_API bool GetBodyPosition(JPH::BodyID id, float& x, float& y, float& z);
+PHYSICS_API void SetBodyVelocity(JPH::BodyID id, float vx, float vy, float vz);
+PHYSICS_API void SetBodyGravityFactor(JPH::BodyID id, float factor);
