@@ -8,6 +8,7 @@
 #include "Render.h"
 #include "FileSystem.h"
 
+static float main_scale = 1.0f;
 
 void MyTerminate() {
     printf("[CRASH] Unhandled exception, terminating.\n");
@@ -68,6 +69,10 @@ int main(int argc, char* argv[]) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
+    main_scale = ImGui_ImplSDL2_GetContentScaleForDisplay(0);
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScaleAllSizes(main_scale);
+    style.FontScaleDpi = main_scale;    
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330");
 

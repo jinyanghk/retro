@@ -146,7 +146,7 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     render.skyboxTex = TextureCache::GetCubemap(faces);
 
     // 加载丧尸模型
-    std::string modelPath = "models/zombie/classic.fbx";
+    std::string modelPath = "models/zombie/zombie.gltf";
     // 清空骨骼数据并加载
     render.boneCounter = 0;
     render.boneMap.clear();
@@ -307,11 +307,14 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const GameRend
         const GameRenderBox& box = snapshot.boxes[i];
         if (box.entityType != 3) continue;
         
-        glm::vec3 feetPos = box.center - glm::vec3(0.0f, box.halfExtents.y, 0.0f);
+        glm::vec3 feetPos = box.center - glm::vec3(0.0f, box.halfExtents.y - 10.0f, 0.0f);
         glm::mat4 enemyModel = glm::mat4(1.0f);
         enemyModel = glm::translate(enemyModel, feetPos);
-        enemyModel = glm::rotate(enemyModel, glm::radians(box.yaw + 90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        enemyModel = glm::scale(enemyModel, glm::vec3(0.01f)); 
+        
+        // 你的朝向旋转
+        enemyModel = glm::rotate(enemyModel, glm::radians(box.yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+
+        enemyModel = glm::scale(enemyModel, glm::vec3(1.0f)); 
 
         glm::mat4 enemyMvp = projection * view * enemyModel;
         glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"),   1, GL_FALSE, glm::value_ptr(enemyMvp));

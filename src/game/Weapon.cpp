@@ -32,7 +32,7 @@ static void FireHitscan(World& world, const glm::vec3& eyePos, const glm::vec3& 
     
     // 👇 如果打中了，打印打中了谁
     if (hit.entity) {
-        printf("[Weapon] HIT Entity: %s\n", hit.entity->GetClassname().c_str());
+        //printf("[Weapon] HIT Entity: %s\n", hit.entity->GetClassname().c_str());
         hit.entity->TakeDamage(world, damage, nullptr, viewDir * impulse);
     } else {
         //printf("[Weapon] HIT World (wall/prop)\n");
