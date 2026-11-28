@@ -172,7 +172,7 @@ endif()
 # flags need to match:
 # JoltPhysics\Build\Build-MSVC\CMakeFiles\Jolt.dir\flags.make
 # ==========================================
-add_library(physics SHARED src/physics/Physics.cpp src/physics/Trace.cpp)
+add_library(physics SHARED src/physics/Physics.cpp)
 target_compile_definitions(physics PRIVATE PHYSICS_EXPORTS)
 target_include_directories(physics PUBLIC src/common src/geometry)
 
@@ -206,7 +206,7 @@ add_library(assets SHARED
     src/assets/WeaponModel.cpp
 )
 target_compile_definitions(assets PRIVATE ASSET_EXPORTS)
-target_include_directories(assets PUBLIC src/assets src/common ${STB_INCLUDE_DIR})
+target_include_directories(assets PUBLIC src/assets src/common src/physics ${STB_INCLUDE_DIR})
 
 if(MSVC AND NOT USE_VCPKG)
     target_include_directories(assets PUBLIC ${GLEW_INCLUDE_DIR} ${SDL2_INCLUDE_DIR} ${SDL2_MIXER_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${ASSIMP_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
@@ -247,9 +247,9 @@ target_include_directories(editor PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_BI
 
 if(MSVC AND NOT USE_VCPKG)
     target_include_directories(editor PRIVATE ${SDL2_INCLUDE_DIR} ${GLEW_INCLUDE_DIR} ${NLOHMANN_JSON_INCLUDE_DIR} ${GLM_INCLUDE_DIR})
-    target_link_libraries(editor PRIVATE imgui imguizmo ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} OpenGL::GL core geometry assets game)
+    target_link_libraries(editor PRIVATE imgui imguizmo ${SDL2MAIN_LIBRARY} ${SDL2_LIBRARY} ${GLEW_LIBRARY} OpenGL::GL core geometry assets)
 else()
-    target_link_libraries(editor PRIVATE imgui imguizmo SDL2::SDL2main SDL2::SDL2 glm::glm GLEW::GLEW OpenGL::GL nlohmann_json::nlohmann_json core geometry assets game)
+    target_link_libraries(editor PRIVATE imgui imguizmo SDL2::SDL2main SDL2::SDL2 glm::glm GLEW::GLEW OpenGL::GL nlohmann_json::nlohmann_json core geometry assets)
 endif()
 
 # ---------- bvh (map) ----------
@@ -271,8 +271,17 @@ endif()
 #==========================================
 
 add_library(game SHARED
-    src/game/Player.cpp src/game/Weapon.cpp src/game/Enemy.cpp
-    src/game/AStar.cpp src/game/Level.cpp
+    src/game/Level.cpp
+    src/game/Player.cpp
+    src/game/Weapon.cpp
+    src/game/AStar.cpp
+    src/game/Entity.cpp
+    src/game/World.cpp
+    src/game/entities/EntityDoor.cpp
+    src/game/entities/EntityTrigger.cpp
+    src/game/entities/EntityPhysbox.cpp
+    src/game/entities/EntityBarrel.cpp
+    src/game/entities/EntityZombie.cpp
 )
 target_compile_definitions(game PRIVATE GAME_EXPORTS)
 target_include_directories(game PUBLIC src/game src/common src/physics ${CMAKE_CURRENT_BINARY_DIR})

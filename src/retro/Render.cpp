@@ -146,7 +146,7 @@ void InitRender(RenderAssets& render, const MapData& mapData) {
     render.skyboxTex = TextureCache::GetCubemap(faces);
 
     // 加载丧尸模型
-    std::string modelPath = "models/zombie/classic.fbx";
+    std::string modelPath = "models/zombie/zombie.gltf";
     // 清空骨骼数据并加载
     render.boneCounter = 0;
     render.boneMap.clear();
@@ -172,30 +172,25 @@ void ShutdownRender(RenderAssets& render) {
     render.materialTexIds.clear();
 }
 
-void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponState& weapon, const GravityGunState& gravityGun,
-                 JPH::BodyInterface& body_interface,
-                 const MapData& mapData,
-                 const std::vector<JPH::BodyID>& physboxIds,
-                 const std::vector<ExplosiveBarrel>& barrels,
-                 const std::vector<JPH::BodyID>& doorBodies,
-                 const std::vector<EnemyInfo>& enemies,
-                 const std::vector<BulletHole>& bulletHoles,
-                 int scrW, int scrH) {
+void RenderFrame(RenderAssets& render, const PlayerState& player, const GameRenderSnapshot& snapshot,
+                 const MapData& mapData, const std::vector<BulletHole>& bulletHoles, int scrW, int scrH) {
     
     glm::mat4 projection = glm::perspective(glm::radians(85.0f), (float)scrW / (float)scrH, 0.1f, 100000.0f);
     glm::vec3 eyePos = player.GetEyePos();
     glm::mat4 view = glm::lookAt(eyePos, eyePos + player.GetForward(), glm::vec3(0, 1, 0));
     glm::mat4 model = glm::mat4(1.0f);
 
+    glViewport(0, 0, scrW, scrH);
+    glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
 
     // 渲染天空盒
-    glDepthFunc(GL_LEQUAL); // 👈 允许 z = 1.0 通过
+    glDepthFunc(GL_LEQUAL);
     glUseProgram(render.skyboxProgram);
-    
-    // 清空深度缓冲，天空盒永远最底层
     glDepthMask(GL_FALSE); 
     
-    glm::mat4 viewNoTranslation = glm::mat4(glm::mat3(view)); // 去掉平移
+    glm::mat4 viewNoTranslation = glm::mat4(glm::mat3(view));
     glUniformMatrix4fv(glGetUniformLocation(render.skyboxProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(glGetUniformLocation(render.skyboxProgram, "uView"), 1, GL_FALSE, glm::value_ptr(viewNoTranslation));
     
@@ -206,8 +201,8 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glBindVertexArray(render.skyboxVAO);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     
-    glDepthMask(GL_TRUE); // 恢复深度写入
-    glDepthFunc(GL_LESS); // 恢复默认深度测试
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
 
     // ================== 1. 渲染地图 ==================
     glUseProgram(render.mapProgram);
@@ -218,17 +213,14 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
     glUniformMatrix4fv(glGetUniformLocation(render.mapProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
     glUniform1i(glGetUniformLocation(render.mapProgram, "uTex"), 0);
     
-    // 获取 uAlphaTest 的 location
     GLint alphaTestLoc = glGetUniformLocation(render.mapProgram, "uAlphaTest");
 
     glBindVertexArray(render.mapVAO);
-    for (size_t i = 0; i < mapData.materialGroups.size(); ++i) {
-        // 👈 加一句：跳过 toolsskybox（既然我们有了真天空盒）
+    for (size_t i = 0; i != mapData.materialGroups.size(); ++i) {
         if (mapData.materialGroups[i].name.find("toolsskybox") != std::string::npos) continue;
         const auto& g = mapData.materialGroups[i];
         if (g.indexCount == 0) continue;
 
-        // 👈 关键字匹配：判断是不是透明材质
         std::string matName = g.name;
         std::transform(matName.begin(), matName.end(), matName.begin(), ::tolower);
         
@@ -242,15 +234,15 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
             isAlpha = true;
         }
 
-        // 设置 alpha 开关
         glUniform1i(alphaTestLoc, isAlpha ? 1 : 0);
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, render.materialTexIds[i]);
+        GLuint tex = render.materialTexIds[i] ? render.materialTexIds[i] : render.whiteTex;
+        glBindTexture(GL_TEXTURE_2D, tex);
         glDrawElements(GL_TRIANGLES, g.indexCount, GL_UNSIGNED_INT, (void*)(g.indexOffset * sizeof(uint32_t)));
     }
 
-    // ================== 2. 渲染实体 ==================
+    // ================== 2. 渲染实体 (POD Snapshot) ==================
     glUseProgram(render.entityProgram);
     glDisable(GL_CULL_FACE);
     glActiveTexture(GL_TEXTURE0);
@@ -262,73 +254,47 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
     glBindVertexArray(render.boxVAO);
 
-    // 物理箱子
-    glUniform3f(entColorLoc, 0.6f, 0.4f, 0.2f);
-    for (size_t i = 0; i < physboxIds.size(); i++) {
-        JPH::RMat44 t = body_interface.GetWorldTransform(physboxIds[i]);
-        JPH::Vec3 pos = t.GetTranslation(); JPH::Quat q = t.GetQuaternion();
-        glm::vec3 halfSize = (mapData.physboxMaxs[i] - mapData.physboxMins[i]) * 0.5f;
-        glm::mat4 box_model = glm::translate(glm::mat4(1.0f), glm::vec3(pos.GetX(), pos.GetY(), pos.GetZ())) 
-                            * glm::mat4_cast(glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ())) 
-                            * glm::scale(glm::mat4(1.0f), halfSize);
+    for (int i = 0; i != snapshot.boxCount; ++i) {
+        const GameRenderBox& box = snapshot.boxes[i];
+        if (box.entityType == 3) continue; // 丧尸下面用骨骼模型渲染
+
+        glUniform3f(entColorLoc, box.color.r, box.color.g, box.color.b);
+        glm::mat4 box_model = glm::translate(glm::mat4(1.0f), box.center)
+                            * glm::rotate(glm::mat4(1.0f), glm::radians(box.yaw), glm::vec3(0.0f, 1.0f, 0.0f))
+                            * glm::scale(glm::mat4(1.0f), box.halfExtents);
         glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * box_model));
         glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(box_model));
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // 桶
-    glUniform3f(entColorLoc, 0.8f, 0.15f, 0.1f);
-    for (auto& b : barrels) {
-        if (b.exploded) continue;
-        JPH::RMat44 t = body_interface.GetWorldTransform(b.bodyId);
-        JPH::Vec3 pos = t.GetTranslation(); JPH::Quat q = t.GetQuaternion();
-        glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(pos.GetX(), pos.GetY(), pos.GetZ())) 
-                    * glm::mat4_cast(glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ())) 
-                    * glm::scale(glm::mat4(1.0f), glm::vec3(12.0f, 24.0f, 12.0f));
-        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * m));
-        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(m));
-        glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
-    }
-
-    // 门
-    glUniform3f(entColorLoc, 0.2f, 0.6f, 0.8f);
-    for (auto& d : mapData.doors) {
-        glm::vec3 center = (d.mins + d.maxs) * 0.5f + d.openDir * (d.openDist * d.openAmount);
-        glm::vec3 halfSize = (d.maxs - d.mins) * 0.5f;
-        glm::mat4 doorModel = glm::translate(glm::mat4(1.0f), center) * glm::scale(glm::mat4(1.0f), halfSize);
-        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * doorModel));
-        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(doorModel));
-        glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
-    }
-
     // 重力光束
-    if (gravityGun.holding) {
-        JPH::RVec3 bp = body_interface.GetCenterOfMassPosition(gravityGun.heldBody);
-        glm::vec3 boxPos((float)bp.GetX(), (float)bp.GetY(), (float)bp.GetZ());
+    if (snapshot.holdingObject) {
+        glm::vec3 boxPos = snapshot.heldCenter;
         glm::vec3 mid = (eyePos + boxPos) * 0.5f;
         float len = glm::length(boxPos - eyePos);
-        glm::vec3 dir = glm::normalize(boxPos - eyePos);
-        glm::vec3 up(0,1,0);
-        if (fabsf(glm::dot(up, dir)) > 0.99f) up = glm::vec3(1,0,0);
-        glm::vec3 right = glm::normalize(glm::cross(up, dir));
-        up = glm::cross(dir, right);
-        glm::mat4 beam = glm::translate(glm::mat4(1.0f), mid);
-        beam[0] = glm::vec4(right, 0); beam[1] = glm::vec4(up, 0); beam[2] = glm::vec4(dir, 0);
-        beam = beam * glm::scale(glm::mat4(1.0f), glm::vec3(0.6f, 0.6f, len * 0.5f));
-        glUniform3f(entColorLoc, 0.3f, 0.8f, 1.0f);
-        glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * beam));
-        glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(beam));
-        glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
+        if (len > 0.1f) {
+            glm::vec3 dir = glm::normalize(boxPos - eyePos);
+            glm::vec3 up(0, 1, 0);
+            if (fabsf(glm::dot(up, dir)) > 0.99f) up = glm::vec3(1, 0, 0);
+            glm::vec3 right = glm::normalize(glm::cross(up, dir));
+            up = glm::cross(dir, right);
+            glm::mat4 beam = glm::translate(glm::mat4(1.0f), mid);
+            beam[0] = glm::vec4(right, 0); beam[1] = glm::vec4(up, 0); beam[2] = glm::vec4(dir, 0);
+            beam = beam * glm::scale(glm::mat4(1.0f), glm::vec3(0.6f, 0.6f, len * 0.5f));
+            glUniform3f(entColorLoc, 0.3f, 0.8f, 1.0f);
+            glUniformMatrix4fv(entMvpLoc, 1, GL_FALSE, glm::value_ptr(projection * view * beam));
+            glUniformMatrix4fv(entModelLoc, 1, GL_FALSE, glm::value_ptr(beam));
+            glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
+        }
     }
 
-    // 敌人（丧尸模型）
+    // 敌人（丧尸骨骼模型）
     glUseProgram(render.modelProgram); 
     glDisable(GL_CULL_FACE);
 
-    // 光照 uniform（一次性设置，循环外）
     glm::vec3 sunDir   = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.5f));
-    glm::vec3 sunColor = glm::vec3(0.55f, 0.65f, 0.85f);  // 冷月光
-    glm::vec3 ambient  = glm::vec3(0.18f, 0.20f, 0.25f);  // 冷暗环境
+    glm::vec3 sunColor = glm::vec3(0.55f, 0.65f, 0.85f);
+    glm::vec3 ambient  = glm::vec3(0.18f, 0.20f, 0.25f);
 
     glUniform3fv(glGetUniformLocation(render.modelProgram, "uSunDir"),   1, &sunDir[0]);
     glUniform3fv(glGetUniformLocation(render.modelProgram, "uSunColor"), 1, &sunColor[0]);
@@ -337,32 +303,29 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
 
     float globalTime = (float)SDL_GetTicks() / 1000.0f;
 
-    for (auto& enemy : enemies) {
-        if (enemy.state == EnemyState::DEAD && enemy.deathTimer > 10.0f) continue;
-
+    for (int i = 0; i != snapshot.boxCount; ++i) {
+        const GameRenderBox& box = snapshot.boxes[i];
+        if (box.entityType != 3) continue;
+        
+        glm::vec3 feetPos = box.center - glm::vec3(0.0f, box.halfExtents.y - 10.0f, 0.0f);
         glm::mat4 enemyModel = glm::mat4(1.0f);
-        enemyModel = glm::translate(enemyModel, enemy.pos);
-        enemyModel = glm::scale(enemyModel, glm::vec3(0.01f)); 
+        enemyModel = glm::translate(enemyModel, feetPos);
+        
+        // 你的朝向旋转
+        enemyModel = glm::rotate(enemyModel, glm::radians(box.yaw), glm::vec3(0.0f, 1.0f, 0.0f));
 
-        glm::mat4 mvp = projection * view * enemyModel;
-       
-        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"),   1, GL_FALSE, glm::value_ptr(mvp));
-        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(enemyModel));  // 👈 新增
+        enemyModel = glm::scale(enemyModel, glm::vec3(1.0f)); 
+
+        glm::mat4 enemyMvp = projection * view * enemyModel;
+        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uMVP"),   1, GL_FALSE, glm::value_ptr(enemyMvp));
+        glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(enemyModel));
 
         std::vector<glm::mat4> boneMatrices(100, glm::mat4(1.0f));
-        int animIdx = render.FindAnimIndex(enemy.state);
+        int animIdx = render.FindAnimIndex(box.animState);
         
-        if (animIdx >= 0 && animIdx < (int)render.zombieAnims.size() && ModelLoader::s_scene) {
+        if (animIdx >= 0 && animIdx != (int)render.zombieAnims.size() && ModelLoader::s_scene) {
             const auto& anim = render.zombieAnims[animIdx];
-
-            float animTime = 0.0f;
-            if (enemy.state == EnemyState::CHASE) {
-                animTime = globalTime;   // 用你 commit 时的版本
-            } else if (enemy.state == EnemyState::ATTACK) {
-                if (anim.duration > 0.0f) animTime = fmod(enemy.attackAnimTimer, anim.duration);
-            } else {
-                animTime = globalTime;
-            }
+            float animTime = globalTime;
             if (anim.duration > 0.0f) animTime = fmod(animTime, anim.duration);
 
             AnimHelper::BuildSkinningMatrices(
@@ -376,12 +339,10 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glUniformMatrix4fv(glGetUniformLocation(render.modelProgram, "uBones"), 100, GL_FALSE, glm::value_ptr(boneMatrices[0]));
 
         for (const auto& mesh : render.zombieModel) {
-            // 漫反射
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, mesh.textureID);
             glUniform1i(glGetUniformLocation(render.modelProgram, "uTex"), 0);
 
-            // 👈 法线贴图
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, mesh.normalMapID ? mesh.normalMapID : render.whiteTex);
             glUniform1i(glGetUniformLocation(render.modelProgram, "uNormalMap"), 1);
@@ -391,11 +352,10 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         }
     }
 
-    // 👈 画完丧尸，切回实体 Shader (给弹孔用)
+    // 切回实体 Shader 画弹孔
     glUseProgram(render.entityProgram);
     glBindVertexArray(render.boxVAO);
 
-    // 弹孔
     glUniform3f(entColorLoc, 0.1f, 0.1f, 0.1f);
     for (auto& bh : bulletHoles) {
         glm::mat4 bulletModel = glm::translate(glm::mat4(1.0f), bh.pos) * glm::scale(glm::mat4(1.0f), glm::vec3(0.5f));
@@ -404,68 +364,40 @@ void RenderFrame(RenderAssets& render, const PlayerState& player, const WeaponSt
         glDrawElements(GL_TRIANGLES, render.boxIndexCount, GL_UNSIGNED_INT, 0);
     }
 
-    // 在渲染枪的循环之前
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     // ================== 3. 渲染武器 ==================
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glUseProgram(render.gunProgram);
     glm::mat4 gunProj = glm::perspective(glm::radians(60.0f), (float)scrW / (float)scrH, 0.05f, 10.0f);
     
-    // 👈 补上 recoil 和基础位置定义
     float recoilOffset = 0.0f, recoilPitch = 0.0f;
-    if (weapon.recoilTimer > 0.0f) {
-        float progress = weapon.recoilTimer / weapon.recoilDuration;
+    if (snapshot.recoilTimer > 0.0f && snapshot.recoilDuration > 0.0f) {
+        float progress = snapshot.recoilTimer / snapshot.recoilDuration;
         recoilOffset = progress * -0.05f;
         recoilPitch = progress * 10.0f;
     }
     
-    // 1. 基础位置（调整枪在屏幕上的左下/中下位置）
     glm::mat4 gunBase = glm::translate(glm::mat4(1.0f), glm::vec3(0.2f, -0.3f, -0.8f + recoilOffset));
-
-    // 2. 核心朝向（如果枪是侧躺或反的，在这里加旋转）
-    // 常见调整：
-    // 如果枪口朝左：rotate(-90, Y)
-    // 如果枪口朝上：rotate(90, X)
-    // 如果枪口朝你：rotate(180, Y)
-    gunBase = glm::rotate(gunBase, glm::radians(-80.0f), glm::vec3(0, 1, 0)); // 👈 调整 Y 轴旋转
-    gunBase = glm::rotate(gunBase, glm::radians(0.0f), glm::vec3(1, 0, 0)); // 👈 调整 X 轴俯仰
-    gunBase = glm::rotate(gunBase, glm::radians(0.0f), glm::vec3(0, 0, 1)); // 👈 调整 Z 轴翻滚
-
-    // 3. 后坐力/晃动（保留你原有的效果）
+    gunBase = glm::rotate(gunBase, glm::radians(-80.0f), glm::vec3(0, 1, 0));
     gunBase = glm::rotate(gunBase, glm::radians(recoilPitch), glm::vec3(1, 0, 0));
     gunBase = glm::rotate(gunBase, glm::radians(-5.0f), glm::vec3(0, 1, 0));
-    // 4. 缩放（如果你的枪太大或太小，改这个数）
     gunBase = glm::scale(gunBase, glm::vec3(0.08f)); 
 
-    // 绑定贴图单元（重要）
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, render.whiteTex); // 兜底白图
+    glBindTexture(GL_TEXTURE_2D, render.whiteTex);
     glUniform1i(glGetUniformLocation(render.gunProgram, "uTex"), 0);
-    
-    // 设置颜色为纯白，不覆盖贴图颜色
     glUniform3f(glGetUniformLocation(render.gunProgram, "uColor"), 1.0f, 1.0f, 1.0f);
-
-    // 传入相机的世界坐标
-    //glm::vec3 eyePos = player.GetEyePos(); // 或者 cameraPos
     glUniform3fv(glGetUniformLocation(render.gunProgram, "uCameraPos"), 1, glm::value_ptr(eyePos));
     
-    // 传入一个简单的光照方向（模拟环境光或者月光）
     glm::vec3 lightDir = glm::normalize(glm::vec3(-0.3f, -1.0f, -0.5f));
     glUniform3fv(glGetUniformLocation(render.gunProgram, "uLightDir"), 1, glm::value_ptr(lightDir));
-    
-    // 光源颜色
-    glm::vec3 lightColor = glm::vec3(1.0f, 0.95f, 0.9f); // 暖白
+    glm::vec3 lightColor = glm::vec3(1.0f, 0.95f, 0.9f);
     glUniform3fv(glGetUniformLocation(render.gunProgram, "uLightColor"), 1, glm::value_ptr(lightColor));
-
-    // 渲染枪械模型
     for (const auto& mesh : render.weaponModel.meshes) {
-        glm::mat4 mvp = gunProj * gunBase;
-        glUniformMatrix4fv(glGetUniformLocation(render.gunProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(mvp));
+        glm::mat4 gunMvp = gunProj * gunBase;
+        glUniformMatrix4fv(glGetUniformLocation(render.gunProgram, "uMVP"), 1, GL_FALSE, glm::value_ptr(gunMvp));
         glUniformMatrix4fv(glGetUniformLocation(render.gunProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(gunBase));
-        
-        // 绑定该 mesh 的贴图（如果没有，用兜底白图）
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mesh.textureID ? mesh.textureID : render.whiteTex);
-        
         glBindVertexArray(mesh.VAO);
         glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
     }

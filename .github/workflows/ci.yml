@@ -1,4 +1,4 @@
-name: Build Cross-Platform (Windows & Linux & macOS x64)
+name: Build Cross-Platform
 
 on:
   push:

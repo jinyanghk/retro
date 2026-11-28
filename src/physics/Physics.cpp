@@ -10,7 +10,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/MotionProperties.h>
-// 形状
+
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -27,8 +27,9 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 
-// 约束
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
@@ -37,6 +38,47 @@
 #include <thread>
 #include <vector>
 #include <cstdint>
+
+static JPH::PhysicsSystem* g_physics = nullptr;
+
+class IgnoreSingleBodyFilter : public JPH::BodyFilter {
+public:
+    explicit IgnoreSingleBodyFilter(JPH::BodyID ignore) : m_ignore(ignore) {}
+    bool ShouldCollide(const JPH::BodyID& inBodyID) const override {
+        return m_ignore.IsInvalid() || inBodyID != m_ignore;
+    }
+private:
+    JPH::BodyID m_ignore;
+};
+
+PhysicsRayHit RaycastWorld(const glm::vec3& origin, const glm::vec3& dir, float maxDist, JPH::BodyID ignoreBody) {
+    PhysicsRayHit out;
+    if (!g_physics || maxDist <= 0.0f) return out;
+
+    JPH::RRayCast ray(
+        JPH::RVec3(origin.x, origin.y, origin.z),
+        JPH::Vec3(dir.x * maxDist, dir.y * maxDist, dir.z * maxDist)
+    );
+
+    JPH::RayCastResult result;
+    IgnoreSingleBodyFilter bodyFilter(ignoreBody);
+
+    if (g_physics->GetNarrowPhaseQuery().CastRay(ray, result, {}, {}, bodyFilter)) {
+        out.hit = true;
+        out.distance = result.mFraction * maxDist;
+        out.point = origin + dir * out.distance;
+        out.bodyId = result.mBodyID;
+
+        JPH::BodyLockRead lock(g_physics->GetBodyLockInterface(), result.mBodyID);
+        if (lock.Succeeded()) {
+            const JPH::Body& body = lock.GetBody();
+            out.userData = body.GetUserData();
+            JPH::Vec3 n = body.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, ray.GetPointOnRay(result.mFraction));
+            out.normal = glm::vec3(n.GetX(), n.GetY(), n.GetZ());
+        }
+    }
+    return out;
+}
 
 // 👈 给 CharacterVirtual 一个基础设置
 static JPH::Ref<JPH::CharacterVirtualSettings> g_enemyCharSettings;
@@ -103,7 +145,6 @@ public:
 // ============================================================================
 static JPH::TempAllocatorImpl* g_temp_allocator = nullptr;
 static JPH::JobSystemThreadPool* g_job_system = nullptr;
-static JPH::PhysicsSystem* g_physics = nullptr;
 static BPLayerInterfaceImpl g_bp_layer_interface;
 static ObjectVsBroadPhaseLayerFilterImpl g_obj_vs_bp_filter;
 static ObjectLayerPairFilterImpl g_obj_vs_obj_filter;
@@ -162,13 +203,16 @@ void UpdatePhysics(float deltaTime) {
 // ============================================================================
 // 实体创建封装
 // ============================================================================
-void CreateStaticMesh(const std::vector<float>& verts, const std::vector<uint32_t>& indices, uint32_t nv, uint32_t ni) {
-    if (nv == 0 || ni < 3) {
-        printf("[Physics] WARNING: CreateStaticMesh called with empty data (nv=%u, ni=%u), skipping.\n", nv, ni);
+void CreateStaticMesh(const CollisionMeshView& mesh) {
+    if (mesh.IsEmpty()) {
+        printf("[Physics] WARNING: CreateStaticMesh called with empty mesh (nv=%u, ni=%u), skipping.\n", mesh.nv, mesh.ni);
         return;
     }
+    const float* verts = mesh.verts;
+    const uint32_t* indices = mesh.indices;
+    const uint32_t nv = mesh.nv;
+    const uint32_t ni = mesh.ni;
 
-    // 👈 加诊断：检查顶点里有没有 NaN
     int nanCount = 0;
     for (uint32_t i = 0; i < nv * 3; i++) {
         if (std::isnan(verts[i])) nanCount++;
@@ -361,6 +405,11 @@ JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float 
     settings.mAllowDynamicOrKinematic = true;
     settings.mRestitution = 0.0f;
     settings.mFriction = 1.0f;
+
+    // 👈 核心神级代码：让这个刚体只作为“传感器”（Sensor），不产生任何物理碰撞阻挡！
+    // 这样子弹射线能打中它，但丧尸自己穿过去毫无阻力！
+    settings.mIsSensor = true; 
+        
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
 }
 
@@ -371,4 +420,40 @@ void DestroyBodySafe(JPH::BodyID id) {
         bi.RemoveBody(id);
     }
     bi.DestroyBody(id);
+}
+
+bool GetBodyPosition(JPH::BodyID id, float& x, float& y, float& z) {
+    if (!g_physics || id.IsInvalid()) return false;
+    JPH::RVec3 p = g_physics->GetBodyInterface().GetPosition(id);
+    x = (float)p.GetX();
+    y = (float)p.GetY();
+    z = (float)p.GetZ();
+    return true;
+}
+
+void SetBodyVelocity(JPH::BodyID id, float vx, float vy, float vz) {
+    if (!g_physics || id.IsInvalid()) return;
+    g_physics->GetBodyInterface().SetLinearVelocity(id, JPH::Vec3(vx, vy, vz));
+    g_physics->GetBodyInterface().ActivateBody(id);
+}
+
+void SetBodyGravityFactor(JPH::BodyID id, float factor) {
+    if (!g_physics || id.IsInvalid()) return;
+    g_physics->GetBodyInterface().SetGravityFactor(id, factor);
+    g_physics->GetBodyInterface().ActivateBody(id);
+}
+
+JPH::BodyID CreateEnemyHitbox(float x, float y, float z, float hx, float hy, float hz) {
+    JPH::BoxShapeSettings shape(JPH::Vec3(hx, hy, hz));
+    JPH::BodyCreationSettings settings(
+        shape.Create().Get(),
+        JPH::RVec3(x, y, z),
+        JPH::Quat::sIdentity(),
+        JPH::EMotionType::Kinematic, // 运动学
+        Layers::MOVING
+    );
+    settings.mCollideKinematicVsNonDynamic = false; // 👈 核心！不阻挡其他角色移动
+    settings.mGravityFactor = 0.0f;
+    settings.mFriction = 0.0f;
+    return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
 }

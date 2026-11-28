@@ -1,26 +1,36 @@
 #pragma once
 
-#include "Physics.h"
-#include "Enemy.h"
-#include "BVH.h"
+#include <string>
 #include "GameExport.h"
+#include "GameTypes.h"
+#include "MapFormat.h"
 
-// 状态机
-enum class LevelState {
-    PLAYING,             // 正常战斗
-    DOOR_CLOSING,        // 门正在关闭，等待切图
-    DOOR_OPENING         // 门正在打开
+struct MapData;
+
+struct LevelInput {
+    bool primaryDown = false;
+    bool primaryJustPressed = false;
+    bool secondaryJustPressed = false;
+    bool useJustPressed = false;
+    int switchWeaponSlot = -1; // -1 = no change, 0 = Pistol, 1 = Shotgun, 2 = GravityGun
 };
 
-extern GAME_API LevelState currentState;
-extern GAME_API float transitionTimer;
+struct ZombieDebugInfo {
+    glm::vec3 pos;
+    glm::vec3 targetPos;
+    int state;
+    bool hasPath;
+    std::vector<glm::vec3> path;
+};
+
+GAME_API std::vector<ZombieDebugInfo> GetZombieDebugInfo();
 
 extern GAME_API std::string currentMap;
-extern GAME_API std::string nextMap;
-extern GAME_API bool pendingMapSwitch;
 
-GAME_API void CleanupCurrentLevel(JPH::BodyInterface& body_interface,
-                         std::vector<JPH::BodyID>& physboxIds,
-                         std::vector<JPH::BodyID>& doorBodies,
-                         std::vector<EnemyInfo>& enemies,
-                         JPH::BodyID& player_body);
+GAME_API void InitLevel(const MapData& mapData, PlayerState& outPlayer);
+
+GAME_API void UpdateLevel(PlayerState& player, const LevelInput& input, float dt);
+GAME_API void CleanupLevel();
+
+GAME_API GameRenderSnapshot GetGameRenderSnapshot();
+GAME_API bool PollLevelChange(char* outNextMap, size_t maxLen);

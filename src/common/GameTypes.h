@@ -1,81 +1,69 @@
 #pragma once
-// ============================================================================
-// GameTypes.h —— 跨模块共享的纯数据 POD
-// 只允许依赖：glm、Jolt、STL。禁止 include SDL/GL/ImGui/GLEW。
-// 位于：src/common/
-// 目的：让 physics / render / game / editor 都能引用同一份类型定义，
-//       而不需要把这些类型所在的"业务头"（Common.h/Player.h/...）反向拖进来。
-// ============================================================================
 
 #include <glm/glm.hpp>
+#include <cmath>
 #include <vector>
 
-// Jolt BodyID 是值类型（内含 uint32），可以安全暴露在头文件里。
-// 这里只引最小 Jolt 头，避免把整个 PhysicsSystem 拖进使用方。
-#include <Jolt/Jolt.h>
-//#include <Jolt/Physics/Body/BodyID.h>
-#include <Jolt/Physics/Character/CharacterVirtual.h>  // 👈 新增
+struct PlayerState {
+    glm::vec3 pos{0.0f};
+    glm::vec3 vel{0.0f};
+    float camYaw = 0.0f;
+    float camPitch = 0.0f;
+    float radius = 16.0f;
+    float height = 72.0f;
+    float halfHeight = 36.0f;
+    float eyeHeight = 28.0f;
 
-// ---------------------------------------------------------------------------
-// 爆炸桶
-// ---------------------------------------------------------------------------
-struct ExplosiveBarrel {
-    JPH::BodyID bodyId;
-    glm::vec3   spawnPos;
-    float       hp = 20.0f;
-    bool        exploded = false;
+    float moveSpeed = 240.0f;
+    float jumpSpeed = 260.0f;
+    float mouseSensitivity = 0.15f;
+
+    float health = 100.0f;
+    bool isGrounded = false;
+
+    float damageTimer = 0.0f;
+    float shakeTimer = 0.0f;
+    float shakeAmount = 0.0f;
+
+    glm::vec3 GetEyePos() const {
+        return pos + glm::vec3(0.0f, eyeHeight, 0.0f);
+    }
+
+    glm::vec3 GetForward() const {
+        float y = glm::radians(camYaw);
+        float p = glm::radians(camPitch);
+        return glm::normalize(glm::vec3(
+            std::cos(y) * std::cos(p),
+            std::sin(p),
+            std::sin(y) * std::cos(p)
+        ));
+    }
 };
 
-// ---------------------------------------------------------------------------
-// 敌人
-// ---------------------------------------------------------------------------
-enum class EnemyState {
-    IDLE,
-    CHASE,
-    ATTACK,
-    STUNNED,
-    DEAD
-};
-
-struct EnemyInfo {
-    glm::vec3  pos;
-    glm::vec3  vel = glm::vec3(0.0f);
-    float      hp = 100.0f;
-    float      radius = 20.0f;
-    float      height = 60.0f;
-    bool       isGrounded = false;
-    float      attackTimer = 0.0f;
-    float      stepCooldown = 0.0f;
-    EnemyState state = EnemyState::IDLE;
-    float      stunTimer = 0.0f;
-    float      deathTimer = 0.0f;
-    //JPH::BodyID bodyId;
-    int charId = -1;  // 👈 替换 JPH::Ref<JPH::CharacterVirtual>
-
-    // A* 寻路缓存
-    std::vector<glm::vec3> path;
-    int   pathIndex = 0;
-    float pathTimer = 0.0f;
-    float stuckTimer = 0.0f;
-
-    float attackAnimTimer = 0.0f; // 👈 新增：专门用来控制攻击动画播放
-};
-
-// ---------------------------------------------------------------------------
-// 门（射线检测用，轻量状态）
-// ---------------------------------------------------------------------------
-struct DoorStateForTrace {
-    glm::vec3 mins, maxs;
-    glm::vec3 openDir;
-    float openDist;
-    float openAmount;
-};
-
-// ---------------------------------------------------------------------------
-// 弹孔
-// ---------------------------------------------------------------------------
 struct BulletHole {
-    glm::vec3 pos;
-    glm::vec3 normal;
-    float life;
+    glm::vec3 pos{0.0f};
+    glm::vec3 normal{0.0f, 1.0f, 0.0f};
+    float life = 15.0f;
+};
+
+struct GameRenderBox {
+    glm::vec3 center{0.0f};
+    glm::vec3 halfExtents{0.0f};
+    glm::vec3 color{1.0f};
+    float yaw = 0.0f;
+    int entityType = 0; // 0 = physbox, 1 = door, 2 = barrel, 3 = zombie
+    int animState = 0;  // 0 = IDLE, 1 = CHASE, 2 = ATTACK, 3 = STUNNED, 4 = DEAD
+};
+
+struct GameRenderSnapshot {
+    const GameRenderBox* boxes = nullptr;
+    int boxCount = 0;
+
+    int activeWeapon = 2; // 0 = Pistol, 1 = Shotgun, 2 = GravityGun
+    bool holdingObject = false;
+    glm::vec3 heldCenter{0.0f};
+
+    float recoilTimer = 0.0f;
+    float recoilDuration = 0.25f;
+    float crosshairHitTimer = 0.0f;
 };

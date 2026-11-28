@@ -8,17 +8,26 @@
 #include <nlohmann/json.hpp>
 #include "MapFormat.h"
 #include "AssetExport.h"
+#include "MeshView.h"
 
 struct ASSET_API MapData {
-    // 几何（v3: stride 9 = pos3 + normal3 + color3）
+    // ---- 渲染网格：stride 11 (pos3 + normal3 + color3 + uv2) ----
+    // 消费者：Render::InitRender / Render::RenderFrame
+    // ⚠️ 不要传给 Physics::CreateStaticMesh
     uint32_t nv = 0, ni = 0;
     std::vector<float> verts;
     std::vector<uint32_t> indices;
 
-    // 碰撞
+    // ---- 碰撞网格：stride 3 (pos3 only) ----
+    // 消费者：Physics::CreateStaticMesh（通过 GetCollisionMeshView()）
     uint32_t cnv = 0, cni = 0;
     std::vector<float> collisionVerts;
     std::vector<uint32_t> collisionIndices;
+
+    // 碰撞网格视图 —— 供 Physics::CreateStaticMesh 使用
+    CollisionMeshView GetCollisionMeshView() const {
+        return { collisionVerts.data(), collisionIndices.data(), cnv, cni };
+    }
 
     // 出生点
     float spawnPos[3] = { 0, 128, -400 };
