@@ -12,6 +12,8 @@
 #include <vector>
 #include <glm/gtc/type_ptr.hpp>
 
+std::string currentMap = "";
+
 namespace {
     World g_world;
     WeaponState g_weapon;
@@ -40,18 +42,15 @@ namespace {
 
             // 1. 僵尸（最优先拦截，直接用字符串匹配，绝不走 dynamic_cast 避免意外）
             if (cls == "npc_zombie") {
-                glm::vec3 c = ent->GetPosition() + glm::vec3(0.0f, 36.0f, 0.0f);
-                
-                // 逐个字段赋值，彻底杜绝 {{...}, {...}, ..., 3} 导致 3 赋给 yaw 的灾难
-                box.center = c;
+                auto* zombie = dynamic_cast<const EntityZombie*>(ent);
+                box.center = ent->GetPosition() + glm::vec3(0.0f, 36.0f, 0.0f);
                 box.halfExtents = glm::vec3(16.0f, 36.0f, 16.0f);
                 box.color = glm::vec3(0.20f, 0.65f, 0.25f); 
-                box.yaw = 0.0f;
-                box.entityType = 3;        // 强制标识为模型
-                box.animState = 0;         // IDLE 动画
-                
+                box.yaw = zombie->GetYaw();  // 👈 一定要传真实朝向！
+                box.entityType = 3;          
+                box.animState = zombie->GetRenderState(); // 👈 传真实动作状态
                 g_renderBoxes.push_back(box);
-                continue; // 直接跳过，不参与后续任何 dynamic_cast
+                continue;
             }
 
             // 2. 门
@@ -173,4 +172,18 @@ bool PollLevelChange(char* outNextMap, size_t maxLen) {
     std::strncpy(outNextMap, next.c_str(), maxLen - 1);
     outNextMap[maxLen - 1] = '\0';
     return true;
+}
+
+std::vector<ZombieDebugInfo> GetZombieDebugInfo() {
+    std::vector<ZombieDebugInfo> out;
+    for (const auto& ent : g_world.GetEntities()) {
+        if (auto* z = dynamic_cast<EntityZombie*>(ent.get())) {
+            ZombieDebugInfo info;
+            info.pos = z->GetPosition();
+            info.state = z->GetRenderState();
+            info.path = z->GetPath(); // 👈 把路径拷出来
+            out.push_back(info);
+        }
+    }
+    return out;
 }

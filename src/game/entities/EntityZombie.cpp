@@ -16,19 +16,18 @@ void EntityZombie::Spawn(World& world, const EntitySpawnData& data) {
     if (m_health <= 0.0f) m_health = 100.0f;
     m_yaw = m_angles.y;
 
+    // 1. 创建虚体角色（负责移动和寻路）
     m_charId = CreateEnemyCharacter(m_position.x, m_position.y + 36.0f, m_position.z);
     
-    // 👇 换成不阻挡的 Hitbox
-    JPH::BodyID hitboxId = CreateEnemyHitbox(m_position.x, m_position.y + 36.0f, m_position.z, 17.0f, 36.0f, 17.0f);
-    world.RegisterBody(hitboxId, this);
+    // 2. 创建 Hitbox（负责吃子弹，不挡路）
+    //JPH::BodyID hitboxId = CreateTrapBody(m_position.x, m_position.y + 36.0f, m_position.z, 16.0f, 36.0f, 16.0f);
+    //world.RegisterBody(hitboxId, this);
 }
 
 void EntityZombie::Think(World& world, float dt) {
     if (m_state == AIState::Dead) return;
 
-    if (m_attackCooldown > 0.0f) {
-        m_attackCooldown -= dt;
-    }
+    if (m_attackCooldown > 0.0f) m_attackCooldown -= dt;
 
     glm::vec3 playerPos = world.GetPlayerPosition();
     glm::vec3 toPlayer = playerPos - m_position;
@@ -37,56 +36,82 @@ void EntityZombie::Think(World& world, float dt) {
 
     glm::vec3 moveVel(0.0f);
 
+    // ==========================================
+    // 1. 状态切换
+    // ==========================================
     if (dist > m_aggroRange) {
         m_state = AIState::Idle;
-    } else if (dist <= m_attackRange) {
+    } 
+    else if (dist <= m_attackRange) {
         m_state = AIState::Attack;
-
-        if (dist > 0.01f) {
-            m_yaw = glm::degrees(std::atan2(toPlayer.z, toPlayer.x));
-        }
-
         if (m_attackCooldown <= 0.0f) {
             m_attackCooldown = 1.2f;
             world.DamagePlayer(m_attackDamage);
         }
-    } else {
+    } 
+    else {
         m_state = AIState::Chase;
+    }
+
+    // ==========================================
+    // 2. 动作执行
+    // ==========================================
+    if (m_state == AIState::Chase) {
+        // 更新寻路 (假设你用的是世界过滤后的 NavNodes)
         UpdateNavigation(world, playerPos, dt);
 
         glm::vec3 moveTarget = !m_path.empty() ? m_path.front() : playerPos;
         glm::vec3 dir = moveTarget - m_position;
         dir.y = 0.0f;
         float len = glm::length(dir);
-        if (len > 0.01f) {
-            dir /= len;
+        
+        if (len > 0.1f) {
+            dir = glm::normalize(dir);
+            
+            // 👈 修复转向：让模型面朝移动方向
             m_yaw = glm::degrees(std::atan2(dir.z, dir.x));
+            
             moveVel = glm::vec3(dir.x * m_moveSpeed, 0.0f, dir.z * m_moveSpeed);
+        }
+    } else if (m_state == AIState::Attack) {
+        // 👈 修复朝向：攻击时，面朝玩家
+        if (dist > 0.1f) {
+            glm::vec3 dirToPlayer = glm::normalize(toPlayer);
+            m_yaw = glm::degrees(std::atan2(dirToPlayer.z, dirToPlayer.x));
         }
     }
 
+    // ==========================================
+    // 3. 物理移动与 Hitbox 同步
+    // ==========================================
     bool grounded = false;
+    // 👈 注意：如果 UpdateEnemyCharacter 返回的是胶囊体中心（Y+36），需要减去 36
     glm::vec3 newPos = UpdateEnemyCharacter(m_charId, moveVel, dt, grounded);
     m_position = glm::vec3(newPos.x, newPos.y - 36.0f, newPos.z);
     
-    // 👇 同步 Hitbox 的位置（Hitbox 在胸口中心）
-    if (HasBody()) {
-        MoveKinematicBody(m_bodyId, newPos.x, newPos.y, newPos.z);
-    }
+    //if (HasBody()) {
+    //    MoveKinematicBody(m_bodyId, newPos.x, newPos.y, newPos.z);
+    //}
+
+    // 👇 把打印放在这里，打印真实发生后的状态！
+    //printf("[Zombie] state:%d | pos:(%.1f, %.1f, %.1f) | vel:(%.1f, %.1f, %.1f) | grounded:%s\n",
+    //       (int)m_state, m_position.x, m_position.y, m_position.z,
+    //       moveVel.x, moveVel.y, moveVel.z, grounded ? "YES" : "NO");
 }
 
 void EntityZombie::UpdateNavigation(World& world, const glm::vec3& targetPos, float dt) {
     m_repathTimer -= dt;
     if (m_repathTimer <= 0.0f) {
-        m_repathTimer = 0.5f;
+        m_repathTimer = 0.5f; // 每 0.5 秒重新计算一次路径
         const MapData* map = world.GetMapData();
-        if (map && !map->navNodes.empty()) {
+        if (map) {
             m_path = FindPath(*map, m_position, targetPos);
         } else {
             m_path = { targetPos };
         }
     }
 
+    // 如果路径前方有节点，且已经到了，就删除它
     if (!m_path.empty()) {
         glm::vec3 flatDiff = m_path.front() - m_position;
         flatDiff.y = 0.0f;

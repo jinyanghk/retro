@@ -70,6 +70,7 @@ public:
     void SetPlayerState(const glm::vec3& pos, float hp) { m_playerPos = pos; m_playerHealth = hp; }
     glm::vec3 GetPlayerPosition() const { return m_playerPos; }
     float GetPlayerHealth() const { return m_playerHealth; }
+    const std::vector<MapData::NodeData>& GetFilteredNavNodes() const { return m_filteredNavNodes; }
 
     void DamagePlayer(float dmg) { m_pendingPlayerDamage += dmg; }
     float ConsumePlayerDamage() {
@@ -108,4 +109,6 @@ private:
     float m_playerHealth = 100.0f;
     float m_pendingPlayerDamage = 0.0f;
     const MapData* m_mapData = nullptr;
+
+    std::vector<MapData::NodeData> m_filteredNavNodes;
 };

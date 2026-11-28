@@ -2,6 +2,8 @@
 #include "World.h"
 #include "Entity.h"
 #include "Physics.h"
+#include "Audio.h"
+
 #include <algorithm>
 
 void ReleaseHeldObject(WeaponState& weapon, World& world) {
@@ -13,14 +15,27 @@ void ReleaseHeldObject(WeaponState& weapon, World& world) {
 }
 
 static void FireHitscan(World& world, const glm::vec3& eyePos, const glm::vec3& viewDir, float damage, float impulse) {
-    WorldRaycastHit hit = world.Raycast(eyePos, viewDir, 4000.0f);
-    if (!hit.hit) return;
+    // 👇 加上这行打印！
+    //printf("[Weapon] Firing! EyePos: (%.1f, %.1f, %.1f), Dir: (%.2f, %.2f, %.2f)\n", 
+    //       eyePos.x, eyePos.y, eyePos.z, viewDir.x, viewDir.y, viewDir.z);
 
+    // 👈 加在这里：每次开枪播放声音
+    if (g_pGlobalAudio && g_pGlobalAudio->sndShoot) {
+        Mix_PlayChannel(-1, g_pGlobalAudio->sndShoot, 0);
+    }
+
+    WorldRaycastHit hit = world.Raycast(eyePos, viewDir, 4000.0f);
+    if (!hit.hit) {
+        //printf("[Weapon] MISS! Hit nothing.\n");
+        return;
+    }
+    
+    // 👇 如果打中了，打印打中了谁
     if (hit.entity) {
+        printf("[Weapon] HIT Entity: %s\n", hit.entity->GetClassname().c_str());
         hit.entity->TakeDamage(world, damage, nullptr, viewDir * impulse);
-    } else if (!hit.bodyId.IsInvalid()) {
-        // Fallback for non-entity dynamic bodies
-        SetBodyVelocity(hit.bodyId, viewDir.x * impulse, viewDir.y * impulse, viewDir.z * impulse);
+    } else {
+        //printf("[Weapon] HIT World (wall/prop)\n");
     }
 }
 

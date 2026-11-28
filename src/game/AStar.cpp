@@ -15,10 +15,24 @@ static int GetClosestNode(const MapData& map, const glm::vec3& pos) {
     int best = -1;
     float bestDist = 1e9f;
     for (size_t i = 0; i < map.navNodes.size(); ++i) {
-        float d = glm::distance(pos, map.navNodes[i].pos);
-        if (d < bestDist) { bestDist = d; best = (int)i; }
+        // 1. 先算水平距离（忽略高度差），丧尸不会飞，只看平面位置
+        glm::vec2 p2(pos.x, pos.z);
+        glm::vec2 n2(map.navNodes[i].pos.x, map.navNodes[i].pos.z);
+        float horizontalDist = glm::distance(p2, n2);
+        
+        // 2. 如果水平距离小于 64，再看高度差（容忍 ±100 的高度差，防止跨越楼层）
+        if (horizontalDist < 64.0f) {
+            float heightDiff = std::abs(pos.y - map.navNodes[i].pos.y);
+            if (heightDiff < 100.0f) {
+                // 用 (水平距离 + 高度差 * 0.5f) 来选最优节点
+                float finalDist = horizontalDist + heightDiff * 0.5f;
+                if (finalDist < bestDist) {
+                    bestDist = finalDist;
+                    best = (int)i;
+                }
+            }
+        }
     }
-    //printf("[AStar] GetClosestNode: best=%d\n", best); fflush(stdout);
     return best;
 }
 

@@ -19,3 +19,6 @@ ASSET_API void InitAudio(AudioAssets& audio);
 
 // 释放音频资源
 ASSET_API void ShutdownAudio(AudioAssets& audio);
+
+// 👈 临时全局音频指针（以后移到 GameContext 里）
+extern ASSET_API AudioAssets* g_pGlobalAudio;

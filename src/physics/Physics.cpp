@@ -405,6 +405,11 @@ JPH::BodyID CreateTrapBody(float x, float y, float z, float hx, float hy, float 
     settings.mAllowDynamicOrKinematic = true;
     settings.mRestitution = 0.0f;
     settings.mFriction = 1.0f;
+
+    // 👈 核心神级代码：让这个刚体只作为“传感器”（Sensor），不产生任何物理碰撞阻挡！
+    // 这样子弹射线能打中它，但丧尸自己穿过去毫无阻力！
+    settings.mIsSensor = true; 
+        
     return g_physics->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
 }
 

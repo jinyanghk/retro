@@ -2,6 +2,8 @@
 #include "EntityFactory.h"
 #include "entities/EntityZombie.h" // 👈 必须包含
 #include "Physics.h"
+#include "BVH.h" 
+
 #include <iostream>
 #include <algorithm>
 #include <string_view>
@@ -30,24 +32,11 @@ void World::LoadFromMap(const MapData& mapData) {
 
     int spawnedCount = 0;
     for (const auto& rec : mapData.entities) {
-        // 1. 抓取真正的僵尸
-        if (rec.classname == "npc_zombie") {
-            printf("[DEBUG] Found npc_zombie! Origin: %.2f %.2f %.2f\n", 
-                   rec.origin.x, rec.origin.y, rec.origin.z);
-        }
 
-        // 2. 尝试创建
         std::unique_ptr<Entity> ent = EntityFactory::Instance().Create(rec.classname);
         
         if (!ent) {
-            if (rec.classname == "npc_zombie") {
-                printf("[DEBUG] FAILED to create npc_zombie! Factory returned nullptr.\n");
-            }
             continue;
-        }
-
-        if (rec.classname == "npc_zombie") {
-            printf("[DEBUG] Factory created npc_zombie successfully.\n");
         }
 
         EntitySpawnData spawnData;
@@ -84,15 +73,66 @@ void World::LoadFromMap(const MapData& mapData) {
         // 3. 调用 Spawn
         rawPtr->Spawn(*this, spawnData);
         
-        if (rec.classname == "npc_zombie") {
-            printf("[DEBUG] npc_zombie Spawn() completed. Position now: %.2f %.2f %.2f\n",
-                   rawPtr->GetPosition().x, rawPtr->GetPosition().y, rawPtr->GetPosition().z);
-        }
-        
         spawnedCount++;
     }
 
     std::printf("[World] Spawned %d entities from mapData.entities.\n", spawnedCount);
+
+    // 👇 过滤 NavNodes 并重建连线（从旧版 main.cpp 移植）
+    std::vector<MapData::NodeData> validNodes;
+    std::vector<uint32_t> remapIndex(mapData.navNodes.size(), -1);
+    
+    // 不能修改 const mapData，得用我们的 m_mapData 拷贝或让 MapData 非 const
+    // 这里为了不影响外部，我们拷贝一份节点数据来处理
+    std::vector<MapData::NodeData> tempNodes = mapData.navNodes; // MapData 是 const 引用，我们只操作副本
+
+    for (size_t i = 0; i < tempNodes.size(); ++i) {
+        const auto& node = tempNodes[i];
+        glm::vec3 dummyN;
+        
+        // 1. 向下探测地面
+        float distToFloor = TraceBVH(node.pos + glm::vec3(0, 64, 0), glm::vec3(0, -1, 0), dummyN);
+        if (distToFloor < 0.0f || distToFloor > 144.0f) continue; 
+        
+        // 2. 4向探墙
+        bool valid = true;
+        glm::vec3 dirs[4] = {{1,0,0},{-1,0,0},{0,0,1},{0,0,-1}};
+        int blockedCount = 0;
+        for (auto& d : dirs) {
+            float wallDist = TraceBVH(node.pos + glm::vec3(0, 32, 0), d, dummyN);
+            if (wallDist > 0.0f && wallDist < 16.0f) blockedCount++;
+        }
+        if (blockedCount >= 3) continue; 
+
+        remapIndex[i] = (uint32_t)validNodes.size();
+        validNodes.push_back(node);
+    }
+
+    // 3. 剔除穿墙连线
+    for (auto& node : validNodes) {
+        std::vector<uint32_t> newLinks;
+        for (auto oldLink : node.links) {
+            if (oldLink < remapIndex.size() && remapIndex[oldLink] != -1) {
+                glm::vec3 targetPos = tempNodes[oldLink].pos;
+                glm::vec3 dir = targetPos - node.pos;
+                float dist = glm::length(dir);
+                if (dist < 0.1f) continue;
+                dir = glm::normalize(dir);
+                
+                glm::vec3 hitNormal;
+                float hitDist = TraceBVH(node.pos + glm::vec3(0, 32, 0), dir, hitNormal);
+                
+                if (hitDist < 0.0f || hitDist > dist - 10.0f) {
+                    newLinks.push_back(remapIndex[oldLink]);
+                }
+            }
+        }
+        node.links = newLinks;
+    }
+
+    // 👇 关键：通过 mutable 指针或重新 setMapData 把清理后的节点传回 A* 引擎
+    // 因为 LoadFromMap 接收的是 const MapData&，所以我们需要一个地方存过滤后的数据。
+    m_filteredNavNodes = std::move(validNodes);    
 }
 
 void World::Update(float dt) {
@@ -188,18 +228,48 @@ Entity* World::GetEntityFromBody(JPH::BodyID bodyId) const {
 
 WorldRaycastHit World::Raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist, Entity* ignoreEntity) const {
     WorldRaycastHit out;
-    JPH::BodyID ignoreBody = ignoreEntity ? ignoreEntity->GetBodyId() : JPH::BodyID();
+    out.hit = false;
+    out.distance = maxDist;
 
-    PhysicsRayHit hit = RaycastWorld(origin, dir, maxDist, ignoreBody);
-    if (hit.hit) {
-        out.hit = true;
-        out.distance = hit.distance;
-        out.fraction = (maxDist > 0.0f) ? (hit.distance / maxDist) : 0.0f;
-        out.hitPos = hit.point;
-        out.hitNormal = hit.normal;
-        out.bodyId = hit.bodyId;
-        out.entity = GetEntityFromBody(hit.bodyId);
+    // 👈 1. 第一优先级：疯狂遍历所有丧尸，只要有丧尸在射线上，直接返回！
+    for (const auto& ent : m_entities) {
+        if (ent->GetClassname() == "npc_zombie") {
+            if (ent.get() == ignoreEntity) continue;
+            
+            glm::vec3 ePos = ent->GetPosition(); 
+            // 稍微放大一点点，防止边缘蹭不到
+            glm::vec3 eMin = ePos + glm::vec3(-20.0f, -5.0f, -20.0f);
+            glm::vec3 eMax = ePos + glm::vec3( 20.0f, 75.0f,  20.0f); 
+            
+            float tmin, tmax;
+            if (RayAABB(origin, dir, eMin, eMax, tmin, tmax) && tmin >= 0.0f && tmin < maxDist) {
+                out.hit = true;
+                out.distance = tmin;
+                out.fraction = tmin / maxDist;
+                out.hitPos = origin + dir * tmin;
+                out.hitNormal = -dir;
+                out.entity = ent.get(); // 👈 只要命中僵尸，就立刻把这个 Entity 返回！
+                out.bodyId = JPH::BodyID();
+                
+                // Force HIT Zombie at distance %.1f!\n", tmin);
+                return out; // 👈 直接 return！管你什么墙，哪怕隔着墙我也算打中了！
+            }
+        }
     }
+
+    // 👈 2. 第二优先级：如果没打中任何丧尸，再去查物理世界（墙、门、木箱）
+    JPH::BodyID ignoreBody = ignoreEntity ? ignoreEntity->GetBodyId() : JPH::BodyID();
+    PhysicsRayHit physHit = RaycastWorld(origin, dir, maxDist, ignoreBody);
+    if (physHit.hit) {
+        out.hit = true;
+        out.distance = physHit.distance;
+        out.fraction = physHit.distance / maxDist;
+        out.hitPos = physHit.point;
+        out.hitNormal = physHit.normal;
+        out.bodyId = physHit.bodyId;
+        out.entity = GetEntityFromBody(physHit.bodyId);
+    }
+
     return out;
 }
 

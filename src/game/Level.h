@@ -15,6 +15,17 @@ struct LevelInput {
     int switchWeaponSlot = -1; // -1 = no change, 0 = Pistol, 1 = Shotgun, 2 = GravityGun
 };
 
+struct ZombieDebugInfo {
+    glm::vec3 pos;
+    glm::vec3 targetPos;
+    int state;
+    bool hasPath;
+    std::vector<glm::vec3> path;
+};
+
+GAME_API std::vector<ZombieDebugInfo> GetZombieDebugInfo();
+
+extern GAME_API std::string currentMap;
 
 GAME_API void InitLevel(const MapData& mapData, PlayerState& outPlayer);
 

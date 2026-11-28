@@ -24,6 +24,8 @@ public:
     }
 
     bool IsZombie() const { return true; } // 👈 加上这句！
+    const std::vector<glm::vec3>& GetPath() const { return m_path; }
+    int GetPathIndex() const { return (int)m_path.size() > 0 ? 0 : -1; } // 简化，直接看整个 path
 
 private:
     void UpdateNavigation(World& world, const glm::vec3& targetPos, float dt);

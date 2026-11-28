@@ -2,7 +2,10 @@
 #include "Audio.h"
 #include <stdio.h>
 
+AudioAssets* g_pGlobalAudio = nullptr;
+
 void InitAudio(AudioAssets& audio) {
+    g_pGlobalAudio = &audio; // 👈 绑定全局指针
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
         printf("SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
     }
